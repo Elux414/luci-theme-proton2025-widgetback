@@ -1,4 +1,4 @@
-# luci-theme-proton2025
+# luci-theme-proton2025-widgetback
 
 ## This fork based on v1.4.2 with backported widgets from v1.3.0
 
