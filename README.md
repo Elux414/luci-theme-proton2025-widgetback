@@ -1,5 +1,7 @@
 # luci-theme-proton2025
 
+## This fork based on v1.4.2 with backported widgets from v1.3.0
+
 A dark LuCI theme for OpenWrt 23.05+ (ucode) with an optional light mode, a
 built-in page search and theme settings inside the LuCI UI.
 
