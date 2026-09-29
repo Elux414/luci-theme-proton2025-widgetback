@@ -11225,3 +11225,1510 @@ body.login-page .login-password-toggle:focus-visible {
         scroll-behavior: auto !important;
     }
 }
+
+/* Proton2025 legacy dashboard widgets restored from v1.3.0 */
+/* =====================================================
+   Temperature Widget - Main Page
+   ===================================================== */
+.proton-temp-widget {
+    margin: 0;
+    background: var(--proton-bg-secondary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius);
+    padding: 14px 16px;
+    cursor: pointer;
+    /*backdrop-filter: blur(10px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);*/
+}
+
+.proton-temp-widget:focus-visible {
+    outline: 2px solid var(--proton-accent);
+    outline-offset: 2px;
+}
+
+/* Если виджеты в контейнере - объединяем их в единый блок */
+.proton-widgets-container .proton-services-widget:not(:first-child),
+.proton-widgets-container .proton-temp-widget:not(:first-child) {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    border-top: none;
+    margin-top: 0;
+    position: relative;
+}
+
+
+
+/* Если виджеты в контейнере - убираем нижний border-radius у первого виджета */
+.proton-widgets-container .proton-services-widget:not(:last-child),
+.proton-widgets-container .proton-temp-widget:not(:last-child) {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+/* Widgets stacking: allow Services tooltip to overlay Temperature widget (backdrop-filter creates stacking contexts) */
+.proton-widgets-container .proton-services-widget {
+    position: relative;
+    z-index: 2;
+}
+
+.proton-widgets-container .proton-temp-widget {
+    position: relative;
+    z-index: 1;
+}
+
+.proton-temp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0 0 12px 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--proton-border);
+}
+
+.proton-temp-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--proton-fg);
+    margin: 0;
+    letter-spacing: -0.01em;
+}
+
+.proton-temp-title-link {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: var(--proton-transition);
+}
+
+.proton-temp-title-link:hover,
+.proton-temp-title-link:focus-visible {
+    color: var(--proton-accent);
+    border-bottom-color: var(--proton-accent);
+}
+
+.proton-temp-info {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--proton-accent-glow);
+    color: var(--proton-accent);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: help;
+    z-index: 2;
+    transition: var(--proton-transition);
+    position: relative;
+}
+
+.proton-temp-tooltip {
+    position: absolute;
+    top: calc(100% + 12px);
+    right: 0;
+    background: rgba(26, 31, 46, 0.98);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    padding: 12px 16px;
+    min-width: 280px;
+    max-width: 340px;
+    box-shadow: var(--proton-shadow-lg);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+    z-index: 1000;
+    backdrop-filter: blur(12px);
+    text-align: left;
+}
+
+:root[data-theme="light"] .proton-temp-tooltip {
+    background: rgba(255, 255, 255, 0.98);
+}
+
+.proton-temp-info:hover .proton-temp-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.proton-temp-tooltip::after {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    right: 12px;
+    border: 6px solid transparent;
+    border-bottom-color: rgba(26, 31, 46, 0.98);
+}
+
+:root[data-theme="light"] .proton-temp-tooltip::after {
+    border-bottom-color: rgba(255, 255, 255, 0.98);
+}
+
+:root[data-theme="light"] .proton-temp-card {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .proton-temp-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+:root[data-theme="light"] .proton-temp-bar-container {
+    background: rgba(0, 0, 0, 0.05);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Light theme for Services Widget */
+:root[data-theme="light"] .proton-service-card {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .proton-service-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.proton-temp-tooltip-title {
+    font-weight: 600;
+    color: var(--proton-accent);
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+}
+
+.proton-temp-tooltip-text {
+    color: var(--proton-fg-secondary);
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.proton-temp-tooltip-legend {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--proton-border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.8rem;
+}
+
+.proton-temp-tooltip-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.proton-temp-tooltip-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.proton-temp-tooltip-legend-dot.normal {
+    background: var(--proton-success);
+}
+
+.proton-temp-tooltip-legend-dot.warm {
+    background: #ffc107;
+}
+
+.proton-temp-tooltip-legend-dot.hot {
+    background: #ff9800;
+}
+
+.proton-temp-tooltip-legend-dot.critical {
+    background: var(--proton-danger);
+}
+
+/* =====================================================
+   Services Monitor Info Tooltip
+   ===================================================== */
+.proton-services-info {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--proton-accent-glow);
+    color: var(--proton-accent);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: help;
+    transition: var(--proton-transition);
+    position: relative;
+}
+
+.proton-services-tooltip {
+    position: absolute;
+    top: calc(100% + 12px);
+    right: 0;
+    background: rgba(26, 31, 46, 0.98);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    padding: 12px 16px;
+    min-width: 280px;
+    max-width: 340px;
+    box-shadow: var(--proton-shadow-lg);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+    z-index: 1000;
+    backdrop-filter: blur(12px);
+    text-align: left;
+}
+
+:root[data-theme="light"] .proton-services-tooltip {
+    background: rgba(255, 255, 255, 0.98);
+}
+
+.proton-services-info:hover .proton-services-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.proton-services-tooltip::after {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    right: 12px;
+    border: 6px solid transparent;
+    border-bottom-color: rgba(26, 31, 46, 0.98);
+}
+
+:root[data-theme="light"] .proton-services-tooltip::after {
+    border-bottom-color: rgba(255, 255, 255, 0.98);
+}
+
+.proton-services-tooltip-title {
+    font-weight: 600;
+    color: var(--proton-accent);
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+}
+
+.proton-services-tooltip-text {
+    color: var(--proton-fg-secondary);
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.proton-services-tooltip-legend {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--proton-border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.8rem;
+}
+
+.proton-services-tooltip-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.proton-services-tooltip-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.proton-services-tooltip-legend-dot.running {
+    background: var(--proton-success);
+}
+
+.proton-services-tooltip-legend-dot.stopped {
+    background: var(--proton-danger);
+}
+
+.proton-services-tooltip-legend-dot.disabled {
+    background: var(--proton-muted);
+}
+
+.proton-services-tooltip-legend-dot.unknown {
+    background: #ffc107;
+}
+
+.proton-temp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+}
+
+.proton-temp-card {
+    background: var(--proton-bg-tertiary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    padding: 10px;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.proton-temp-card:hover {
+    background: var(--proton-bg-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border-color: var(--proton-border-hover, var(--proton-border));
+}
+
+/*.proton-temp-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--proton-success);
+    transition: var(--proton-transition);
+}*/
+
+.proton-temp-card[data-level="warm"]::before {
+    background: #ffffff00;
+}
+
+.proton-temp-card[data-level="hot"]::before {
+    background: #f97316;
+}
+
+.proton-temp-card[data-level="critical"]::before {
+    background: #ef4444;
+}
+
+.proton-temp-value-container {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.proton-temp-value-wrapper {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.proton-temp-sensor-name {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--proton-muted);
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+    opacity: 0.7;
+    letter-spacing: 0.2px;
+    align-self: flex-end;
+    padding-bottom: 2px;
+    min-width: 0;
+    max-width: 50%;
+}
+
+.proton-temp-value {
+    font-size: 17px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    color: var(--proton-success);
+    transition: color 0.3s ease;
+    letter-spacing: -0.5px;
+}
+
+.proton-temp-card[data-level="warm"] .proton-temp-value {
+    color: #fbbf24;
+}
+
+.proton-temp-card[data-level="hot"] .proton-temp-value {
+    color: #f97316;
+}
+
+.proton-temp-card[data-level="critical"] .proton-temp-value {
+    color: #ef4444;
+}
+
+.proton-temp-unit {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--proton-muted);
+}
+
+.proton-temp-bar-container {
+    width: 100%;
+    height: 4px;
+    background: var(--proton-bg-hover);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 8px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.proton-temp-bar {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(90deg, var(--proton-success), rgba(107, 207, 127, 0.6));
+}
+
+.proton-temp-card[data-level="warm"] .proton-temp-bar {
+    background: linear-gradient(90deg, #fbbf24, rgba(251, 191, 36, 0.5));
+}
+
+.proton-temp-card[data-level="hot"] .proton-temp-bar {
+    background: linear-gradient(90deg, #f97316, rgba(249, 115, 22, 0.5));
+}
+
+.proton-temp-card[data-level="critical"] .proton-temp-bar {
+    background: linear-gradient(90deg, #ef4444, rgba(239, 68, 68, 0.5));
+}
+
+.proton-temp-bar::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    animation: shimmer 2s infinite;
+}
+
+.proton-temp-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    /*text-transform: uppercase;*/
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+.proton-temp-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--proton-success);
+    animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.proton-temp-card[data-level="warm"] .proton-temp-status-dot {
+    background: #fbbf24;
+}
+
+.proton-temp-card[data-level="hot"] .proton-temp-status-dot {
+    background: #f97316;
+}
+
+.proton-temp-card[data-level="critical"] .proton-temp-status-dot {
+    background: #ef4444;
+    animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.proton-temp-status-text {
+    color: var(--proton-success);
+}
+
+.proton-temp-card[data-level="warm"] .proton-temp-status-text {
+    color: #fbbf24;
+}
+
+.proton-temp-card[data-level="hot"] .proton-temp-status-text {
+    color: #f97316;
+}
+
+.proton-temp-card[data-level="critical"] .proton-temp-status-text {
+    color: #ef4444;
+}
+
+.proton-temp-peak {
+    font-size: 12px;
+    color: var(--proton-muted);
+    margin-left: auto;
+    opacity: 0.8;
+    font-weight: 500;
+}
+
+.proton-temp-empty,
+.proton-temp-loading {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 24px;
+    color: var(--proton-muted);
+    font-size: 14px;
+}
+
+.proton-temp-loading {
+    animation: pulse-opacity 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-opacity {
+    0%, 100% {
+        opacity: 0.5;
+    }
+
+    50% {
+        opacity: 0.8;
+    }
+}
+
+@keyframes pulse-scale {
+    0%, 100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.1);
+    }
+}
+
+/* Мобильная адаптация виджетов */
+@media only screen and (max-width: 600px) {
+    .proton-widgets-container {
+        margin: 16px 0;
+        /* Keep layout from horizontal scrolling, but allow tooltips to extend vertically */
+        overflow-x: hidden;
+        overflow-y: visible;
+        max-width: 100%;
+    }
+
+    .proton-temp-widget,
+    .proton-services-widget {
+        padding: 16px;
+        border-radius: var(--proton-radius-sm);
+        /* Allow info tooltips to extend outside the widget */
+        overflow: visible;
+        max-width: 100%;
+    }
+
+    /* Widgets stacking on mobile: Services tooltip should overlay Temperature widget */
+    .proton-widgets-container .proton-services-widget {
+        position: relative;
+        z-index: 2;
+    }
+
+    .proton-widgets-container .proton-temp-widget {
+        position: relative;
+        z-index: 1;
+    }
+
+    .proton-temp-grid,
+    .proton-services-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .proton-temp-card,
+    .proton-service-card {
+        padding: 10px;
+        overflow: hidden;
+    }
+
+    .proton-temp-value {
+        font-size: 16px;
+    }
+
+    .proton-add-service-btn {
+        width: 18px;
+        height: 18px;
+        font-size: 12px;
+    }
+
+    .proton-temp-value-container {
+        flex-wrap: wrap;
+    }
+
+    .proton-temp-sensor-name {
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    .proton-temp-tooltip {
+        min-width: 200px;
+        max-width: calc(100vw - 48px);
+        right: -8px;
+    }
+
+    .proton-services-tooltip {
+        min-width: 200px;
+        max-width: calc(100vw - 48px);
+        right: -8px;
+    }
+
+    .proton-temp-info {
+        position: static;
+    }
+
+    .proton-services-info {
+        position: static;
+    }
+
+    .proton-temp-header {
+        position: relative;
+    }
+
+    .proton-services-header {
+        position: relative;
+    }
+}
+
+/* Отключаем анимации при необходимости */
+@media (prefers-reduced-motion: reduce) {
+    .proton-temp-bar::after {
+        animation: none;
+    }
+
+    .proton-temp-status-dot {
+        animation: none;
+    }
+
+    .proton-temp-card,
+    .proton-temp-bar,
+    .proton-temp-value {
+        transition: none;
+    }
+}
+
+.proton-no-animations .proton-temp-bar::after,
+.proton-no-animations .proton-temp-status-dot {
+    animation: none;
+}
+
+.proton-no-animations .proton-temp-card,
+.proton-no-animations .proton-temp-bar,
+.proton-no-animations .proton-temp-value {
+    transition: none;
+}
+
+/* =====================================================
+   Widgets Container - Общий контейнер для виджетов
+   ===================================================== */
+.proton-widgets-section {
+    margin: 24px 0;
+}
+
+.proton-widgets-section-header {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.proton-widgets-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+/* Общий заголовок "Виджеты" над контейнером */
+.proton-widgets-section-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--proton-fg);
+    margin: 0;
+    letter-spacing: -0.01em;
+}
+
+/* Кнопка настроек виджетов в заголовке секции */
+.proton-widgets-settings-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--proton-radius);
+    background: var(--proton-accent-glow);
+    color: var(--proton-accent);
+    opacity: 0.6;
+    font-size: 16px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    transition: var(--proton-transition);
+    line-height: 1;
+    padding: 0;
+}
+
+.proton-widgets-settings-btn .proton-widgets-settings-icon {
+    width: 16px;
+    height: 16px;
+    display: block;
+}
+
+.proton-widgets-settings-btn:hover {
+    background: var(--proton-accent-glow);
+    transform: scale(1.1);
+}
+
+/* =====================================================
+   Services Widget - Main Page
+   ===================================================== */
+.proton-services-widget {
+    margin: 0;
+    background: var(--proton-bg-secondary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius);
+    padding: 14px 16px;
+    /*backdrop-filter: blur(10px);*/
+    /*box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);*/
+}
+
+.proton-services-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0 0 12px 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--proton-border);
+}
+
+.proton-services-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--proton-fg);
+    margin: 0;
+    letter-spacing: -0.01em;
+}
+
+.proton-add-service-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--proton-accent-glow);
+    color: var(--proton-accent);
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: var(--proton-transition);
+    line-height: 1;
+    padding: 0;
+}
+
+.proton-add-service-btn:hover {
+    background: var(--proton-accent-glow);
+    transform: scale(1.1);
+}
+
+
+
+.proton-services-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+}
+
+/* Empty state placeholder for services widget */
+.proton-services-empty {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 0;
+    color: var(--proton-muted);
+    font-size: 0.85rem;
+}
+
+.proton-services-empty-hint {
+    opacity: 0.7;
+}
+
+/* Log area under services widget */
+.proton-services-log {
+    margin-top: 10px;
+    padding: 6px 10px;
+    background: var(--proton-bg-tertiary);
+    border: 1px solid var(--proton-border-light);
+    border-radius: var(--proton-radius-sm);
+    color: var(--proton-fg-secondary);
+    font-size: 11px;
+    line-height: 1.3;
+    min-height: 14px;
+}
+
+.proton-services-log-line {
+    display: flex;
+    gap: 6px;
+}
+
+.proton-services-log-time {
+    color: var(--proton-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.proton-services-log-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Category headers in widget */
+.proton-services-category-header {
+    grid-column: 1 / -1;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--proton-muted);
+    padding: 6px 0 3px 0;
+    border-bottom: 1px solid var(--proton-border-light, var(--proton-border));
+    margin-top: 6px;
+}
+
+.proton-services-category-header:first-child {
+    margin-top: 0;
+}
+
+.proton-service-card {
+    background: var(--proton-bg-tertiary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    padding: 10px 12px;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.proton-service-card:hover {
+    background: var(--proton-bg-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.proton-service-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+
+.proton-service-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.proton-service-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--proton-fg);
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.proton-service-remove {
+    display: none;
+}
+
+.proton-service-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.proton-service-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.proton-service-status-dot.running {
+    background: var(--proton-success);
+    box-shadow: 0 0 6px var(--proton-success);
+}
+
+.proton-service-status-dot.stopped {
+    background: var(--proton-muted);
+}
+
+.proton-service-status-dot.error {
+    background: var(--proton-danger);
+    box-shadow: 0 0 6px var(--proton-danger);
+}
+
+.proton-service-status-dot.unknown {
+    background: #ffc107;
+    box-shadow: 0 0 6px rgba(255, 193, 7, 0.4);
+}
+
+.proton-service-status-dot.not-installed {
+    background: var(--proton-muted);
+    opacity: 0.5;
+}
+
+.proton-service-status-text {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.proton-service-status-text.running {
+    color: var(--proton-success);
+}
+
+.proton-service-status-text.stopped {
+    color: var(--proton-muted);
+}
+
+.proton-service-status-text.error {
+    color: var(--proton-danger);
+}
+
+.proton-service-status-text.unknown {
+    color: #ffc107;
+}
+
+.proton-service-status-text.not-installed {
+    color: var(--proton-muted);
+    opacity: 0.6;
+    font-style: italic;
+}
+
+.proton-service-description {
+    display: none;
+    /* Скрыто для компактности */
+}
+
+/* Modal for adding services */
+.proton-service-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(5px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    opacity: 0;
+    pointer-events: none;
+    transition: var(--proton-transition);
+}
+
+.proton-service-modal.active {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.proton-service-modal-content {
+    background: var(--proton-bg-solid);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius);
+    padding: 24px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--proton-shadow-lg);
+    transform: scale(0.9);
+    transition: var(--proton-transition);
+    box-sizing: border-box;
+}
+
+.proton-service-modal.active .proton-service-modal-content {
+    transform: scale(1);
+}
+
+.proton-service-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.proton-service-modal-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--proton-fg);
+    margin: 0;
+}
+
+.proton-service-modal-close {
+    background: transparent;
+    border: none;
+    color: var(--proton-muted);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: var(--proton-transition);
+}
+
+.proton-service-modal-close:hover {
+    background: var(--proton-bg-hover);
+    color: var(--proton-fg);
+}
+
+/* Widget toggles section */
+.proton-widget-toggles {
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--proton-border);
+}
+
+.proton-widget-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--proton-bg-tertiary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    cursor: pointer;
+    transition: var(--proton-transition);
+}
+
+.proton-widget-toggle:hover {
+    background: var(--proton-bg-hover);
+    border-color: var(--proton-border-hover, var(--proton-border));
+}
+
+.proton-widget-toggle-info {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+    align-items: center;
+    gap: 2px 12px;
+}
+
+.proton-widget-toggle-icon {
+    font-size: 20px;
+    grid-row: 1 / -1;
+}
+
+.proton-widget-toggle-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--proton-fg);
+}
+
+.proton-widget-toggle-desc {
+    display: block;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--proton-fg-muted, rgba(255, 255, 255, 0.45));
+    margin-top: 2px;
+    line-height: 1.3;
+}
+
+.proton-widget-toggle input[type="checkbox"] {
+    display: none;
+}
+
+.proton-widget-toggle-slider {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    background: var(--proton-muted);
+    border-radius: 12px;
+    transition: var(--proton-transition);
+    flex-shrink: 0;
+}
+
+.proton-widget-toggle-slider::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border-radius: 50%;
+    transition: var(--proton-transition);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.proton-widget-toggle input[type="checkbox"]:checked+.proton-widget-toggle-slider {
+    background: var(--proton-accent);
+}
+
+.proton-widget-toggle input[type="checkbox"]:checked+.proton-widget-toggle-slider::after {
+    transform: translateX(20px);
+}
+
+/* Section title in modal */
+.proton-service-modal-section-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--proton-muted);
+    margin-bottom: 12px;
+}
+
+/* Search in modal */
+.proton-service-search {
+    margin-bottom: 16px;
+}
+
+.proton-service-search input {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--proton-bg-tertiary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    color: var(--proton-fg);
+    font-size: 14px;
+    outline: none;
+    transition: var(--proton-transition);
+    box-sizing: border-box;
+}
+
+.proton-service-search input:focus {
+    border-color: var(--proton-accent);
+    box-shadow: 0 0 0 3px var(--proton-accent-glow);
+}
+
+.proton-service-search input::placeholder {
+    color: var(--proton-muted);
+}
+
+.proton-service-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    position: relative;
+    mask-image: linear-gradient(to bottom,
+            transparent 0,
+            black 8px,
+            black calc(100% - 8px),
+            transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom,
+            transparent 0,
+            black 8px,
+            black calc(100% - 8px),
+            transparent 100%);
+    padding: 8px 0;
+}
+
+/* Loading indicator */
+.proton-service-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 40px 20px;
+    color: var(--proton-muted);
+    font-size: 14px;
+}
+
+.proton-service-loading-spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid var(--proton-border);
+    border-top-color: var(--proton-accent);
+    border-radius: 50%;
+    animation: proton-spin 0.8s linear infinite;
+}
+
+@keyframes proton-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Category headers in list */
+.proton-service-list-category {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--proton-muted);
+    padding: 12px 0 6px 0;
+    border-bottom: 1px solid var(--proton-border);
+    margin-top: 8px;
+}
+
+.proton-service-list-category:first-child {
+    margin-top: 0;
+    padding-top: 0;
+}
+
+.proton-service-item {
+    background: var(--proton-bg-secondary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: var(--proton-transition);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.proton-service-item-add.not-installed {
+    background: transparent;
+    border: 1px solid var(--proton-border);
+    color: var(--proton-muted);
+    cursor: default;
+    opacity: 0.7;
+}
+
+.proton-service-item-add.not-installed:hover {
+    background: transparent;
+}
+
+/* Кнопка удаления для сервисов, добавленных в виджет, но удалённых с роутера */
+.proton-service-item-add.not-installed-remove {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+    cursor: pointer;
+    opacity: 1;
+}
+
+.proton-service-item-add.not-installed-remove:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: #ef4444;
+}
+
+.proton-service-item:hover {
+    background: var(--proton-bg-hover);
+    border-color: var(--proton-accent);
+}
+
+.proton-service-item-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+}
+
+.proton-service-item-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.proton-service-item-info h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--proton-fg);
+    margin: 0 0 2px 0;
+}
+
+.proton-service-item-info p {
+    font-size: 12px;
+    color: var(--proton-fg-secondary);
+    margin: 0;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+.proton-service-item-add {
+    background: var(--proton-accent);
+    color: white;
+    border: none;
+    border-radius: var(--proton-radius-sm);
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--proton-transition);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.proton-service-item-add:hover {
+    background: var(--proton-accent-hover);
+    transform: translateY(-1px);
+}
+
+.proton-service-item-add.added {
+    background: var(--proton-danger, #ef4444);
+}
+
+.proton-service-item-add.added:hover {
+    background: var(--proton-danger-hover, #dc2626);
+}
+
+/* Custom service badge */
+.proton-custom-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    padding: 2px 6px;
+    background: var(--proton-accent-glow, rgba(94, 158, 255, 0.15));
+    color: var(--proton-accent);
+    border-radius: 4px;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.proton-service-item-custom {
+    border-color: var(--proton-accent-glow, rgba(94, 158, 255, 0.3));
+    background: var(--proton-accent-glow, rgba(94, 158, 255, 0.05));
+}
+
+.proton-service-empty {
+    text-align: center;
+    padding: 32px;
+    color: var(--proton-muted);
+    font-size: 14px;
+}
+
+/* Empty state with custom service suggestion */
+.proton-service-empty-custom {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 40px 20px;
+    text-align: center;
+}
+
+.proton-service-empty-icon {
+    font-size: 32px;
+    opacity: 0.7;
+}
+
+.proton-service-empty-text {
+    font-size: 14px;
+    color: var(--proton-fg-secondary);
+}
+
+.proton-service-empty-hint {
+    font-size: 12px;
+    color: var(--proton-muted);
+}
+
+.proton-service-add-custom-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 20px;
+    background: var(--proton-accent);
+    color: white;
+    border: none;
+    border-radius: var(--proton-radius-sm);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--proton-transition);
+    margin-top: 4px;
+}
+
+.proton-service-add-custom-btn:hover {
+    background: var(--proton-accent-hover);
+    transform: translateY(-1px);
+}
+
+/* Disable animations if user prefers */
+.proton-no-animations .proton-service-status-dot.running,
+.proton-no-animations .proton-service-status-dot.running::before {
+    animation: none;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .proton-service-modal-content {
+        width: calc(100% - 32px);
+        max-width: 100%;
+        padding: 16px;
+        max-height: 85vh;
+        margin: 0 16px;
+    }
+
+    .proton-service-modal-title {
+        font-size: 1.1rem;
+    }
+
+    .proton-service-item {
+        flex-wrap: wrap;
+        padding: 12px;
+        gap: 8px;
+    }
+
+    .proton-service-item-info {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+
+    .proton-service-item-add {
+        flex: 1 1 100%;
+        text-align: center;
+        padding: 10px 12px;
+    }
+
+    .proton-service-item-info p {
+        white-space: normal;
+        overflow: visible;
+    }
+
+    .proton-service-search input {
+        padding: 14px 16px;
+        font-size: 16px;
+        /* Предотвращает зум на iOS */
+    }
+
+    .proton-service-add-custom-btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .proton-widget-toggle {
+        padding: 10px 14px;
+    }
+
+    .proton-widget-toggle-name {
+        font-size: 0.9rem;
+    }
+
+    .proton-widget-toggle-slider {
+        width: 40px;
+        height: 22px;
+    }
+
+    .proton-widget-toggle-slider::after {
+        width: 18px;
+        height: 18px;
+    }
+
+    .proton-widget-toggle input[type="checkbox"]:checked+.proton-widget-toggle-slider::after {
+        transform: translateX(18px);
+    }
+}

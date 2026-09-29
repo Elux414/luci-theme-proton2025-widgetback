@@ -368,6 +368,7 @@ body {
 <script src="{{ media }}/js/settings-sync.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/mobile-settings-fallback.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/overview-decorations.js?v={{ __pv }}" defer></script>
+<script src="{{ media }}/js/services-widget.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/custom-pages.js?v={{ __pv }}" defer></script>
 {# translations-search.js: семантические переводы поиска, вынесены из
    translations.js. defer сохраняет порядок → protonGetLang доступен. #}
