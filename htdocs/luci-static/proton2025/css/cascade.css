@@ -12732,3 +12732,213 @@ body.login-page .login-password-toggle:focus-visible {
         transform: translateX(18px);
     }
 }
+/* =====================================================
+   Proton2025 Modern Dashboard - Internet / WAN
+   ===================================================== */
+
+.proton-dashboard-section {
+    margin: 0 0 18px 0;
+}
+
+.proton-dashboard-section-header {
+    margin: 0 0 10px 0;
+}
+
+.proton-dashboard-section-title {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--proton-text-primary);
+}
+
+.proton-dashboard-internet {
+    margin: 0;
+    padding: 18px 20px 14px;
+    background: var(--proton-bg-secondary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius);
+    overflow: hidden;
+}
+
+.proton-dashboard-internet-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.proton-dashboard-internet-title-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.proton-dashboard-internet-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.proton-dashboard-internet-status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--proton-text-secondary);
+    box-shadow: 0 0 0 4px rgba(var(--proton-accent-rgb), 0.08);
+}
+
+.proton-dashboard-internet-status-dot[data-state="connected"] {
+    background: #34d399;
+    box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.12);
+}
+
+.proton-dashboard-internet-status-dot[data-state="disconnected"] {
+    background: #f87171;
+    box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.12);
+}
+
+.proton-dashboard-internet-subtitle {
+    margin: 4px 0 0 18px;
+    color: var(--proton-text-secondary);
+    font-size: 0.82rem;
+}
+
+.proton-dashboard-internet-device {
+    color: var(--proton-text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+}
+
+.proton-dashboard-rates {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 18px;
+}
+
+.proton-dashboard-rate {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--proton-border);
+    border-radius: calc(var(--proton-radius) * 0.8);
+    background: rgba(var(--proton-accent-rgb), 0.025);
+}
+
+.proton-dashboard-rate-label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--proton-text-secondary);
+    font-size: 0.82rem;
+}
+
+.proton-dashboard-rate strong {
+    white-space: nowrap;
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.proton-dashboard-rate-dot,
+.proton-dashboard-legend i {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+}
+
+.proton-dashboard-rate-dot.rx,
+.proton-dashboard-legend i.rx {
+    background: #5e9eff;
+}
+
+.proton-dashboard-rate-dot.tx,
+.proton-dashboard-legend i.tx {
+    background: #a78bfa;
+}
+
+.proton-dashboard-chart-wrap {
+    height: 150px;
+    margin-top: 14px;
+    border-radius: calc(var(--proton-radius) * 0.8);
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.08);
+}
+
+.proton-dashboard-chart {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.proton-dashboard-chart-grid line {
+    stroke: var(--proton-border);
+    stroke-width: 1;
+    opacity: 0.45;
+}
+
+.proton-dashboard-chart-area-rx {
+    fill: rgba(94, 158, 255, 0.10);
+}
+
+.proton-dashboard-chart-area-tx {
+    fill: rgba(167, 139, 250, 0.08);
+}
+
+.proton-dashboard-chart-line-rx,
+.proton-dashboard-chart-line-tx {
+    fill: none;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+}
+
+.proton-dashboard-chart-line-rx {
+    stroke: #5e9eff;
+}
+
+.proton-dashboard-chart-line-tx {
+    stroke: #a78bfa;
+}
+
+.proton-dashboard-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 9px;
+    color: var(--proton-text-secondary);
+    font-size: 0.75rem;
+}
+
+.proton-dashboard-legend {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.proton-dashboard-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+@media (max-width: 600px) {
+    .proton-dashboard-internet {
+        padding: 15px;
+    }
+
+    .proton-dashboard-rates {
+        grid-template-columns: 1fr;
+    }
+
+    .proton-dashboard-internet-device {
+        display: none;
+    }
+}
+
+:root[data-theme="light"] .proton-dashboard-chart-wrap {
+    background: rgba(0, 0, 0, 0.025);
+}
