@@ -9,7 +9,8 @@
                     "resetPeaks"
                 ],
                 "luci.proton-system": [
-                    "getSystemInfo"
+                    "getSystemInfo",
+                    "getCpuUsage"
                 ],
                 "luci.proton-search-cache": [
                     "loadCache"
@@ -31,6 +32,9 @@
                 ],
                 "luci-rpc": [
                     "getDHCPLeases"
+                ],
+                "rc": [
+                    "list"
                 ]
             },
             "uci": [
@@ -47,6 +51,12 @@
                     "exec"
                 ],
                 "/proc/cpuinfo": [
+                    "read"
+                ],
+                "/proc/stat": [
+                    "read"
+                ],
+                "/tmp/sysinfo/model": [
                     "read"
                 ]
             }
@@ -65,6 +75,9 @@
                 "luci.proton-search-cache": [
                     "saveCache",
                     "clearCache"
+                ],
+                "rc": [
+                    "init"
                 ]
             },
             "uci": [

@@ -12736,12 +12736,498 @@ body.login-page .login-password-toggle:focus-visible {
    Proton2025 Modern Dashboard - Internet / WAN
    ===================================================== */
 
-.proton-dashboard-section {
+/* Proton2025 Dashboard - two-column layout (KeeneticOS style) */
+.proton-dashboard-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 18px;
+    align-items: stretch;
     margin: 0 0 18px 0;
 }
 
-.proton-dashboard-section-header {
-    margin: 0 0 10px 0;
+.proton-dashboard-grid > .proton-dashboard-cell {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.proton-dashboard-grid > .proton-dashboard-cell > * {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+@media (max-width: 1000px) {
+    .proton-dashboard-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* Card skeleton for System / Apps / future widgets */
+.proton-dashboard-card {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 18px 20px 14px;
+    background: var(--proton-bg-secondary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius);
+    overflow: hidden;
+}
+
+.proton-dashboard-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.proton-dashboard-card-title-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.proton-dashboard-card-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.proton-dashboard-card-status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--proton-text-secondary);
+    box-shadow: 0 0 0 4px rgba(var(--proton-accent-rgb), 0.08);
+    flex: 0 0 auto;
+}
+
+.proton-dashboard-card-status-dot[data-state="ok"] {
+    background: #34d399;
+    box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.12);
+}
+
+.proton-dashboard-card-status-dot[data-state="warn"] {
+    background: #fbbf24;
+    box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.14);
+}
+
+.proton-dashboard-card-status-dot[data-state="err"] {
+    background: #f87171;
+    box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.12);
+}
+
+.proton-dashboard-card-subtitle {
+    margin: 4px 0 0 18px;
+    color: var(--proton-text-secondary);
+    font-size: 0.82rem;
+    line-height: 1.35;
+    word-break: break-word;
+}
+
+.proton-dashboard-card-subtitle strong {
+    color: var(--proton-text-primary);
+    font-weight: 600;
+}
+
+.proton-dashboard-card-body {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.proton-dashboard-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: auto;
+    padding-top: 12px;
+    color: var(--proton-text-secondary);
+    font-size: 0.75rem;
+}
+
+/* System card metrics */
+.proton-dashboard-system-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.proton-dashboard-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    border: 1px solid var(--proton-border);
+    border-radius: calc(var(--proton-radius) * 0.8);
+    background: rgba(var(--proton-accent-rgb), 0.025);
+    min-width: 0;
+}
+
+.proton-dashboard-metric-label {
+    font-size: 0.75rem;
+    color: var(--proton-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
+.proton-dashboard-metric-value-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+}
+
+.proton-dashboard-metric-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    color: var(--proton-text-primary);
+}
+
+.proton-dashboard-metric-value[data-level="ok"] {
+    color: #34d399;
+}
+
+.proton-dashboard-metric-value[data-level="warn"] {
+    color: #fbbf24;
+}
+
+.proton-dashboard-metric-value[data-level="err"] {
+    color: #f87171;
+}
+
+.proton-dashboard-metric-unit {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--proton-text-secondary);
+}
+
+.proton-dashboard-metric-detail {
+    font-size: 0.78rem;
+    color: var(--proton-text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.proton-dashboard-metric-bar {
+    position: relative;
+    width: 100%;
+    height: 5px;
+    background: rgba(var(--proton-accent-rgb), 0.12);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.proton-dashboard-metric-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #4a8fe7, #5e9eff);
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease;
+    width: 0%;
+}
+
+.proton-dashboard-metric-bar-fill[data-level="ok"] {
+    background: linear-gradient(90deg, #22c55e, #34d399);
+}
+
+.proton-dashboard-metric-bar-fill[data-level="warn"] {
+    background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.proton-dashboard-metric-bar-fill[data-level="err"] {
+    background: linear-gradient(90deg, #dc2626, #f87171);
+}
+
+/* System card info rows (footer-style meta) */
+.proton-dashboard-system-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 16px;
+    font-size: 0.78rem;
+    color: var(--proton-text-secondary);
+    line-height: 1.45;
+}
+
+.proton-dashboard-system-meta-item {
+    display: flex;
+    gap: 6px;
+    min-width: 0;
+}
+
+.proton-dashboard-system-meta-item > strong {
+    color: var(--proton-text-primary);
+    font-weight: 600;
+    flex: 0 0 auto;
+}
+
+.proton-dashboard-system-meta-item > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Hide the native LuCI System section when our card is present */
+.proton-hide-native-system {
+    display: none !important;
+}
+
+/* Apps card */
+.proton-dashboard-apps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    max-height: 420px;
+}
+
+.proton-dashboard-apps-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--proton-border);
+    border-radius: calc(var(--proton-radius) * 0.8);
+    background: rgba(var(--proton-accent-rgb), 0.02);
+    transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.proton-dashboard-apps-row:hover {
+    background: rgba(var(--proton-accent-rgb), 0.05);
+    border-color: rgba(var(--proton-accent-rgb), 0.2);
+}
+
+.proton-dashboard-apps-row[data-state="not-installed"] {
+    opacity: 0.55;
+}
+
+.proton-dashboard-apps-row[data-state="not-installed"] .proton-dashboard-apps-toggle {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+.proton-dashboard-apps-icon {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.proton-dashboard-apps-info {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.proton-dashboard-apps-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--proton-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.proton-dashboard-apps-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--proton-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.proton-dashboard-apps-status-dot {
+    flex: 0 0 auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--proton-muted);
+}
+
+.proton-dashboard-apps-status-dot[data-state="running"] {
+    background: #34d399;
+    box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+}
+
+.proton-dashboard-apps-status-dot[data-state="stopped"] {
+    background: var(--proton-muted);
+}
+
+.proton-dashboard-apps-status-dot[data-state="unknown"] {
+    background: #fbbf24;
+}
+
+.proton-dashboard-apps-status-dot[data-state="not-installed"] {
+    background: var(--proton-muted);
+    opacity: 0.5;
+}
+
+.proton-dashboard-apps-status-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.proton-dashboard-apps-toggle {
+    flex: 0 0 auto;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.proton-dashboard-apps-toggle input[type="checkbox"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+    z-index: 2;
+}
+
+.proton-dashboard-apps-toggle-slider {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+    background: var(--proton-muted);
+    border-radius: 11px;
+    transition: background 0.2s ease;
+    pointer-events: none;
+}
+
+.proton-dashboard-apps-toggle-slider::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.proton-dashboard-apps-toggle input[type="checkbox"]:checked + .proton-dashboard-apps-toggle-slider {
+    background: var(--proton-accent);
+}
+
+.proton-dashboard-apps-toggle input[type="checkbox"]:checked + .proton-dashboard-apps-toggle-slider::after {
+    transform: translateX(18px);
+}
+
+.proton-dashboard-apps-toggle input[type="checkbox"]:disabled + .proton-dashboard-apps-toggle-slider {
+    opacity: 0.5;
+}
+
+.proton-dashboard-apps-toggle.is-busy .proton-dashboard-apps-toggle-slider {
+    background: var(--proton-accent);
+    animation: proton-apps-toggle-pulse 1s ease-in-out infinite;
+}
+
+.proton-dashboard-apps-toggle.is-busy .proton-dashboard-apps-toggle-slider::after {
+    transform: translateX(18px);
+}
+
+@keyframes proton-apps-toggle-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+
+.proton-dashboard-apps-empty {
+    padding: 18px 8px;
+    text-align: center;
+    color: var(--proton-text-secondary);
+    font-size: 0.85rem;
+}
+
+.proton-dashboard-apps-settings-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--proton-accent-glow);
+    color: var(--proton-accent);
+    border: none;
+    cursor: pointer;
+    transition: var(--proton-transition);
+    padding: 0;
+    line-height: 1;
+}
+
+.proton-dashboard-apps-settings-btn:hover {
+    background: var(--proton-accent-glow);
+    transform: scale(1.08);
+}
+
+.proton-dashboard-apps-settings-btn svg {
+    width: 15px;
+    height: 15px;
+}
+
+/* Light theme adjustments */
+:root[data-theme="light"] .proton-dashboard-card {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+:root[data-theme="light"] .proton-dashboard-metric {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .proton-dashboard-apps-row {
+    background: rgba(0, 0, 0, 0.015);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .proton-dashboard-apps-row:hover {
+    background: rgba(75, 85, 99, 0.08);
+    border-color: rgba(75, 85, 99, 0.3);
+}
+
+@media (max-width: 600px) {
+    .proton-dashboard-system-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .proton-dashboard-system-meta {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .proton-dashboard-card {
+        padding: 15px;
+    }
 }
 
 .proton-dashboard-section-title {
@@ -12941,4 +13427,78 @@ body.login-page .login-password-toggle:focus-visible {
 
 :root[data-theme="light"] .proton-dashboard-chart-wrap {
     background: rgba(0, 0, 0, 0.025);
+}
+
+/* =====================================================
+   Proton2025 Overview Layout (dashboard-layout.js)
+   ===================================================== */
+
+.proton-overview-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin: 24px 0;
+}
+
+.proton-overview-row {
+    display: grid;
+    gap: 18px;
+    align-items: stretch;
+}
+
+.proton-overview-row.r-40-60 {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+}
+
+.proton-overview-row.r-50-50 {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.proton-overview-row.r-full {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.proton-overview-cell {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.proton-overview-cell > * {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* Обёртка для LuCI-секций, чтобы они выглядели как карточки */
+.proton-overview-cell > .cbi-section {
+    margin: 0;
+    height: 100%;
+}
+
+/* Скрываем legacy services-widget — заменён на dashboard-apps */
+#proton-widgets-container > .proton-services-widget,
+#maincontent .proton-widgets-section > .proton-widgets-container > .proton-services-widget {
+    display: none !important;
+}
+
+/* Заглушка для ячеек, куда ещё не приехал виджет (этап A: hosts) */
+.proton-overview-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 180px;
+    padding: 16px;
+    border: 1px dashed var(--proton-border);
+    border-radius: var(--proton-radius);
+    color: var(--proton-text-secondary);
+    font-size: 0.9rem;
+    text-align: center;
+    opacity: 0.7;
+}
+
+@media (max-width: 1000px) {
+    .proton-overview-row.r-40-60,
+    .proton-overview-row.r-50-50 {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }

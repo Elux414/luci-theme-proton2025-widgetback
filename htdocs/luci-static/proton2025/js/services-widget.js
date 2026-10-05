@@ -377,21 +377,27 @@
     // ==================== Инициализация ====================
 
     init() {
-      // Проверяем настройку отключения виджета
-      if (this._safeGetItem("proton-services-widget-enabled") === "false") {
-        return;
-      }
-
-      if (!this.isOverviewPage()) return;
-
-      if (!this.injectWidget()) return;
-
-      this.refreshAvailableServices()
-        .then(() => this.renderServices())
-        .catch(() => {});
-
-      this.startStatusMonitoring();
+    if (this._safeGetItem("proton-services-widget-enabled") === "false") {
+      return;
     }
+
+    if (!this.isOverviewPage()) return;
+
+    // Legacy services-widget визуально заменён карточкой Applications.
+    // Мы НЕ инжектим его карточку, но продолжаем инициализировать
+    // список сервисов — ProtonServicesApi использует его данные.
+    // (dashboard-apps.js ждёт window.protonServicesWidget.)
+
+    // Пропускаем injectWidget, но выполняем load данных:
+    this.refreshAvailableServices()
+      .then(() => {
+        // Диспатчим событие, чтобы dashboard-apps.js знал, что можно стартовать
+        window.dispatchEvent(new CustomEvent("proton-services-widget-ready"));
+      })
+      .catch(() => {});
+
+    this.startStatusMonitoring();
+}
 
     isOverviewPage() {
       // Проверяем через dispatchpath (надёжнее чем data-page, который пустой на корневой странице)
@@ -2653,4 +2659,77 @@
       setTimeout(initAllWidgets, 100);
     }
   }
+  
+    // =====================================================
+  // Public API for other dashboard widgets (dashboard-apps.js)
+  // =====================================================
+  window.ProtonServicesApi = {
+    isValidServiceName(name) {
+      const widget = window.protonServicesWidget;
+      if (widget && typeof widget._isValidServiceName === "function") {
+        return widget._isValidServiceName(name);
+      }
+      return typeof name === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(name);
+    },
+
+    async checkStatus(name) {
+      const widget = window.protonServicesWidget;
+      if (widget && typeof widget.checkServiceStatus === "function") {
+        return widget.checkServiceStatus(name);
+      }
+      return "unknown";
+    },
+
+    getServiceInfo(name) {
+      const widget = window.protonServicesWidget;
+      if (widget && typeof widget.getServiceInfo === "function") {
+        return widget.getServiceInfo(name);
+      }
+      return {
+        name: name,
+        displayName: name,
+        description: "",
+        category: "other",
+        icon: "📦",
+      };
+    },
+
+    getSelectedServices() {
+      try {
+        const raw = localStorage.getItem("proton-services-widget");
+        if (raw === null || raw === undefined) return ["dnsmasq", "dropbear"];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : ["dnsmasq", "dropbear"];
+      } catch (e) {
+        return ["dnsmasq", "dropbear"];
+      }
+    },
+
+    setSelectedServices(list) {
+      try {
+        localStorage.setItem("proton-services-widget", JSON.stringify(list));
+        return true;
+      } catch (e) {
+        return false;
+      }
+    },
+
+    async listAvailableServices() {
+      const widget = window.protonServicesWidget;
+      if (!widget) return [];
+      if (!Array.isArray(widget.availableServices) || !widget.availableServices.length) {
+        try {
+          await widget.refreshAvailableServices();
+        } catch (e) {}
+      }
+      return Array.isArray(widget.availableServices) ? widget.availableServices : [];
+    },
+
+    onChange(callback) {
+      window.addEventListener("proton-services-widget-changed", callback);
+      window.addEventListener("storage", (e) => {
+        if (e.key === "proton-services-widget") callback();
+      });
+    },
+  };
 })();

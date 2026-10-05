@@ -372,6 +372,11 @@ body {
 <script src="{{ media }}/js/dashboard/dashboard-data.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/dashboard/dashboard-charts.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/dashboard/dashboard.js?v={{ __pv }}" defer></script>
+<script src="{{ media }}/js/dashboard/dashboard-system.js?v={{ __pv }}" defer></script>
+<script src="{{ media }}/js/dashboard/dashboard-apps.js?v={{ __pv }}" defer></script>
+<script src="{{ media }}/js/dashboard/dashboard-system.js?v={{ __pv }}" defer></script>
+<script src="{{ media }}/js/dashboard/dashboard-apps.js?v={{ __pv }}" defer></script>
+<script src="{{ media }}/js/dashboard/dashboard-layout.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/custom-pages.js?v={{ __pv }}" defer></script>
 {# translations-search.js: семантические переводы поиска, вынесены из
    translations.js. defer сохраняет порядок → protonGetLang доступен. #}
