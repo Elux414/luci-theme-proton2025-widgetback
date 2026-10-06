@@ -8142,9 +8142,10 @@ body.modal-overlay-active #modal_overlay {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    /* Ультимативный glassmorphism: размытие всего фона + стеклянная модалка. */
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
     z-index: 10000;
     display: flex;
     align-items: center;
@@ -8158,21 +8159,37 @@ body.modal-overlay-active #modal_overlay {
 
 .proton-reboot-modal,
 .proton-confirm-modal {
-    background: var(--proton-bg-secondary);
-    border: 1px solid var(--proton-border);
+    /* Двойной glassmorphism: оверлей размывает фон, модалка добавляет
+       лёгкое собственное размытие и прозрачность — эффект «мокрого стекла».
+       Прозрачность 68% — достаточно для читаемости текста и при этом заметен фон. */
+    background: rgba(26, 31, 40, 0.68);
+    backdrop-filter: blur(24px) saturate(160%);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: var(--proton-radius);
     padding: 28px;
     max-width: 440px;
     width: calc(100% - 40px);
-    box-shadow: var(--proton-shadow-lg);
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
     animation: slideUp 0.3s ease;
 }
 
 :root[data-theme="light"] .proton-reboot-modal,
 :root[data-theme="light"] .proton-confirm-modal {
-    background: #ffffff;
-    border-color: rgba(0, 0, 0, 0.15);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    background: rgba(255, 255, 255, 0.72);
+    border-color: rgba(255, 255, 255, 0.5);
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+:root[data-theme="light"] .proton-reboot-modal-overlay,
+:root[data-theme="light"] .proton-confirm-modal-overlay {
+    background: rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
 }
 
 .proton-reboot-modal h3,
@@ -12914,6 +12931,186 @@ body.login-page .login-password-toggle:focus-visible {
     color: var(--proton-text-secondary);
     font-size: 0.85rem;
     list-style: none;
+}
+
+/* =====================================================
+   Applications settings modal
+   ===================================================== */
+
+.proton-apps-settings-modal {
+    max-width: 560px;
+    width: calc(100% - 40px);
+}
+
+.proton-apps-settings-body {
+    margin: 14px 0 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.proton-apps-settings-search input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    background: var(--proton-bg-tertiary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    color: var(--proton-text-primary);
+    font-size: 0.875rem;
+    outline: none;
+    transition: var(--proton-transition);
+}
+
+.proton-apps-settings-search input:focus {
+    border-color: var(--proton-accent);
+    box-shadow: 0 0 0 3px var(--proton-accent-glow);
+}
+
+.proton-apps-settings-search input::placeholder {
+    color: var(--proton-text-secondary);
+    opacity: 0.6;
+}
+
+.proton-apps-settings-list {
+    max-height: 60vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-right: 4px;
+}
+
+.proton-apps-settings-category {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--proton-text-secondary);
+    padding: 12px 4px 6px;
+    border-bottom: 1px solid var(--proton-border);
+    margin-top: 4px;
+}
+
+.proton-apps-settings-category:first-child {
+    margin-top: 0;
+    padding-top: 4px;
+}
+
+.proton-apps-settings-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--proton-border);
+    border-radius: calc(var(--proton-radius) * 0.8);
+    background: rgba(var(--proton-accent-rgb), 0.02);
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.proton-apps-settings-row:hover {
+    background: rgba(var(--proton-accent-rgb), 0.05);
+    border-color: rgba(var(--proton-accent-rgb), 0.2);
+}
+
+.proton-apps-settings-icon {
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.proton-apps-settings-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.proton-apps-settings-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--proton-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.proton-apps-settings-desc {
+    font-size: 0.75rem;
+    color: var(--proton-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.proton-apps-settings-btn {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+    border-radius: var(--proton-radius-sm);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--proton-transition);
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.proton-apps-settings-btn.is-add {
+    background: var(--proton-accent);
+    border-color: var(--proton-accent);
+    color: #fff;
+}
+
+.proton-apps-settings-btn.is-add:hover {
+    background: var(--proton-accent-hover);
+    border-color: var(--proton-accent-hover);
+}
+
+.proton-apps-settings-btn.is-remove {
+    background: rgba(255, 107, 107, 0.1);
+    border-color: rgba(255, 107, 107, 0.3);
+    color: var(--proton-danger);
+}
+
+.proton-apps-settings-btn.is-remove:hover {
+    background: rgba(255, 107, 107, 0.2);
+    border-color: var(--proton-danger);
+}
+
+.proton-apps-settings-btn.is-unavailable {
+    background: transparent;
+    border-color: var(--proton-border);
+    color: var(--proton-muted);
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.proton-apps-settings-empty {
+    padding: 32px 12px;
+    text-align: center;
+    color: var(--proton-text-secondary);
+    font-size: 0.85rem;
+}
+
+:root[data-theme="light"] .proton-apps-settings-row {
+    background: rgba(0, 0, 0, 0.015);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .proton-apps-settings-row:hover {
+    background: rgba(75, 85, 99, 0.08);
+    border-color: rgba(75, 85, 99, 0.3);
+}
+
+:root[data-theme="light"] .proton-apps-settings-btn.is-remove {
+    background: rgba(220, 38, 38, 0.12);
+    border-color: rgba(220, 38, 38, 0.3);
+    color: #c53030;
 }
 
 @media (max-width: 600px) {

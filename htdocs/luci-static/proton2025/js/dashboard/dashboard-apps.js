@@ -35,6 +35,7 @@
     "ubus",
   ]);
 
+  let modalOpen = false;
   let pollTimer = null;
   let visibilityHandler = null;
   let mounted = false;
@@ -583,21 +584,25 @@
   // Settings modal: sync with services-widget OR custom selection
   // ---------------------------------------------------------------------------
 
-  async function openSettingsModal() {
+    async function openSettingsModal() {
+    if (modalOpen) return;
+    modalOpen = true;
+
     const api = getStatusFromApi();
     if (!api) {
+      modalOpen = false;
       showToast(t("Services API not ready"), "warning");
       return;
     }
 
     const available = await api.listAvailableServices();
-    const current = readAppsList();
+    const current = new Set(readAppsList());
 
     const overlay = document.createElement("div");
     overlay.className = "proton-confirm-modal-overlay";
 
     const modal = document.createElement("div");
-    modal.className = "proton-confirm-modal";
+    modal.className = "proton-confirm-modal proton-apps-settings-modal";
     modal.style.maxWidth = "560px";
     modal.style.width = "calc(100% - 40px)";
 
@@ -605,93 +610,22 @@
     heading.textContent = t("Applications settings");
 
     const body = document.createElement("div");
-    body.style.cssText = "margin: 14px 0 20px; max-height: 60vh; overflow-y: auto;";
+    body.className = "proton-apps-settings-body";
 
-    // Кнопка синхронизации
-    const syncRow = document.createElement("div");
-    syncRow.style.cssText = "display:flex; gap:10px; align-items:center; margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--proton-border);";
+    // Поиск
+    const searchWrap = document.createElement("div");
+    searchWrap.className = "proton-apps-settings-search";
+    const searchInput = document.createElement("input");
+    searchInput.type = "text";
+    searchInput.placeholder = t("Search services...");
+    searchInput.autocomplete = "off";
+    searchWrap.appendChild(searchInput);
 
-    const syncBtn = document.createElement("button");
-    syncBtn.type = "button";
-    syncBtn.className = "cbi-button cbi-button-action";
-    syncBtn.textContent = t("Sync with Services Monitor");
-    syncBtn.addEventListener("click", function () {
-      const servicesList = readServicesList();
-      showConfirmDialog(
-        t("Overwrite service list?"),
-        t(
-          "This will replace your current selection with the list from the Services Monitor widget. Continue?",
-        ),
-        t("Overwrite"),
-        function () {
-          writeAppsList(servicesList.slice());
-          close();
-          renderList(document.getElementById("proton-dashboard-apps"), servicesList, {});
-          pollStatuses();
-          showToast(t("Services synced"), "success");
-        },
-      );
-    });
+    // Контейнер списка
+    const listContainer = document.createElement("div");
+    listContainer.className = "proton-apps-settings-list";
 
-    const syncInfo = document.createElement("span");
-    syncInfo.style.cssText = "font-size:0.85rem; color:var(--proton-text-secondary);";
-    syncInfo.textContent = t("Overwrite current list with Services Monitor selection.");
-
-    syncRow.appendChild(syncBtn);
-    syncRow.appendChild(syncInfo);
-
-    // Список чекбоксов
-    const listTitle = document.createElement("div");
-    listTitle.style.cssText = "font-size:0.85rem; font-weight:600; color:var(--proton-text-secondary); margin-bottom:8px;";
-    listTitle.textContent = t("Custom selection");
-
-    const list = document.createElement("div");
-    list.style.cssText = "display:flex; flex-direction:column; gap:4px;";
-
-    const selected = new Set(current);
-
-    available
-      .slice()
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .forEach(function (entry) {
-        const info = api.getServiceInfo(entry.name);
-        const item = document.createElement("label");
-        item.style.cssText =
-          "display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid var(--proton-border); border-radius:8px; cursor:pointer;";
-
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.checked = selected.has(entry.name);
-        cb.dataset.service = entry.name;
-
-        const ic = document.createElement("span");
-        ic.textContent = info.icon || "📦";
-
-        const nm = document.createElement("span");
-        nm.style.cssText = "flex:1; font-size:0.9rem;";
-        nm.textContent = info.displayName || entry.name;
-
-        const installed = document.createElement("span");
-        installed.style.cssText = "font-size:0.75rem; color:var(--proton-muted);";
-        installed.textContent = entry.fromInitd ? "" : t("Not installed");
-
-        item.appendChild(cb);
-        item.appendChild(ic);
-        item.appendChild(nm);
-        item.appendChild(installed);
-
-        cb.addEventListener("change", function () {
-          if (cb.checked) selected.add(entry.name);
-          else selected.delete(entry.name);
-        });
-
-        list.appendChild(item);
-      });
-
-    body.appendChild(syncRow);
-    body.appendChild(listTitle);
-    body.appendChild(list);
-
+    // Кнопки действий
     const actions = document.createElement("div");
     actions.className = "proton-confirm-modal-actions";
 
@@ -705,7 +639,146 @@
     saveBtn.className = "cbi-button cbi-button-positive";
     saveBtn.textContent = t("Save");
 
+    function isDaemon(entry) {
+      const known = window.protonServicesWidget?.knownServices?.[entry.name];
+      // Скрываем скрипты-настройщики (daemon: false)
+      if (known && known.daemon === false) return false;
+      return true;
+    }
+
+    function render(filter) {
+      listContainer.replaceChildren();
+
+      const filterLower = String(filter || "").toLowerCase().trim();
+
+      // Фильтруем + сортируем
+      const filtered = available
+        .filter((entry) => isDaemon(entry))
+        .filter((entry) => {
+          if (!filterLower) return true;
+          const info = api.getServiceInfo(entry.name);
+          const haystack =
+            `${entry.name} ${info.displayName || ""} ${info.description || ""}`.toLowerCase();
+          return haystack.indexOf(filterLower) !== -1;
+        });
+
+      // Группируем по категориям
+      const grouped = new Map();
+      filtered.forEach((entry) => {
+        const info = api.getServiceInfo(entry.name);
+        const cat = info.category || "other";
+        if (!grouped.has(cat)) grouped.set(cat, []);
+        grouped.get(cat).push({ entry, info });
+      });
+
+      // Сортируем категории: network, security, vpn, adblock, system, other
+      const order = ["network", "security", "vpn", "adblock", "system", "other"];
+      const categories = Array.from(grouped.keys()).sort(
+        (a, b) => order.indexOf(a) - order.indexOf(b),
+      );
+
+      if (!categories.length) {
+        const empty = document.createElement("div");
+        empty.className = "proton-apps-settings-empty";
+        empty.textContent = t("No services found");
+        listContainer.appendChild(empty);
+        return;
+      }
+
+      // Иконки категорий (те же, что в services-widget)
+      const catMeta = window.protonServicesWidget?.categories || {};
+      const catLabels = {
+        network: t("Network"),
+        security: t("Security"),
+        vpn: t("VPN"),
+        adblock: t("Ad Blocking"),
+        system: t("System"),
+        other: t("Other"),
+      };
+
+      categories.forEach((cat) => {
+        const header = document.createElement("div");
+        header.className = "proton-apps-settings-category";
+        const icon = catMeta[cat]?.icon || "📦";
+        header.textContent = `${icon} ${catLabels[cat] || cat}`.toUpperCase();
+        listContainer.appendChild(header);
+
+        grouped.get(cat).forEach(({ entry, info }) => {
+          const row = document.createElement("div");
+          row.className = "proton-apps-settings-row";
+
+          const ic = document.createElement("span");
+          ic.className = "proton-apps-settings-icon";
+          ic.textContent = info.icon || "📦";
+
+          const textWrap = document.createElement("div");
+          textWrap.className = "proton-apps-settings-text";
+
+          const nm = document.createElement("div");
+          nm.className = "proton-apps-settings-name";
+          nm.textContent = info.displayName || entry.name;
+
+          const desc = document.createElement("div");
+          desc.className = "proton-apps-settings-desc";
+          desc.textContent = info.description || "";
+
+          textWrap.appendChild(nm);
+          textWrap.appendChild(desc);
+
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "proton-apps-settings-btn";
+
+          const isInstalled = entry.fromInitd === true;
+          const isAdded = current.has(entry.name);
+
+          if (!isInstalled) {
+            btn.textContent = t("Not installed");
+            btn.classList.add("is-unavailable");
+            btn.disabled = true;
+          } else if (isAdded) {
+            btn.textContent = t("Remove");
+            btn.classList.add("is-remove");
+          } else {
+            btn.textContent = "+ " + t("Add");
+            btn.classList.add("is-add");
+          }
+
+          btn.addEventListener("click", function () {
+            if (!isInstalled) return;
+
+            if (current.has(entry.name)) {
+              current.delete(entry.name);
+              btn.textContent = "+ " + t("Add");
+              btn.classList.remove("is-remove");
+              btn.classList.add("is-add");
+            } else {
+              current.add(entry.name);
+              btn.textContent = t("Remove");
+              btn.classList.remove("is-add");
+              btn.classList.add("is-remove");
+            }
+          });
+
+          row.appendChild(ic);
+          row.appendChild(textWrap);
+          row.appendChild(btn);
+          listContainer.appendChild(row);
+        });
+      });
+    }
+
+    render("");
+
+    let searchTimeout;
+    searchInput.addEventListener("input", function () {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => render(searchInput.value), 120);
+    });
+
+    // Close
     function close() {
+      modalOpen = false;
       document.removeEventListener("keydown", escHandler);
       overlay.classList.add("is-closing");
       setTimeout(function () {
@@ -720,7 +793,7 @@
 
     cancelBtn.addEventListener("click", close);
     saveBtn.addEventListener("click", function () {
-      const newList = Array.from(selected).filter((n) => api.isValidServiceName(n));
+      const newList = Array.from(current).filter((n) => api.isValidServiceName(n));
       writeAppsList(newList);
       close();
       const card = document.getElementById("proton-dashboard-apps");
@@ -730,19 +803,22 @@
       }
     });
 
+    overlay.addEventListener("click", function (e) {
+      if (e.target === overlay) close();
+    });
+
     actions.appendChild(cancelBtn);
     actions.appendChild(saveBtn);
 
     modal.appendChild(heading);
     modal.appendChild(body);
+    body.appendChild(searchWrap);
+    body.appendChild(listContainer);
     modal.appendChild(actions);
     overlay.appendChild(modal);
 
-    overlay.addEventListener("click", function (e) {
-      if (e.target === overlay) close();
-    });
-
     document.body.appendChild(overlay);
+    setTimeout(() => searchInput.focus(), 80);
   }
 
   // ---------------------------------------------------------------------------
@@ -750,16 +826,13 @@
   // ---------------------------------------------------------------------------
 
     function start() {
-    if (!document.getElementById("proton-services-widget")) {
-      // Не ждём services-widget: он теперь нужен только как источник API,
-      // а не как видимая карточка. Если он вовсе не создастся,
-      // ProtonServicesApi всё равно создаст его instance через initWidget().
-      // Но для надёжности подождём немного.
-      if (!window.protonServicesWidget) return false;
-    }
-
     const card = ensureCard();
     if (!card) return false;
+
+    if (card.dataset.protonInit === "true") {
+        return true;
+    }
+    card.dataset.protonInit = "true";
 
     const services = readAppsList();
     renderList(card, services, {});
@@ -767,16 +840,15 @@
 
     const settingsBtn = card.querySelector('[data-role="settings"]');
     if (settingsBtn) {
-      settingsBtn.addEventListener("click", openSettingsModal);
+        settingsBtn.addEventListener("click", openSettingsModal);
     }
 
     if (pollTimer) return true;
-
     pollStatuses();
     pollTimer = setInterval(pollStatuses, POLL_INTERVAL);
 
     visibilityHandler = function () {
-      if (!document.hidden) pollStatuses();
+        if (!document.hidden) pollStatuses();
     };
     document.addEventListener("visibilitychange", visibilityHandler);
 

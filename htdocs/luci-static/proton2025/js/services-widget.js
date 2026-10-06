@@ -146,6 +146,7 @@
         this._safeGetItem("proton-services-deep-check") === "true";
       this._initdCache = null;
       this._initdCacheAt = 0;
+	  this._refreshPromise = null;
       this._initdCacheTtlMs = 5 * 60 * 1000; // 5 минут
       this._initActionCache = new Map(); // serviceName -> 'running' | 'status'
       this._mounted = false;
@@ -1267,46 +1268,59 @@
       return [];
     }
 
-    async refreshAvailableServices() {
-      this._appendUiLogLine("Loading available services...");
-      const merged = new Map();
+        async refreshAvailableServices() {
+    if (this._refreshPromise) return this._refreshPromise;
 
-      // Сначала читаем init.d - это даёт нам список реально установленных сервисов
-      const initdServices = await this.discoverServicesFromUbus();
-      const initdSet = new Set(initdServices.map((s) => s.name));
+    this._refreshPromise = (async () => {
+        this._appendUiLogLine("Loading available services...");
 
-      // Логируем для отладки
-      const initdCount = initdSet.size;
-      if (initdCount === 0) {
-        this._appendUiLogLine("Warning: init.d list empty");
-      } else {
-        this._appendUiLogLine(`Init.d config size: ${initdCount}`);
-      }
-
-      // Известные сервисы (добавляем fromInitd если найден в init.d)
-      Object.keys(this.knownServices).forEach((name) => {
-        if (this._isValidServiceName(name)) {
-          merged.set(name, { name, fromInitd: initdSet.has(name) });
+        // Пытаемся получить список сервисов с несколькими попытками,
+        // если rc.list вернул пустой результат (гонка с ACL/rpcd).
+        let initdServices = [];
+        for (let attempt = 0; attempt < 3; attempt++) {
+            initdServices = await this.discoverServicesFromUbus();
+            if (Array.isArray(initdServices) && initdServices.length > 0) break;
+            this._appendUiLogLine(`Retry init.d discovery (${attempt + 1}/3)...`);
+            await new Promise((r) => setTimeout(r, 500));
         }
-      });
 
-      // Из меню (добавляем fromInitd если найден в init.d)
-      this.discoverServicesFromMenu().forEach((s) => {
-        if (!merged.has(s.name)) {
-          merged.set(s.name, { ...s, fromInitd: initdSet.has(s.name) });
-        }
-      });
+        const initdSet = new Set(initdServices.map((s) => s.name));
 
-      // Из init.d - добавляем остальные (которых нет в known/menu)
-      initdServices.forEach((s) => {
-        if (!merged.has(s.name)) merged.set(s.name, s);
-      });
+        this._appendUiLogLine(`Init.d config size: ${initdSet.size}`);
 
-      this.availableServices = Array.from(merged.values());
-      this._appendUiLogLine(
-        `Services loaded: ${this.availableServices.length}`,
-      );
+        const merged = new Map();
+
+        Object.keys(this.knownServices).forEach((name) => {
+            if (this._isValidServiceName(name)) {
+                merged.set(name, { name, fromInitd: initdSet.has(name) });
+            }
+        });
+
+        this.discoverServicesFromMenu().forEach((s) => {
+            if (!merged.has(s.name)) {
+                merged.set(s.name, { ...s, fromInitd: initdSet.has(s.name) });
+            }
+        });
+
+        initdServices.forEach((s) => {
+            if (!merged.has(s.name)) {
+                // ВАЖНО: fromInitd: true здесь обязательно
+                merged.set(s.name, { name: s.name, fromInitd: true });
+            }
+        });
+
+        this.availableServices = Array.from(merged.values());
+        this._appendUiLogLine(`Services loaded: ${this.availableServices.length}`);
+    })();
+
+    try {
+        await this._refreshPromise;
+    } finally {
+        this._refreshPromise = null;
     }
+
+    return this.availableServices;
+}
 
     // ==================== Проверка статуса ====================
 
