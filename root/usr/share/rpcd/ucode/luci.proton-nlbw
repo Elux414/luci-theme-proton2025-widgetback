@@ -1,0 +1,132 @@
+// Proton2025 Theme - nlbwmon Traffic RPC Module
+// Copyright 2025-2026 ChesterGoodiny
+// Licensed under the Apache License, Version 2.0
+// See LICENSE and NOTICE for details.
+// Reads per-host traffic from nlbwmon via `nlbw -c json -g mac`.
+
+'use strict';
+
+import { popen } from 'fs';
+
+const NLBW_BIN = '/usr/sbin/nlbw';
+
+function runNlbw(args) {
+	let cmd = NLBW_BIN;
+	for (let a in args)
+		cmd += ' ' + a;
+
+	let proc = popen(cmd, 'r');
+	if (!proc) return null;
+
+	let output = proc.read('all');
+	proc.close();
+
+	return output ? trim(output) : null;
+}
+
+function parseJsonSafe(text) {
+	if (!text) return null;
+	try {
+		return json(text);
+	} catch (e) {
+		return null;
+	}
+}
+
+function getHostTraffic() {
+	let raw = runNlbw(['-c', 'json', '-g', 'mac']);
+	let parsed = parseJsonSafe(raw);
+
+	if (!parsed || !parsed.columns || !parsed.data) {
+		return {
+			success: false,
+			error: 'nlbw returned unexpected output',
+			raw_length: length(raw ?? ''),
+			raw_first_200: substr(raw ?? '', 0, 200),
+			hosts: {},
+			timestamp: time()
+		};
+	}
+
+	let idx = {};
+	for (let i = 0; i < length(parsed.columns); i++)
+		idx[parsed.columns[i]] = i;
+
+	if (idx.mac == null || idx.rx_bytes == null || idx.tx_bytes == null) {
+		return {
+			success: false,
+			error: 'nlbw columns missing required fields',
+			columns: parsed.columns,
+			hosts: {},
+			timestamp: time()
+		};
+	}
+
+	let hosts = {};
+
+	for (let row in parsed.data) {
+		if (!row || type(row) != 'array') continue;
+
+		let mac = lc(trim('' + (row[idx.mac] ?? '')));
+		if (!mac || mac == '00:00:00:00:00:00') continue;
+
+		hosts[mac] = {
+			mac: mac,
+			conns: +(row[idx.conns] ?? 0),
+			rx_bytes: +(row[idx.rx_bytes] ?? 0),
+			rx_pkts: +(row[idx.rx_pkts] ?? 0),
+			tx_bytes: +(row[idx.tx_bytes] ?? 0),
+			tx_pkts: +(row[idx.tx_pkts] ?? 0)
+		};
+	}
+
+	return {
+		success: true,
+		hosts: hosts,
+		count: length(keys(hosts)),
+		timestamp: time()
+	};
+}
+
+function isNlbwAvailable() {
+	let raw = runNlbw(['-c', 'json', '-g', 'mac']);
+	if (!raw) return false;
+	let parsed = parseJsonSafe(raw);
+	return parsed != null && parsed.columns != null;
+}
+
+function debugNlbw() {
+	let proc = popen(NLBW_BIN + ' -c json -g mac', 'r');
+	if (!proc) return { error: 'popen returned null' };
+
+	let output = proc.read('all');
+	let exitCode = proc.close();
+
+	return {
+		exit_code: exitCode,
+		output_length: length(output ?? ''),
+		output_first_500: substr(output ?? '', 0, 500),
+		output_last_50: length(output ?? '') > 50 ? substr(output, length(output) - 50) : '',
+		has_json_function: type(json) == 'function'
+	};
+}
+
+const methods = {
+	getHostTraffic: {
+		call: function() {
+			return getHostTraffic();
+		}
+	},
+	isAvailable: {
+		call: function() {
+			return { available: isNlbwAvailable() };
+		}
+	},
+	debug: {
+		call: function() {
+			return debugNlbw();
+		}
+	}
+};
+
+return { 'luci.proton-nlbw': methods };

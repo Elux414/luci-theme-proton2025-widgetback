@@ -3,10 +3,14 @@
 // Licensed under the Apache License, Version 2.0
 // See LICENSE and NOTICE for details.
 // Reads lightweight system metadata for Overview enhancements
+// and live CPU load for the Keenetic-style System dashboard card.
 
 'use strict';
 
 import { readfile, lsdir } from 'fs';
+import { cursor } from 'uci';
+
+// --- Package / release helpers (existing) ----------------------------------
 
 function readFileContent(path) {
 	let content = readfile(path);
@@ -127,22 +131,155 @@ function findPackageFeedUrl(packageArch, releaseVersion) {
 	return buildFallbackPackageFeedUrl(packageArch, releaseVersion);
 }
 
+function getReleaseDescription(release) {
+	return parseReleaseValue(release, 'DISTRIB_DESCRIPTION');
+}
+
+function getReleaseVersion(release) {
+	return parseReleaseValue(release, 'DISTRIB_RELEASE');
+}
+
+// Model from /tmp/sysinfo/model, falling back to system.board via RPC in JS.
+function getModelFromSysinfo() {
+	return readFileContent('/tmp/sysinfo/model');
+}
+
+function getTimezoneInfo() {
+	let uci = cursor();
+	uci.load('system');
+
+	let section = uci.get('system', '@system[0]');
+	if (!section)
+		return { timezone: '', zonename: '' };
+
+	return {
+		timezone: uci.get('system', '@system[0]', 'timezone') ?? '',
+		zonename: uci.get('system', '@system[0]', 'zonename') ?? ''
+	};
+}
+
 function getSystemInfo() {
 	let release = readFileContent('/etc/openwrt_release') || '';
 	let packageArch = parseReleaseValue(release, 'DISTRIB_ARCH');
-	let releaseVersion = parseReleaseValue(release, 'DISTRIB_RELEASE');
+	let releaseVersion = getReleaseVersion(release);
+	let tz = getTimezoneInfo();
 
 	return {
 		package_arch: packageArch,
 		target: parseReleaseValue(release, 'DISTRIB_TARGET'),
-		package_feed_url: findPackageFeedUrl(packageArch, releaseVersion)
+		release: releaseVersion,
+		description: getReleaseDescription(release),
+		model: getModelFromSysinfo(),
+		package_feed_url: findPackageFeedUrl(packageArch, releaseVersion),
+		timezone: tz.timezone,
+		zonename: tz.zonename
 	};
+}
+
+// --- CPU load --------------------------------------------------------------
+//
+// rpcd keeps this module loaded while the daemon is running, so module-level
+// state survives between RPC calls. That is exactly what we need to compute
+// the CPU load percentage as a delta of /proc/stat counters.
+//
+// /proc/stat line 1 looks like:
+//   cpu  user nice system idle iowait irq softirq steal guest guest_nice
+//
+// We track the previous (total, idle) pair and return
+//   usage = (Δtotal - Δidle) / Δtotal * 100
+//
+// The very first call has no baseline, so it returns usage=null and stores
+// the snapshot; the next call (1-3 s later) yields a real number.
+
+let prevCpuSnapshot = null;
+
+function readCpuSnapshot() {
+	let stat = readfile('/proc/stat');
+	if (!stat) return null;
+
+	let firstLine = null;
+	for (let line in split(stat, '\n')) {
+		if (index(line, 'cpu ') == 0) {
+			firstLine = line;
+			break;
+		}
+	}
+	if (!firstLine) return null;
+
+	let parts = split(trim(firstLine), /[ \t]+/);
+	// parts[0] = "cpu", parts[1..] = numeric fields
+	let values = [];
+	let total = 0;
+
+	for (let i = 1; i < length(parts); i++) {
+		let v = +parts[i];
+		if (v != v) continue; // NaN guard
+		push(values, v);
+		total += v;
+	}
+
+	if (length(values) < 4) return null;
+
+	// idle = idle + iowait (indices 3 and 4 in the original list, i.e. 3 and 4
+	// after "cpu").
+	let idle = (values[3] ?? 0) + (values[4] ?? 0);
+
+	return { total: total, idle: idle };
+}
+
+function countCpuCores() {
+	let stat = readfile('/proc/stat');
+	if (!stat) return 0;
+
+	let cores = 0;
+	for (let line in split(stat, '\n')) {
+		if (match(line, /^cpu[0-9]+[ \t]/))
+			cores++;
+	}
+	return cores;
+}
+
+function getCpuUsage() {
+	let snapshot = readCpuSnapshot();
+
+	if (!snapshot) {
+		return { usage: null, cores: countCpuCores() };
+	}
+
+	let cores = countCpuCores();
+
+	if (prevCpuSnapshot == null) {
+		prevCpuSnapshot = snapshot;
+		return { usage: null, cores: cores };
+	}
+
+	let dTotal = snapshot.total - prevCpuSnapshot.total;
+	let dIdle = snapshot.idle - prevCpuSnapshot.idle;
+
+	prevCpuSnapshot = snapshot;
+
+	if (dTotal <= 0) {
+		return { usage: 0, cores: cores };
+	}
+
+	let usage = ((dTotal - dIdle) / dTotal) * 100;
+
+	if (usage < 0) usage = 0;
+	if (usage > 100) usage = 100;
+
+	// Round to 1 decimal for a compact UI.
+	return { usage: int(usage * 10) / 10, cores: cores };
 }
 
 const methods = {
 	getSystemInfo: {
 		call: function() {
 			return getSystemInfo();
+		}
+	},
+	getCpuUsage: {
+		call: function() {
+			return getCpuUsage();
 		}
 	}
 };

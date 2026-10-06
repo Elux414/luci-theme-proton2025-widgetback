@@ -208,3 +208,90 @@
     }
 }
 
+/* Proton2025 Dashboard - System widget */
+
+.proton-dashboard-system {
+    margin-top: 14px;
+    overflow: hidden;
+    padding: 20px;
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius);
+    background: var(--proton-bg-secondary);
+    box-shadow: var(--proton-shadow-sm);
+}
+
+.proton-dashboard-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.proton-dashboard-card-title {
+    margin: 0;
+    color: var(--proton-text-primary);
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.proton-dashboard-card-subtitle {
+    margin-top: 4px;
+    color: var(--proton-text-secondary);
+    font-size: 0.82rem;
+}
+
+.proton-dashboard-system-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.proton-dashboard-system-metric {
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid var(--proton-border);
+    border-radius: calc(var(--proton-radius) * 0.75);
+    background: rgba(var(--proton-accent-rgb), 0.025);
+}
+
+.proton-dashboard-system-label {
+    display: block;
+    color: var(--proton-text-secondary);
+    font-size: 0.78rem;
+}
+
+.proton-dashboard-system-metric strong {
+    display: block;
+    margin-top: 5px;
+    color: var(--proton-text-primary);
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.proton-dashboard-system-detail {
+    display: block;
+    margin-top: 3px;
+    color: var(--proton-text-secondary);
+    font-size: 0.72rem;
+}
+
+@media (max-width: 800px) {
+    .proton-dashboard-system-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 600px) {
+    .proton-dashboard-system {
+        padding: 16px;
+    }
+
+    .proton-dashboard-system-grid {
+        gap: 8px;
+    }
+
+    .proton-dashboard-system-metric {
+        padding: 12px;
+    }
+}
