@@ -2,12 +2,12 @@
 // Copyright 2025-2026 ChesterGoodiny
 // Licensed under the Apache License, Version 2.0
 // See LICENSE and NOTICE for details.
-// Reads lightweight system metadata for Overview enhancements
-// and live CPU load for the Keenetic-style System dashboard card.
+// Reads lightweight system metadata for Overview enhancements,
+// live CPU load, and per-service info/logs for the Applications widget.
 
 'use strict';
 
-import { readfile, lsdir } from 'fs';
+import { readfile, lsdir, popen } from 'fs';
 import { cursor } from 'uci';
 
 // --- Package / release helpers (existing) ----------------------------------
@@ -139,7 +139,6 @@ function getReleaseVersion(release) {
 	return parseReleaseValue(release, 'DISTRIB_RELEASE');
 }
 
-// Model from /tmp/sysinfo/model, falling back to system.board via RPC in JS.
 function getModelFromSysinfo() {
 	return readFileContent('/tmp/sysinfo/model');
 }
@@ -148,8 +147,7 @@ function getTimezoneInfo() {
 	let uci = cursor();
 	uci.load('system');
 
-	let section = uci.get('system', '@system[0]');
-	if (!section)
+	if (!uci.get('system', '@system[0]'))
 		return { timezone: '', zonename: '' };
 
 	return {
@@ -176,20 +174,7 @@ function getSystemInfo() {
 	};
 }
 
-// --- CPU load --------------------------------------------------------------
-//
-// rpcd keeps this module loaded while the daemon is running, so module-level
-// state survives between RPC calls. That is exactly what we need to compute
-// the CPU load percentage as a delta of /proc/stat counters.
-//
-// /proc/stat line 1 looks like:
-//   cpu  user nice system idle iowait irq softirq steal guest guest_nice
-//
-// We track the previous (total, idle) pair and return
-//   usage = (Δtotal - Δidle) / Δtotal * 100
-//
-// The very first call has no baseline, so it returns usage=null and stores
-// the snapshot; the next call (1-3 s later) yields a real number.
+// --- CPU load (existing) ---------------------------------------------------
 
 let prevCpuSnapshot = null;
 
@@ -207,21 +192,18 @@ function readCpuSnapshot() {
 	if (!firstLine) return null;
 
 	let parts = split(trim(firstLine), /[ \t]+/);
-	// parts[0] = "cpu", parts[1..] = numeric fields
 	let values = [];
 	let total = 0;
 
 	for (let i = 1; i < length(parts); i++) {
 		let v = +parts[i];
-		if (v != v) continue; // NaN guard
+		if (v != v) continue;
 		push(values, v);
 		total += v;
 	}
 
 	if (length(values) < 4) return null;
 
-	// idle = idle + iowait (indices 3 and 4 in the original list, i.e. 3 and 4
-	// after "cpu").
 	let idle = (values[3] ?? 0) + (values[4] ?? 0);
 
 	return { total: total, idle: idle };
@@ -267,8 +249,152 @@ function getCpuUsage() {
 	if (usage < 0) usage = 0;
 	if (usage > 100) usage = 100;
 
-	// Round to 1 decimal for a compact UI.
 	return { usage: int(usage * 10) / 10, cores: cores };
+}
+
+// --- Service info (uptime, pid) --------------------------------------------
+//
+// Uptime и pid берём из /proc/<pid>/stat. Формула:
+//   process_uptime = boot_time - (start_time / HZ)
+// где:
+//   boot_time  = первое число из /proc/uptime (в секундах)
+//   start_time = 22-е поле /proc/<pid>/stat (в jiffies, индекс 19 после comm)
+//   HZ         = 100 (тик ядра OpenWrt)
+
+const HZ = 100;
+const PROCESS_NAME_MAP = {
+	ubus: 'ubusd',
+	rpcd: 'rpcd',
+	sysntpd: 'ntpd'
+};
+
+function getBootTime() {
+	let content = readFileContent('/proc/uptime');
+	if (!content) return null;
+	let parts = split(content, ' ');
+	let uptime = +(parts[0] ?? 0);
+	if (uptime != uptime) return null;
+	return uptime;
+}
+
+function getPid(serviceName) {
+	let processName = PROCESS_NAME_MAP[serviceName] ?? serviceName;
+	let proc = popen('/bin/pidof ' + processName, 'r');
+	if (!proc) return null;
+
+	let output = trim(proc.read('all') ?? '');
+	proc.close();
+
+	if (!output) return null;
+
+	let parts = split(output, ' ');
+	let pid = +(parts[0] ?? 0);
+	if (pid != pid || pid <= 0) return null;
+
+	return pid;
+}
+
+function getProcessStartTime(pid) {
+	let content = readFileContent('/proc/' + pid + '/stat');
+	if (!content) return null;
+
+	let lastParen = rindex(content, ')');
+	if (lastParen < 0) return null;
+
+	let tail = substr(content, lastParen + 2);
+	let fields = split(tail, ' ');
+
+	if (length(fields) < 20) return null;
+
+	let startTime = +(fields[19] ?? 0);
+	if (startTime != startTime) return null;
+
+	return startTime;
+}
+
+function getServiceInfo(req) {
+	let name = req.args?.name;
+	if (!name || type(name) != 'string') {
+		return { success: false, error: 'Missing service name' };
+	}
+
+	if (match(name, /^[A-Za-z0-9_-]{1,64}$/) == null) {
+		return { success: false, error: 'Invalid service name' };
+	}
+
+	let pid = getPid(name);
+	if (!pid) {
+		return {
+			success: true,
+			name: name,
+			pid: null,
+			uptime: null,
+			running: false
+		};
+	}
+
+	let bootTime = getBootTime();
+	let startTime = getProcessStartTime(pid);
+
+	let uptime = null;
+	if (bootTime != null && startTime != null) {
+		uptime = bootTime - (startTime / HZ);
+		if (uptime < 0) uptime = 0;
+	}
+
+	return {
+		success: true,
+		name: name,
+		pid: pid,
+		uptime: uptime,
+		running: true
+	};
+}
+
+// --- Service log -----------------------------------------------------------
+//
+// Используем `logread -l 200 -e <name>` — 200 строк с запасом,
+// затем фильтруем по имени процесса в квадратных скобках через regexp().
+
+function getServiceLog(req) {
+	let name = req.args?.name;
+	let lines = +(req.args?.lines ?? 20);
+
+	if (!name || type(name) != 'string') {
+		return { success: false, error: 'Missing service name', lines: [] };
+	}
+	if (match(name, /^[A-Za-z0-9_-]{1,64}$/) == null) {
+		return { success: false, error: 'Invalid service name', lines: [] };
+	}
+	if (lines < 1 || lines > 200) lines = 20;
+
+	let proc = popen('/sbin/logread -l 200 -e ' + name, 'r');
+	if (!proc) {
+		return { success: false, error: 'logread unavailable', lines: [] };
+	}
+
+	let output = proc.read('all') ?? '';
+	proc.close();
+
+	if (!output) return { success: true, lines: [] };
+
+	let pattern = name + "\\[\\d+\\]:";
+	let re = regexp(pattern);
+	let result = [];
+
+	for (let line in split(output, '\n')) {
+		let trimmed = trim(line);
+		if (!trimmed) continue;
+		if (match(trimmed, re) == null) continue;
+		push(result, trimmed);
+	}
+
+	let count = length(result);
+	if (count > lines) {
+		result = slice(result, count - lines);
+	}
+
+	return { success: true, lines: result };
 }
 
 const methods = {
@@ -280,6 +406,18 @@ const methods = {
 	getCpuUsage: {
 		call: function() {
 			return getCpuUsage();
+		}
+	},
+	getServiceInfo: {
+		args: { name: 'name' },
+		call: function(req) {
+			return getServiceInfo(req);
+		}
+	},
+	getServiceLog: {
+		args: { name: 'name', lines: 0 },
+		call: function(req) {
+			return getServiceLog(req);
 		}
 	}
 };

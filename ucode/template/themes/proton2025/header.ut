@@ -374,8 +374,6 @@ body {
 <script src="{{ media }}/js/dashboard/dashboard.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/dashboard/dashboard-system.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/dashboard/dashboard-apps.js?v={{ __pv }}" defer></script>
-<script src="{{ media }}/js/dashboard/dashboard-system.js?v={{ __pv }}" defer></script>
-<script src="{{ media }}/js/dashboard/dashboard-apps.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/dashboard/dashboard-hosts.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/dashboard/dashboard-layout.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/custom-pages.js?v={{ __pv }}" defer></script>

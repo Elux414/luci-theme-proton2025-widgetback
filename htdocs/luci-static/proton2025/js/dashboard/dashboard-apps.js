@@ -5,14 +5,11 @@
  * See LICENSE and NOTICE for details.
  *
  * KeeneticOS-style applications panel:
- *   - Toggle start/stop for init.d services
- *   - Optimistic UI + status poll with timeout
- *   - Critical-service confirmation before stop
- *   - Sync with Services Monitor widget or custom selection
- *
- * Data sources:
- *   - window.ProtonServicesApi (exposed by services-widget.js)
- *   - rc.init (ubus, via luci.rpc)
+ *   - Compact chip grid (was: list of rows)
+ *   - Click a chip → expandable detail panel below
+ *   - Detail shows: description, uptime, pid, logs
+ *   - Actions: Start / Stop / Restart
+ *   - Settings modal (unchanged) — add/remove services
  */
 
 (function () {
@@ -23,6 +20,7 @@
   const TOGGLE_POLL_MS = 500;
   const STORAGE_KEY = "proton-apps-widget";
   const SERVICES_STORAGE_KEY = "proton-services-widget";
+  const LOG_LINES_DEFAULT = 20;
 
   const CRITICAL_SERVICES = new Set([
     "network",
@@ -41,7 +39,10 @@
   let mounted = false;
   let servicesGridWrapObserver = null;
   let rcInitRpc = null;
+  let callGetServiceInfo = null;
+  let callGetServiceLog = null;
   let busyServices = new Set();
+  let selectedService = null;
 
   // ---------------------------------------------------------------------------
   // i18n
@@ -72,6 +73,24 @@
       });
     }
 
+    if (!callGetServiceInfo) {
+      callGetServiceInfo = L.rpc.declare({
+        object: "luci.proton-system",
+        method: "getServiceInfo",
+        params: ["name"],
+        expect: { "": {} },
+      });
+    }
+
+    if (!callGetServiceLog) {
+      callGetServiceLog = L.rpc.declare({
+        object: "luci.proton-system",
+        method: "getServiceLog",
+        params: ["name", "lines"],
+        expect: { "": {} },
+      });
+    }
+
     return true;
   }
 
@@ -80,17 +99,24 @@
     return L.resolveDefault(rcInitRpc(name, action), null);
   }
 
+  async function fetchServiceInfo(name) {
+    if (!ensureRpc()) return null;
+    return L.resolveDefault(callGetServiceInfo(name), null);
+  }
+
+  async function fetchServiceLog(name, lines) {
+    if (!ensureRpc()) return null;
+    return L.resolveDefault(callGetServiceLog(name, lines || LOG_LINES_DEFAULT), null);
+  }
+
   // ---------------------------------------------------------------------------
-  // Storage helpers
+  // Storage
   // ---------------------------------------------------------------------------
 
   function readAppsList() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw === null) {
-        // Первый запуск — наследуем список из services-widget
-        return readServicesList();
-      }
+      if (raw === null) return readServicesList();
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
@@ -119,7 +145,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Status helpers
+  // Helpers
   // ---------------------------------------------------------------------------
 
   function getStatusKey(status) {
@@ -133,13 +159,70 @@
   }
 
   function getStatusFromApi() {
-    const api = window.ProtonServicesApi;
-    if (!api) return null;
-    return api;
+    return window.ProtonServicesApi || null;
   }
 
+  function formatUptime(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return "—";
+    const total = Math.floor(seconds);
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m ${secs}s`;
+    return `${secs}s`;
+  }
+  
+  function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, function (c) {
+    return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+  });
+}
+
+function renderLogLine(rawLine) {
+  const line = String(rawLine || "");
+  if (!line) return "";
+
+  // Паттерн logread (busybox) с опциональной датой в начале:
+  // "Wed Oct  7 09:18:31 2026 authpriv.info dropbear[1854]: message"
+  // либо "Jan  1 00:00:00 hostname daemon.warn proc[123]: message"
+  const m = line.match(
+    /^(\S{3}\s+\S{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}(?:\s+\d{4})?)\s+([a-z][a-z0-9]+\.(?:emerg|alert|crit|err|warn|warning|notice|info|debug))\s+([^\s:]+(?:\[\d+\])?):\s*(.*)$/i
+  );
+
+  if (!m) {
+    // Не разобрали — вернём как есть
+    return '<span class="proton-log-msg">' + escapeHtml(line) + "</span>\n";
+  }
+
+  const ts = m[1];
+  const lvl = m[2];
+  const proc = m[3];
+  const msg = m[4];
+
+  const lvlLower = lvl.split(".")[1].toLowerCase();
+  const lvlClass = "proton-log-lvl-" + (
+    lvlLower === "warn" || lvlLower === "warning" ? "warning" :
+    lvlLower === "err" || lvlLower === "error" ? "error" :
+    lvlLower === "crit" || lvlLower === "emerg" || lvlLower === "alert" ? "critical" :
+    lvlLower === "notice" ? "notice" :
+    lvlLower === "debug" ? "debug" :
+    "info"
+  );
+
+  return (
+    '<span class="proton-log-ts">' + escapeHtml(ts) + "</span> " +
+    '<span class="proton-log-lvl ' + lvlClass + '">' + escapeHtml(lvl) + "</span> " +
+    '<span class="proton-log-proc">' + escapeHtml(proc) + ":</span> " +
+    '<span class="proton-log-msg">' + escapeHtml(msg) + "</span>\n"
+  );
+}
+
   // ---------------------------------------------------------------------------
-  // Confirm modal for critical services
+  // Confirm dialog
   // ---------------------------------------------------------------------------
 
   function showConfirmDialog(title, message, confirmLabel, onConfirm) {
@@ -202,7 +285,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Toast for actions
+  // Toast
   // ---------------------------------------------------------------------------
 
   function showToast(message, type) {
@@ -273,7 +356,8 @@
       </div>
 
       <div class="proton-dashboard-card-body">
-        <ul class="proton-dashboard-apps-list" data-role="list" role="list"></ul>
+        <div class="proton-apps-grid" data-role="grid" role="list"></div>
+        <div class="proton-apps-detail-slot" data-role="detail-slot"></div>
       </div>
 
       <div class="proton-dashboard-card-footer">
@@ -288,158 +372,345 @@
 
     mounted = true;
     return card;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chip rendering
+  // ---------------------------------------------------------------------------
+
+  function createChip(name, info, status) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "proton-apps-chip";
+    chip.dataset.service = name;
+    chip.dataset.status = status;
+
+    if (selectedService === name) chip.classList.add("active");
+
+    const icon = document.createElement("span");
+    icon.className = "proton-apps-chip-icon";
+    icon.textContent = info.icon || "📦";
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "proton-apps-chip-name";
+    nameEl.textContent = info.displayName || name;
+
+    const dot = document.createElement("span");
+    dot.className = "proton-apps-chip-dot";
+    dot.dataset.status = status;
+
+    chip.appendChild(icon);
+    chip.appendChild(nameEl);
+    chip.appendChild(dot);
+
+    chip.addEventListener("click", function () {
+      toggleServiceDetail(name);
+    });
+
+    return chip;
+  }
+
+  function renderChips(card, services, statuses) {
+    const grid = card.querySelector('[data-role="grid"]');
+    if (!grid) return;
+
+    const fragment = document.createDocumentFragment();
+
+    if (!services.length) {
+        const empty = document.createElement("div");
+        empty.className = "proton-dashboard-apps-empty";
+        empty.textContent = t("No applications selected");
+        fragment.appendChild(empty);
+        grid.replaceChildren(fragment);
+        return;
+    }
+
+    const api = getStatusFromApi();
+    const statusOrder = { running: 0, stopped: 1, unknown: 2, error: 2, "not-installed": 3 };
+
+    const sorted = services.slice().sort(function (a, b) {
+        const sa = statusOrder[statuses[a]] ?? 9;
+        const sb = statusOrder[statuses[b]] ?? 9;
+        if (sa !== sb) return sa - sb;
+        const ia = api ? api.getServiceInfo(a) : { displayName: a };
+        const ib = api ? api.getServiceInfo(b) : { displayName: b };
+        return (ia.displayName || a).localeCompare(ib.displayName || b);
+    });
+
+    sorted.forEach(function (name) {
+        const info = api ? api.getServiceInfo(name) : {
+            name: name,
+            displayName: name,
+            icon: "📦",
+            category: "other",
+        };
+        const status = statuses[name] || "unknown";
+        fragment.appendChild(createChip(name, info, status));
+    });
+
+    grid.replaceChildren(fragment);
 }
 
   // ---------------------------------------------------------------------------
-  // Row rendering
+  // Detail panel
   // ---------------------------------------------------------------------------
 
-  function createRow(name, info, status) {
-    const row = document.createElement("li");
-    row.className = "proton-dashboard-apps-row";
-    row.dataset.service = name;
-    row.dataset.state = status;
+  function closeServiceDetail() {
+    selectedService = null;
+    const card = document.getElementById("proton-dashboard-apps");
+    if (!card) return;
+    const slot = card.querySelector('[data-role="detail-slot"]');
+    if (slot) slot.replaceChildren();
+    card.querySelectorAll(".proton-apps-chip.active").forEach(function (chip) {
+      chip.classList.remove("active");
+    });
+  }
+
+  async function toggleServiceDetail(name) {
+    if (selectedService === name) {
+      closeServiceDetail();
+      return;
+    }
+
+    selectedService = name;
+
+    const card = document.getElementById("proton-dashboard-apps");
+    if (!card) return;
+
+    card.querySelectorAll(".proton-apps-chip").forEach(function (chip) {
+      chip.classList.toggle("active", chip.dataset.service === name);
+    });
+
+    const slot = card.querySelector('[data-role="detail-slot"]');
+    if (!slot) return;
+
+    slot.replaceChildren();
+    const detail = await buildServiceDetail(name);
+    if (detail) slot.appendChild(detail);
+  }
+
+  async function buildServiceDetail(name) {
+    const api = getStatusFromApi();
+    const info = api ? api.getServiceInfo(name) : {
+      name: name,
+      displayName: name,
+      description: "",
+      icon: "📦",
+    };
+
+    const status = api ? await api.checkStatus(name) : "unknown";
+
+    // Контейнер
+    const box = document.createElement("div");
+    box.className = "proton-apps-detail";
+    box.dataset.service = name;
+
+    // Header
+    const header = document.createElement("div");
+    header.className = "proton-apps-detail-header";
 
     const icon = document.createElement("span");
-    icon.className = "proton-dashboard-apps-icon";
+    icon.className = "proton-apps-detail-icon";
     icon.textContent = info.icon || "📦";
 
-    const infoBlock = document.createElement("div");
-    infoBlock.className = "proton-dashboard-apps-info";
+    const text = document.createElement("div");
+    text.className = "proton-apps-detail-text";
 
-    const nameEl = document.createElement("span");
-    nameEl.className = "proton-dashboard-apps-name";
-    nameEl.textContent = info.displayName || name;
+    const nameRow = document.createElement("div");
+    nameRow.className = "proton-apps-detail-name";
 
-    const metaEl = document.createElement("span");
-    metaEl.className = "proton-dashboard-apps-meta";
+    const nameText = document.createElement("span");
+    nameText.textContent = info.displayName || name;
 
-    const dot = document.createElement("span");
-    dot.className = "proton-dashboard-apps-status-dot";
-    dot.dataset.state = status;
+    const statusBadge = document.createElement("span");
+    statusBadge.className = "proton-apps-detail-status";
+    statusBadge.dataset.status = status;
+    statusBadge.textContent = t(getStatusKey(status));
 
-    const statusText = document.createElement("span");
-    statusText.className = "proton-dashboard-apps-status-text";
-    statusText.textContent = t(getStatusKey(status));
+    nameRow.appendChild(nameText);
+    nameRow.appendChild(statusBadge);
 
-    metaEl.appendChild(dot);
-    metaEl.appendChild(statusText);
+    const desc = document.createElement("div");
+    desc.className = "proton-apps-detail-desc";
+    desc.textContent = info.description || "";
 
-    infoBlock.appendChild(nameEl);
-    infoBlock.appendChild(metaEl);
+    text.appendChild(nameRow);
+    text.appendChild(desc);
 
-    const toggleWrap = document.createElement("label");
-    toggleWrap.className = "proton-dashboard-apps-toggle";
+    header.appendChild(icon);
+    header.appendChild(text);
 
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = status === "running";
-    input.disabled = status === "not-installed" || status === "unknown";
+    // Meta (uptime, pid) — подгружаем асинхронно
+    const meta = document.createElement("div");
+    meta.className = "proton-apps-detail-meta";
 
-    const slider = document.createElement("span");
-    slider.className = "proton-dashboard-apps-toggle-slider";
+    const metaUptime = document.createElement("span");
+    metaUptime.className = "proton-apps-detail-meta-item";
+    metaUptime.innerHTML = `<strong>${t("Uptime")}:</strong><span data-role="uptime">…</span>`;
 
-    toggleWrap.appendChild(input);
-    toggleWrap.appendChild(slider);
+    const metaPid = document.createElement("span");
+    metaPid.className = "proton-apps-detail-meta-item";
+    metaPid.innerHTML = `<strong>PID:</strong><span data-role="pid">…</span>`;
 
-    input.addEventListener("change", function () {
-      if (busyServices.has(name)) {
-        input.checked = !input.checked;
-        return;
-      }
-      if (input.checked) {
-        doStart(name, input, row);
-      } else {
-        // Хотим stop — если критический, спросить подтверждение
-        if (CRITICAL_SERVICES.has(name)) {
-          showConfirmDialog(
-            t("Stop service?"),
-            t(
-              'Are you sure you want to stop the "{name}" service? This may disrupt network connectivity.',
-            ).replace("{name}", info.displayName || name),
-            t("Stop"),
-            function () {
-              doStop(name, input, row);
-            },
-          );
-          // откатываем UI до подтверждения
-          input.checked = true;
-        } else {
-          doStop(name, input, row);
+    meta.appendChild(metaUptime);
+    meta.appendChild(metaPid);
+
+    // Actions
+    const actions = document.createElement("div");
+    actions.className = "proton-apps-detail-actions";
+
+    const isRunning = status === "running";
+    const isInstalled = status !== "not-installed";
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.type = "button";
+    toggleBtn.className = isRunning ? "cbi-button cbi-button-negative" : "cbi-button cbi-button-positive";
+    toggleBtn.textContent = isRunning ? t("Stop") : t("Start");
+    toggleBtn.disabled = !isInstalled;
+
+    const restartBtn = document.createElement("button");
+    restartBtn.type = "button";
+    restartBtn.className = "cbi-button cbi-button-neutral";
+    restartBtn.textContent = t("Restart");
+    restartBtn.disabled = !isInstalled || !isRunning;
+
+    actions.appendChild(toggleBtn);
+    actions.appendChild(restartBtn);
+
+    // Log toggle
+    const logToggleWrap = document.createElement("div");
+    logToggleWrap.className = "proton-apps-detail-log-toggle";
+
+    const logBtn = document.createElement("button");
+    logBtn.type = "button";
+    logBtn.textContent = "📄 " + t("Show logs");
+    logToggleWrap.appendChild(logBtn);
+
+    const logBox = document.createElement("div");
+    logBox.className = "proton-apps-detail-logs";
+    logBox.style.display = "none";
+    logBox.textContent = t("Loading...");
+
+    let logLoaded = false;
+    let logVisible = false;
+
+    logBtn.addEventListener("click", async function () {
+      logVisible = !logVisible;
+      logBox.style.display = logVisible ? "" : "none";
+      logBtn.textContent = (logVisible ? "▲ " + t("Hide logs") : "📄 " + t("Show logs"));
+
+      if (!logLoaded && logVisible) {
+        logLoaded = true;
+        logBox.textContent = t("Loading...");
+        try {
+          const res = await fetchServiceLog(name, LOG_LINES_DEFAULT);
+          const lines = (res && Array.isArray(res.lines)) ? res.lines : [];
+          if (!lines.length) {
+            logBox.innerHTML = `<div class="proton-apps-detail-logs-empty">${t("Logs unavailable")}</div>`;
+          } else {
+            logBox.innerHTML = lines.map(function (line) {
+				return renderLogLine(line);
+			}).join("");
+          }
+        } catch (e) {
+          logBox.innerHTML = `<div class="proton-apps-detail-logs-empty">${t("Logs unavailable")}</div>`;
         }
       }
     });
 
-    row.appendChild(icon);
-    row.appendChild(infoBlock);
-    row.appendChild(toggleWrap);
+    // Собираем
+    box.appendChild(header);
+    box.appendChild(meta);
+    box.appendChild(actions);
+    box.appendChild(logToggleWrap);
+    box.appendChild(logBox);
 
-    return row;
+    // Подгружаем uptime/pid асинхронно
+    fetchServiceInfo(name).then(function (res) {
+      const uptimeEl = box.querySelector('[data-role="uptime"]');
+      const pidEl = box.querySelector('[data-role="pid"]');
+      if (res && res.success) {
+        if (uptimeEl) uptimeEl.textContent = res.uptime != null ? formatUptime(res.uptime) : "—";
+        if (pidEl) pidEl.textContent = res.pid != null ? String(res.pid) : "—";
+      } else {
+        if (uptimeEl) uptimeEl.textContent = "—";
+        if (pidEl) pidEl.textContent = "—";
+      }
+    }).catch(function () {
+      const uptimeEl = box.querySelector('[data-role="uptime"]');
+      const pidEl = box.querySelector('[data-role="pid"]');
+      if (uptimeEl) uptimeEl.textContent = "—";
+      if (pidEl) pidEl.textContent = "—";
+    });
+
+    // Toggle start/stop
+    toggleBtn.addEventListener("click", function () {
+      const act = isRunning ? "stop" : "start";
+      const doAction = function () {
+        runServiceAction(name, act, toggleBtn, restartBtn, box);
+      };
+      if (act === "stop" && CRITICAL_SERVICES.has(name)) {
+        showConfirmDialog(
+          t("Stop service?"),
+          t('Are you sure you want to stop the "{name}" service? This may disrupt network connectivity.').replace("{name}", info.displayName || name),
+          t("Stop"),
+          doAction
+        );
+      } else {
+        doAction();
+      }
+    });
+
+    // Restart
+    restartBtn.addEventListener("click", function () {
+      runServiceAction(name, "restart", toggleBtn, restartBtn, box);
+    });
+
+    return box;
   }
 
-  async function doStart(name, input, row) {
+  async function runServiceAction(name, action, toggleBtn, restartBtn, box) {
+    if (busyServices.has(name)) return;
     busyServices.add(name);
-    input.disabled = true;
-    row.dataset.state = "busy";
-    const toggle = row.querySelector(".proton-dashboard-apps-toggle");
-    if (toggle) toggle.classList.add("is-busy");
+
+    const origToggle = toggleBtn.textContent;
+    const origRestart = restartBtn.textContent;
+    toggleBtn.disabled = true;
+    restartBtn.disabled = true;
+    toggleBtn.textContent = t("Please wait...");
+    restartBtn.textContent = t("Please wait...");
 
     try {
-      await callRcInit(name, "start");
-      const ok = await waitForStatus(name, "running", TOGGLE_TIMEOUT_MS);
+      await callRcInit(name, action);
+      const ok = await waitForStatus(name, action === "stop" ? "stopped" : "running", TOGGLE_TIMEOUT_MS);
+
       if (ok) {
-        input.checked = true;
-        input.disabled = false;
-        setRowStatus(row, "running");
-        showToast(t("Service started"), "success");
+        showToast(t("Action applied"), "success");
+        // Перерисуем панель
+        if (selectedService === name) {
+          const slot = box.parentElement;
+          if (slot) {
+            slot.replaceChildren();
+            const detail = await buildServiceDetail(name);
+            if (detail) slot.appendChild(detail);
+          }
+        }
       } else {
-        input.checked = false;
-        input.disabled = false;
-        setRowStatus(row, "stopped");
-        showToast(t("Failed to start service"), "error");
+        showToast(t("Action failed"), "error");
+        toggleBtn.disabled = false;
+        restartBtn.disabled = false;
+        toggleBtn.textContent = origToggle;
+        restartBtn.textContent = origRestart;
       }
     } catch (e) {
-      console.warn("[Proton2025] start failed:", name, e);
-      input.checked = false;
-      input.disabled = false;
-      setRowStatus(row, "stopped");
-      showToast(t("Failed to start service"), "error");
+      console.warn("[Proton2025] service action failed:", name, action, e);
+      showToast(t("Action failed"), "error");
+      toggleBtn.disabled = false;
+      restartBtn.disabled = false;
+      toggleBtn.textContent = origToggle;
+      restartBtn.textContent = origRestart;
     } finally {
       busyServices.delete(name);
-      if (toggle) toggle.classList.remove("is-busy");
-    }
-  }
-
-  async function doStop(name, input, row) {
-    busyServices.add(name);
-    input.disabled = true;
-    row.dataset.state = "busy";
-    const toggle = row.querySelector(".proton-dashboard-apps-toggle");
-    if (toggle) toggle.classList.add("is-busy");
-
-    try {
-      await callRcInit(name, "stop");
-      const ok = await waitForStatus(name, "stopped", TOGGLE_TIMEOUT_MS);
-      if (ok) {
-        input.checked = false;
-        input.disabled = false;
-        setRowStatus(row, "stopped");
-        showToast(t("Service stopped"), "success");
-      } else {
-        input.checked = true;
-        input.disabled = false;
-        setRowStatus(row, "running");
-        showToast(t("Failed to stop service"), "error");
-      }
-    } catch (e) {
-      console.warn("[Proton2025] stop failed:", name, e);
-      input.checked = true;
-      input.disabled = false;
-      setRowStatus(row, "running");
-      showToast(t("Failed to stop service"), "error");
-    } finally {
-      busyServices.delete(name);
-      if (toggle) toggle.classList.remove("is-busy");
     }
   }
 
@@ -457,76 +728,28 @@
     return finalStatus === expected;
   }
 
-  function setRowStatus(row, status) {
-    row.dataset.state = status;
-    const dot = row.querySelector(".proton-dashboard-apps-status-dot");
-    const text = row.querySelector(".proton-dashboard-apps-status-text");
-    const input = row.querySelector('input[type="checkbox"]');
-
-    if (dot) dot.dataset.state = status;
-    if (text) text.textContent = t(getStatusKey(status));
-    if (input) {
-      input.checked = status === "running";
-      input.disabled = status === "not-installed" || status === "unknown";
-    }
-  }
-
   // ---------------------------------------------------------------------------
-  // Render
+  // Subtitle / footer
   // ---------------------------------------------------------------------------
-
-  function renderList(card, services, statuses) {
-    const list = card.querySelector('[data-role="list"]');
-    if (!list) return;
-
-    list.replaceChildren();
-
-    if (!services.length) {
-      const empty = document.createElement("li");
-      empty.className = "proton-dashboard-apps-empty";
-      empty.textContent = t("No applications selected");
-      list.appendChild(empty);
-      return;
-    }
-
-    const api = getStatusFromApi();
-
-    services.forEach((name) => {
-      const info = api ? api.getServiceInfo(name) : {
-        name: name,
-        displayName: name,
-        icon: "📦",
-        category: "other",
-      };
-      const status = statuses[name] || "unknown";
-      const row = createRow(name, info, status);
-      list.appendChild(row);
-    });
-  }
 
   function updateSubtitle(card, services, statuses) {
     const el = card.querySelector('[data-role="subtitle"]');
     if (!el) return;
-
     const total = services.length;
     let running = 0;
     for (const name of services) {
       if (statuses[name] === "running") running++;
     }
-
     if (!total) {
       el.textContent = t("No applications selected");
       return;
     }
-
     el.textContent = `${running} / ${total} ${t("running")}`;
   }
 
-  function updateFooter(card, services, statuses) {
+  function updateFooter(card, services) {
     const left = card.querySelector('[data-role="footer-left"]');
-    if (left) {
-      left.textContent = `${services.length} ${t("services")}`;
-    }
+    if (left) left.textContent = `${services.length} ${t("services")}`;
   }
 
   function setStatusDot(card, state) {
@@ -540,6 +763,7 @@
 
   async function pollStatuses() {
     if (!mounted || document.hidden) return;
+    if (document.body.classList.contains("proton-modal-open")) return;
 
     const card = document.getElementById("proton-dashboard-apps");
     if (!card) return;
@@ -551,40 +775,57 @@
     const statuses = {};
 
     await Promise.all(
-      services.map(async (name) => {
-        if (busyServices.has(name)) {
-          // не перезаписываем UI, пока идёт действие
-          const row = card.querySelector(`[data-service="${CSS.escape(name)}"]`);
-          statuses[name] = row ? row.dataset.state : "unknown";
-          return;
-        }
-        try {
-          statuses[name] = await api.checkStatus(name);
-        } catch (e) {
-          statuses[name] = "unknown";
-        }
-      }),
+        services.map(async function (name) {
+            if (busyServices.has(name)) {
+                statuses[name] = "running";
+                return;
+            }
+            try {
+                statuses[name] = await api.checkStatus(name);
+            } catch (e) {
+                statuses[name] = "unknown";
+            }
+        })
     );
 
-    // Обновляем только строки, не пересоздавая DOM
-    services.forEach((name) => {
-      const row = card.querySelector(`[data-service="${CSS.escape(name)}"]`);
-      if (!row) return;
-      const status = statuses[name] || "unknown";
-      if (row.dataset.state !== status && row.dataset.state !== "busy") {
-        setRowStatus(row, status);
-      }
-    });
+    // Инкрементальное обновление: не пересоздаём чипы, если их состав
+    // совпадает. Меняем только точку статуса (dataset.status) и цвет.
+    const grid = card.querySelector('[data-role="grid"]');
+    const existingChips = grid
+        ? Array.from(grid.querySelectorAll(".proton-apps-chip"))
+        : [];
+    const existingOrder = existingChips.map((c) => c.dataset.service);
+    const desiredOrder = services.slice();
+
+    const sameSet =
+        existingOrder.length === desiredOrder.length &&
+        existingOrder.every((name, i) => name === desiredOrder[i]);
+
+    if (sameSet) {
+        // Состав не изменился — обновляем только точки статуса
+        existingChips.forEach((chip) => {
+            const name = chip.dataset.service;
+            const newStatus = statuses[name] || "unknown";
+            if (chip.dataset.status !== newStatus) {
+                chip.dataset.status = newStatus;
+                const dot = chip.querySelector(".proton-apps-chip-dot");
+                if (dot) dot.dataset.status = newStatus;
+            }
+        });
+    } else {
+        // Состав изменился (пользователь добавил/удалил сервис) — пересоздаём
+        renderChips(card, services, statuses);
+    }
 
     updateSubtitle(card, services, statuses);
-    updateFooter(card, services, statuses);
-  }
+    updateFooter(card, services);
+}
 
   // ---------------------------------------------------------------------------
-  // Settings modal: sync with services-widget OR custom selection
+  // Settings modal (unchanged from previous version)
   // ---------------------------------------------------------------------------
 
-    async function openSettingsModal() {
+  async function openSettingsModal() {
     if (modalOpen) return;
     modalOpen = true;
 
@@ -612,7 +853,6 @@
     const body = document.createElement("div");
     body.className = "proton-apps-settings-body";
 
-    // Поиск
     const searchWrap = document.createElement("div");
     searchWrap.className = "proton-apps-settings-search";
     const searchInput = document.createElement("input");
@@ -621,11 +861,9 @@
     searchInput.autocomplete = "off";
     searchWrap.appendChild(searchInput);
 
-    // Контейнер списка
     const listContainer = document.createElement("div");
     listContainer.className = "proton-apps-settings-list";
 
-    // Кнопки действий
     const actions = document.createElement("div");
     actions.className = "proton-confirm-modal-actions";
 
@@ -641,7 +879,6 @@
 
     function isDaemon(entry) {
       const known = window.protonServicesWidget?.knownServices?.[entry.name];
-      // Скрываем скрипты-настройщики (daemon: false)
       if (known && known.daemon === false) return false;
       return true;
     }
@@ -651,7 +888,6 @@
 
       const filterLower = String(filter || "").toLowerCase().trim();
 
-      // Фильтруем + сортируем
       const filtered = available
         .filter((entry) => isDaemon(entry))
         .filter((entry) => {
@@ -662,7 +898,6 @@
           return haystack.indexOf(filterLower) !== -1;
         });
 
-      // Группируем по категориям
       const grouped = new Map();
       filtered.forEach((entry) => {
         const info = api.getServiceInfo(entry.name);
@@ -671,10 +906,9 @@
         grouped.get(cat).push({ entry, info });
       });
 
-      // Сортируем категории: network, security, vpn, adblock, system, other
       const order = ["network", "security", "vpn", "adblock", "system", "other"];
       const categories = Array.from(grouped.keys()).sort(
-        (a, b) => order.indexOf(a) - order.indexOf(b),
+        (a, b) => order.indexOf(a) - order.indexOf(b)
       );
 
       if (!categories.length) {
@@ -685,7 +919,6 @@
         return;
       }
 
-      // Иконки категорий (те же, что в services-widget)
       const catMeta = window.protonServicesWidget?.categories || {};
       const catLabels = {
         network: t("Network"),
@@ -746,7 +979,6 @@
 
           btn.addEventListener("click", function () {
             if (!isInstalled) return;
-
             if (current.has(entry.name)) {
               current.delete(entry.name);
               btn.textContent = "+ " + t("Add");
@@ -776,7 +1008,6 @@
       searchTimeout = setTimeout(() => render(searchInput.value), 120);
     });
 
-    // Close
     function close() {
       modalOpen = false;
       document.removeEventListener("keydown", escHandler);
@@ -798,7 +1029,8 @@
       close();
       const card = document.getElementById("proton-dashboard-apps");
       if (card) {
-        renderList(card, newList, {});
+        closeServiceDetail();
+        renderChips(card, newList, {});
         pollStatuses();
       }
     });
@@ -825,7 +1057,10 @@
   // Lifecycle
   // ---------------------------------------------------------------------------
 
-    function start() {
+  function start() {
+    if (window.__protonAppsStarted) return true;
+    window.__protonAppsStarted = true;
+
     const card = ensureCard();
     if (!card) return false;
 
@@ -835,7 +1070,7 @@
     card.dataset.protonInit = "true";
 
     const services = readAppsList();
-    renderList(card, services, {});
+    renderChips(card, services, {});
     setStatusDot(card, "ok");
 
     const settingsBtn = card.querySelector('[data-role="settings"]');
@@ -880,45 +1115,7 @@
 
   function init() {
     if (!isOverviewPage()) return;
-
-    if (start()) return;
-
-    // Ждём появления services-widget (его создаёт services-widget.js)
-    const container = document.getElementById("proton-widgets-container");
-    if (!container) {
-      // Ещё и контейнера нет — ждём body
-      const bodyObserver = new MutationObserver(function () {
-        if (document.getElementById("proton-widgets-container")) {
-          bodyObserver.disconnect();
-          init();
-        }
-      });
-      bodyObserver.observe(document.body, { childList: true, subtree: true });
-      setTimeout(function () {
-        bodyObserver.disconnect();
-      }, 15000);
-      return;
-    }
-
-    servicesGridWrapObserver = new MutationObserver(function () {
-      if (document.getElementById("proton-services-widget")) {
-        servicesGridWrapObserver.disconnect();
-        servicesGridWrapObserver = null;
-        start();
-      }
-    });
-    servicesGridWrapObserver.observe(container, {
-      childList: true,
-      subtree: true,
-    });
-
-    setTimeout(function () {
-      if (servicesGridWrapObserver) {
-        servicesGridWrapObserver.disconnect();
-        servicesGridWrapObserver = null;
-        start();
-      }
-    }, 8000);
+    start();
   }
 
   window.ProtonDashboardApps = {

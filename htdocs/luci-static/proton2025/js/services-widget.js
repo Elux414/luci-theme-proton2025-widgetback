@@ -2274,29 +2274,38 @@
         this._log("Fetched sensors:", sensors);
 
         if (!sensors || sensors.length === 0) {
-          this._log("No sensors found, attempt:", this._emptyAttempts + 1);
-          this._emptyAttempts++;
+			this._log("No sensors found, attempt:", this._emptyAttempts + 1);
+			this._emptyAttempts++;
 
-          // Если это первая загрузка или еще не достигли максимума попыток - показываем загрузку
-          if (
-            this._isFirstLoad ||
-            this._emptyAttempts < this._maxEmptyAttempts
-          ) {
-            this._renderLoading();
-            // Очищаем старые датчики только если это не первая попытка
-            if (!this._isFirstLoad) {
-              this._sensors = [];
-            }
-            return;
-          }
+		// Пустой массив — это не временная ошибка, а результат:
+		// на этой плате (например, QEMU VM) нет термодатчиков.
+		// Показываем пустое состояние сразу, без 3 попыток × 5 сек ожидания.
+		if (sensors && Array.isArray(sensors) && sensors.length === 0) {
+			this._log("Empty sensors array — rendering empty state immediately");
+			this._renderEmpty();
+			this._sensors = [];
+			this._isFirstLoad = false;
+			return;
+		}
 
-          // После нескольких попыток показываем "Не найдены"
-          this._log("No sensors found after", this._emptyAttempts, "attempts");
-          this._renderEmpty();
-          this._sensors = [];
-          this._isFirstLoad = false;
-          return;
+    // Иначе (null, undefined) — это ошибка RPC, даём retry
+    if (
+        this._isFirstLoad ||
+        this._emptyAttempts < this._maxEmptyAttempts
+    ) {
+        this._renderLoading();
+        if (!this._isFirstLoad) {
+            this._sensors = [];
         }
+        return;
+    }
+
+    this._log("No sensors after", this._emptyAttempts, "attempts");
+    this._renderEmpty();
+    this._sensors = [];
+    this._isFirstLoad = false;
+    return;
+}
 
         // Датчики найдены - сбрасываем счетчики
         this._emptyAttempts = 0;

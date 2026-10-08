@@ -10,15 +10,15 @@
 
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=luci-theme-proton2025
+PKG_NAME:=luci-theme-proton2025-expanded
 # Дефолт для локальной сборки без тега; в CI перекрывается тегом релиза.
-PROTON_VERSION?=1.4.2
-PROTON_RELEASE?=2
+PROTON_VERSION?=1.0.1p
+PROTON_RELEASE?=1
 
 PKG_VERSION:=$(PROTON_VERSION)
 PKG_RELEASE:=$(PROTON_RELEASE)
 
-LUCI_TITLE:=Proton2025 - Elegant Dark Theme for LuCI
+LUCI_TITLE:=Proton2025-Expanded - Elegant Dark Theme for LuCI fully redesigned and with additional feautures
 LUCI_DEPENDS:=+luci-base
 LUCI_PKGARCH:=all
 

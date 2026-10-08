@@ -9,9 +9,11 @@
                     "resetPeaks"
                 ],
                 "luci.proton-system": [
-                    "getSystemInfo",
-                    "getCpuUsage"
-                ],
+					"getSystemInfo",
+					"getCpuUsage",
+					"getServiceInfo",
+					"getServiceLog"
+				],
                 "luci.proton-search-cache": [
                     "loadCache"
                 ],
