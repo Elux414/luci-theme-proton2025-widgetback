@@ -574,4 +574,86 @@ window.ProtonTranslations = {
   "Reset to factory code": "Сбросить к заводскому коду",
   "Reset the template to factory code": "Сбросить шаблон к заводскому коду",
   "Template reset to factory code": "Шаблон сброшен к заводскому коду",
+  
+    // ====== v1.5.x — дополнительная локализация виджетов ======
+
+  // --- Internet / WAN widget ---
+  "Internet": "Интернет",
+  "Connected": "Подключено",
+  "Disconnected": "Отключено",
+  "Download": "Загрузка",
+  "Upload": "Отдача",
+  "Checking connection...": "Проверка подключения…",
+  "Unable to read network statistics": "Не удалось прочитать сетевую статистику",
+
+  // --- Hosts widget ---
+  "Hosts": "Устройства",
+  "No active clients": "Нет активных клиентов",
+  "Unable to read host data": "Не удалось прочитать данные об устройствах",
+
+  // --- Applications widget ---
+  "Applications": "Приложения",
+  "Applications settings": "Настройки приложений",
+  "Show logs": "Показать журнал",
+  "Hide logs": "Скрыть журнал",
+  "Logs unavailable": "Журнал недоступен",
+  "Action applied": "Действие выполнено",
+  "Action failed": "Действие не выполнено",
+  "Please wait...": "Подождите…",
+  "Stop service?": "Остановить сервис?",
+  "Services API not ready": "API сервисов не готов",
+
+  // --- System widget ---
+  "CPU load": "Загрузка ЦП",
+  "Memory": "Память",
+  "Local Time": "Время",
+  "Architecture": "Архитектура",
+  "Kernel": "Ядро",
+  "Load": "Нагрузка",
+  "Unable to read system information": "Не удалось прочитать данные системы",
+  "System information": "Информация о системе",
+
+  // --- Temperature widget ---
+  "Temperature": "Температура",
+  "CPU": "Процессор",
+  "SoC": "SoC",
+  "WiFi": "WiFi",
+  "Wi-Fi": "Wi-Fi",
+  "DDR": "DDR",
+  "Board": "Плата",
+  "Sensor": "Датчик",
+  "Normal": "Норма",
+  "Warm": "Тепло",
+  "Hot": "Горячо",
+  "Critical": "Критично",
+  "Peak": "Пик",
+  "Uptime": "Время работы",
+
+  // --- Common / Utilities ---
+  "Dashboard": "Панель",
+  "Widgets": "Виджеты",
+  "Add": "Добавить",
+  "Remove": "Удалить",
+  "Cancel": "Отмена",
+  "Save": "Сохранить",
+  "Start": "Запустить",
+  "Stop": "Остановить",
+  "Restart": "Перезапустить",
+  "Running": "Работает",
+  "Stopped": "Остановлен",
+  "Disabled": "Отключён",
+  "Error": "Ошибка",
+  "Unknown": "Неизвестно",
+  "Network": "Сеть",
+  "Security": "Безопасность",
+  "Firewall": "Межсетевой экран",
+  "VPN": "VPN",
+  "System": "Система",
+  "Other": "Другое",
+
+  // --- Errors / Messages ---
+  "Proton2025 settings could not be saved. Please retry.":
+    "Не удалось сохранить настройки Proton2025. Попробуйте ещё раз.",
+  "Proton2025 settings sync timed out. Please retry.":
+    "Время синхронизации настроек Proton2025 истекло. Попробуйте ещё раз.",
 };
