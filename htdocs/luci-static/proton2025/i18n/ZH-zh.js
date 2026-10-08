@@ -623,4 +623,12 @@ window.ProtonTranslations = {
   "Interfaces": "接口",
   "Configure interfaces": "配置接口",
   "No active interfaces": "无活动接口",
+  
+  "Auto mode": "自动模式",
+  "show top active interfaces": "显示活动接口",
+  "Selected": "已选择",
+  "Drop interfaces here": "将接口拖到此处",
+  "All interfaces are selected": "所有接口均已被选中",
+  "Up": "活动",
+  "Down": "非活动",
 };

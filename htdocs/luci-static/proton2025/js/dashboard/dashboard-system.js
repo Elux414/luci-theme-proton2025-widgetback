@@ -850,57 +850,496 @@ function renderNetworkInterfaces(card, rates) {
 }
 
 // ---------------------------------------------------------------------------
-// Цветные SVG-иконки интерфейсов
+// Чтение/запись состояния интерфейсов (localStorage)
 // ---------------------------------------------------------------------------
 //
-// Каждая иконка — inline SVG с двумя цветами:
-//   - основной контур/линии: var(--icon-main)
-//   - акцент/подсветка:       var(--icon-accent)
-// Цвета задаются в контейнере через CSS-переменные, чтобы светлая/тёмная
-// тема использовала корректные значения.
+// Ключи:
+//   proton-network-selected  — JSON-массив имён выбранных интерфейсов
+//   proton-network-aliases   — JSON-объект { ifaceName: "Custom name" }
+//
+// Хранение в UCI — в 2.3.4.
 
-const INTERFACE_ICON_TEMPLATES = {
-  // Ethernet — вилка RJ-45
-  ethernet: {
-    main: '<rect x="2" y="8" width="20" height="8" rx="1.5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M6 16v3M10 16v3M14 16v3M18 16v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-    accent: '<circle cx="7" cy="12" r="1" fill="currentColor" opacity="0.5"/><circle cx="12" cy="12" r="1" fill="currentColor" opacity="0.5"/><circle cx="17" cy="12" r="1" fill="currentColor" opacity="0.5"/>',
-  },
-  // Bridge — 4 порта соединены
-  bridge: {
-    main: '<path d="M4 12h16M12 4v16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="6" cy="6" r="2" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="18" cy="6" r="2" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="6" cy="18" r="2" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="18" cy="18" r="2" stroke="currentColor" stroke-width="1.8" fill="none"/>',
-    accent: '<circle cx="12" cy="12" r="2.5" fill="currentColor"/>',
-  },
-  // Wi-Fi — волны
-  wifi: {
-    main: '<path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>',
-    accent: '<circle cx="12" cy="20" r="1.5" fill="currentColor"/>',
-  },
-  // Wireguard / VPN — щит
-  wg: {
-    main: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/>',
-    accent: '<path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
-  },
-  // Tunnel — замок
-  tunnel: {
-    main: '<rect x="4" y="11" width="16" height="10" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="currentColor" stroke-width="1.8" fill="none"/>',
-    accent: '<circle cx="12" cy="16" r="1.5" fill="currentColor"/>',
-  },
-  // WAN — глобус
-  wan: {
-    main: '<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M3 12h18M12 3c2.5 3 4 6 4 9s-1.5 6-4 9c-2.5-3-4-6-4-9s1.5-6 4-9z" stroke="currentColor" stroke-width="1.8" fill="none"/>',
-    accent: '<circle cx="12" cy="12" r="2" fill="currentColor"/>',
-  },
-  // VLAN — тег
-  vlan: {
-    main: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/>',
-    accent: '<circle cx="7" cy="7" r="1.5" fill="currentColor"/>',
-  },
-  // Loopback
-  loopback: {
-    main: '<path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
-    accent: '<circle cx="12" cy="12" r="2" fill="currentColor"/>',
-  },
-};
+function readSelectedInterfacesFromStorage() {
+  try {
+    const raw = localStorage.getItem("proton-network-selected");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function readAliasesFromStorage() {
+  try {
+    const raw = localStorage.getItem("proton-network-aliases");
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const result = {};
+    Object.keys(parsed).forEach((k) => {
+      if (typeof parsed[k] === "string" && parsed[k].trim()) {
+        result[k] = parsed[k].trim();
+      }
+    });
+    return result;
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveNetworkModalState() {
+  if (!_networkModalState) return;
+
+  // Selected
+  const selectedArr = Array.from(_networkModalState.selected);
+  if (selectedArr.length === 0) {
+    // Пустой массив = авто-режим
+    localStorage.removeItem("proton-network-selected");
+    userSelectedInterfaces = null;
+  } else {
+    localStorage.setItem("proton-network-selected", JSON.stringify(selectedArr));
+    userSelectedInterfaces = selectedArr;
+  }
+
+  // Aliases
+  const aliases = _networkModalState.aliases || {};
+  if (Object.keys(aliases).length === 0) {
+    localStorage.removeItem("proton-network-aliases");
+  } else {
+    localStorage.setItem("proton-network-aliases", JSON.stringify(aliases));
+  }
+  interfaceAliases = aliases;
+
+  // TODO: 2.3.4 — сохранение в UCI
+}
+
+// ---------------------------------------------------------------------------
+// Модальное окно настройки интерфейсов
+// ---------------------------------------------------------------------------
+
+// Временное состояние в модалке. Сбрасывается при закрытии.
+let _networkModalState = null;
+
+async function openNetworkSettingsModal() {
+  // Убираем старую модалку, если есть
+  const existing = document.getElementById("proton-network-modal-overlay");
+  if (existing) existing.remove();
+
+  // Загружаем актуальные интерфейсы
+  const networkRaw = await L.resolveDefault(callNetworkStats(), null);
+  const allInterfaces = (networkRaw && Array.isArray(networkRaw.interfaces))
+    ? networkRaw.interfaces
+    : [];
+
+  // Загружаем текущее состояние из localStorage
+  const savedSelected = readSelectedInterfacesFromStorage();
+  const savedAliases = readAliasesFromStorage();
+  const isAutoMode = !savedSelected || savedSelected.length === 0;
+
+  // Инициализируем временное состояние модалки
+  _networkModalState = {
+    interfaces: allInterfaces,
+    selected: new Set(isAutoMode ? [] : savedSelected),
+    aliases: { ...savedAliases },
+    autoMode: isAutoMode,
+  };
+
+  // === Overlay ===
+  const overlay = document.createElement("div");
+  overlay.className = "proton-confirm-modal-overlay";
+  overlay.id = "proton-network-modal-overlay";
+
+  // === Modal ===
+  const modal = document.createElement("div");
+  modal.className = "proton-confirm-modal proton-network-modal";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "proton-network-modal-title");
+
+  modal.innerHTML = `
+    <h3 id="proton-network-modal-title">${t("Configure interfaces")}</h3>
+
+    <div class="proton-network-modal-body">
+      <label class="proton-network-modal-auto">
+        <input type="checkbox" id="proton-network-auto-mode" ${isAutoMode ? "checked" : ""}>
+        <span class="proton-network-modal-auto-slider"></span>
+        <span class="proton-network-modal-auto-text">
+          <strong>${t("Auto mode")}:</strong> ${t("show top active interfaces")}
+        </span>
+      </label>
+
+      <div class="proton-network-modal-lists" id="proton-network-modal-lists">
+        <div class="proton-network-modal-list-col">
+          <div class="proton-network-modal-list-header">${t("Available")}</div>
+          <ul class="proton-network-modal-list" id="proton-network-available" data-dropzone="available">
+            <li class="proton-network-modal-loading">${t("Loading...")}</li>
+          </ul>
+        </div>
+        <div class="proton-network-modal-list-col">
+          <div class="proton-network-modal-list-header">${t("Selected")}</div>
+          <ul class="proton-network-modal-list" id="proton-network-selected" data-dropzone="selected">
+            <li class="proton-network-modal-empty">${t("Drop interfaces here")}</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="proton-confirm-modal-actions">
+      <button type="button" class="cbi-button cbi-button-neutral" data-action="cancel">
+        ${t("Cancel")}
+      </button>
+      <button type="button" class="cbi-button cbi-button-positive" data-action="save">
+        ${t("Save")}
+      </button>
+    </div>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  requestAnimationFrame(() => {
+    overlay.classList.add("is-open");
+  });
+
+  // === Закрытие ===
+  const closeModal = () => {
+    overlay.classList.remove("is-open");
+    document.removeEventListener("keydown", onEscape, true);
+    setTimeout(() => {
+      overlay.remove();
+      _networkModalState = null;
+    }, 220);
+  };
+
+  const onEscape = (ev) => {
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      closeModal();
+    }
+  };
+  document.addEventListener("keydown", onEscape, true);
+
+  // === Кнопки ===
+  modal.querySelector('[data-action="cancel"]').addEventListener("click", closeModal);
+  modal.querySelector('[data-action="save"]').addEventListener("click", () => {
+    saveNetworkModalState();
+    closeModal();
+    // После закрытия — обновить карточку
+    const card = document.getElementById("proton-dashboard-system");
+    if (card) {
+      // Сбросим кэш предыдущих счётчиков, чтобы rate пересчитался корректно
+      prevNetworkCounters = {};
+      networkHistory = {};
+      // Пинаем poll немедленно
+      poll();
+    }
+  });
+
+  overlay.addEventListener("click", (ev) => {
+    if (ev.target === overlay) closeModal();
+  });
+
+  // === Обработчик Auto mode ===
+  const autoToggle = modal.querySelector("#proton-network-auto-mode");
+  const listsWrap = modal.querySelector("#proton-network-modal-lists");
+  const updateAutoMode = () => {
+    _networkModalState.autoMode = autoToggle.checked;
+    listsWrap.classList.toggle("is-disabled", _networkModalState.autoMode);
+    listsWrap.style.opacity = _networkModalState.autoMode ? "0.5" : "1";
+    listsWrap.style.pointerEvents = _networkModalState.autoMode ? "none" : "";
+  };
+  autoToggle.addEventListener("change", updateAutoMode);
+  updateAutoMode();
+
+  // === Заполняем списки ===
+  renderNetworkModalLists(modal);
+}
+
+// ---------------------------------------------------------------------------
+// Рендер списков в модалке
+// ---------------------------------------------------------------------------
+
+function renderNetworkModalLists(modal) {
+  if (!_networkModalState) return;
+
+  const availableEl = modal.querySelector("#proton-network-available");
+  const selectedEl = modal.querySelector("#proton-network-selected");
+  if (!availableEl || !selectedEl) return;
+
+  const { interfaces, selected, aliases } = _networkModalState;
+
+  // Разделяем
+  const selectedList = interfaces.filter((i) => selected.has(i.name));
+  const availableList = interfaces.filter((i) => !selected.has(i.name));
+
+  // Сохраняем порядок selected — как в Set
+  const selectedOrder = Array.from(selected);
+  selectedList.sort((a, b) => selectedOrder.indexOf(a.name) - selectedOrder.indexOf(b.name));
+
+  // Available — по имени
+  availableList.sort((a, b) => a.name.localeCompare(b.name));
+
+  availableEl.replaceChildren();
+  selectedEl.replaceChildren();
+
+  // Заполняем Available
+  if (!availableList.length) {
+    const empty = document.createElement("li");
+    empty.className = "proton-network-modal-empty";
+    empty.textContent = t("All interfaces are selected");
+    availableEl.appendChild(empty);
+  } else {
+    availableList.forEach((iface) => {
+      availableEl.appendChild(createNetworkModalItem(iface, "available", modal));
+    });
+  }
+
+  // Заполняем Selected
+  if (!selectedList.length) {
+    const empty = document.createElement("li");
+    empty.className = "proton-network-modal-empty";
+    empty.textContent = t("Drop interfaces here");
+    selectedEl.appendChild(empty);
+  } else {
+    selectedList.forEach((iface) => {
+      selectedEl.appendChild(createNetworkModalItem(iface, "selected", modal));
+    });
+  }
+
+  // --- Подключаем drag-n-drop обработчики на оба списка (idempotent) ---
+  setupNetworkModalDropZone(availableEl, "available", modal);
+  setupNetworkModalDropZone(selectedEl, "selected", modal);
+}
+
+// ---------------------------------------------------------------------------
+// Drag-n-drop для модалки интерфейсов
+// ---------------------------------------------------------------------------
+
+let _draggedItemData = null;
+
+function setupNetworkModalDropZone(listEl, side, modal) {
+  // Чтобы не дублировать обработчики
+  if (listEl.dataset.dndSetup === "1") return;
+  listEl.dataset.dndSetup = "1";
+
+  listEl.addEventListener("dragover", (ev) => {
+    // Разрешаем drop только если тащим элемент интерфейса
+    if (!_draggedItemData) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "move";
+
+    listEl.classList.add("is-dragover");
+
+    // Визуальная подсказка, куда встанет элемент
+    updateDropIndicator(listEl, ev.clientY);
+  });
+
+  listEl.addEventListener("dragleave", (ev) => {
+    // Игнорируем dragleave при переходе между детьми списка
+    if (ev.relatedTarget && listEl.contains(ev.relatedTarget)) return;
+    listEl.classList.remove("is-dragover");
+    clearDropIndicators(listEl);
+  });
+
+  listEl.addEventListener("drop", (ev) => {
+    ev.preventDefault();
+    listEl.classList.remove("is-dragover");
+
+    if (!_draggedItemData) return;
+
+    const draggedName = _draggedItemData.name;
+    const sourceSide = _draggedItemData.side;
+
+    // Находим, куда пользователь бросил — перед каким элементом
+    const targetItem = getDropTargetItem(listEl, ev.clientY);
+
+    // === Логика перемещения ===
+    if (side === "selected") {
+      // Двигаем в Selected
+      _networkModalState.selected.add(draggedName);
+
+      // Если перемещаем из Available в Selected — опционально сохраняем alias
+      // (alias уже в _networkModalState.aliases, ничего не делаем)
+
+      // Переставляем порядок в Set: удаляем и добавляем в нужное место
+      const arr = Array.from(_networkModalState.selected);
+      const idx = arr.indexOf(draggedName);
+      if (idx !== -1) arr.splice(idx, 1);
+
+      if (targetItem) {
+        // Вставляем перед targetItem
+        const insertBefore = arr.indexOf(targetItem.dataset.name);
+        if (insertBefore !== -1) {
+          arr.splice(insertBefore, 0, draggedName);
+        } else {
+          arr.push(draggedName);
+        }
+      } else {
+        // Вставляем в конец
+        arr.push(draggedName);
+      }
+
+      _networkModalState.selected = new Set(arr);
+    } else {
+      // Двигаем в Available
+      _networkModalState.selected.delete(draggedName);
+
+      // Если перетаскиваем из Selected → Available, удаляем alias
+      // (не храним лишние данные для неотслеживаемых интерфейсов)
+      if (sourceSide === "selected") {
+        delete _networkModalState.aliases[draggedName];
+      }
+    }
+
+    _draggedItemData = null;
+    clearDropIndicators(listEl);
+    renderNetworkModalLists(modal);
+  });
+
+  listEl.addEventListener("dragend", () => {
+    listEl.classList.remove("is-dragover");
+    clearDropIndicators(listEl);
+    _draggedItemData = null;
+  });
+}
+
+// Возвращает элемент, ПЕРЕД которым должен встать перетаскиваемый
+function getDropTargetItem(listEl, clientY) {
+  const items = Array.from(listEl.querySelectorAll(".proton-network-modal-item:not(.is-dragging)"));
+  if (!items.length) return null;
+
+  for (const item of items) {
+    const rect = item.getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    if (clientY < mid) return item;
+  }
+  return null;
+}
+
+// Визуальная подсказка: тонкая линия над/под элементом, куда встанет drop
+function updateDropIndicator(listEl, clientY) {
+  // Удаляем старый индикатор
+  clearDropIndicators(listEl);
+
+  const target = getDropTargetItem(listEl, clientY);
+  if (target) {
+    target.classList.add("drop-target-before");
+  } else {
+    // В конец
+    const items = listEl.querySelectorAll(".proton-network-modal-item");
+    if (items.length) {
+      items[items.length - 1].classList.add("drop-target-after");
+    }
+  }
+}
+
+function clearDropIndicators(listEl) {
+  listEl.querySelectorAll(".drop-target-before, .drop-target-after").forEach((el) => {
+    el.classList.remove("drop-target-before", "drop-target-after");
+  });
+}
+
+// Создание одного элемента списка в модалке
+function createNetworkModalItem(iface, side, modal) {
+  const li = document.createElement("li");
+  li.className = "proton-network-modal-item";
+  li.dataset.name = iface.name;
+  li.dataset.side = side;
+  li.setAttribute("draggable", "true"); // пока просто атрибут, обработчики в 2.3.3
+
+  // Иконка
+  const icon = document.createElement("span");
+  icon.className = "proton-network-modal-item-icon";
+  icon.textContent = getInterfaceIcon(iface);
+
+  // Статус-точка
+  const dot = document.createElement("span");
+  dot.className = "proton-network-modal-item-status " + (iface.up ? "is-up" : "is-down");
+  dot.title = iface.up ? t("Up") : t("Down");
+
+  // Текст: alias-input + тех-имя
+  const text = document.createElement("div");
+  text.className = "proton-network-modal-item-text";
+
+  const aliasInput = document.createElement("input");
+  aliasInput.type = "text";
+  aliasInput.className = "proton-network-modal-item-alias-input";
+  aliasInput.placeholder = iface.display_name || iface.name;
+  aliasInput.value = _networkModalState.aliases[iface.name] || "";
+  aliasInput.maxLength = 40;
+  aliasInput.title = t("Rename") + ": " + (iface.display_name || iface.name);
+  aliasInput.addEventListener("input", () => {
+    const v = aliasInput.value.trim();
+    if (v) {
+      _networkModalState.aliases[iface.name] = v;
+    } else {
+      delete _networkModalState.aliases[iface.name];
+    }
+  });
+  // Не даём клику на input двигать элемент
+  aliasInput.addEventListener("click", (ev) => ev.stopPropagation());
+  aliasInput.addEventListener("mousedown", (ev) => ev.stopPropagation());
+
+  const sub = document.createElement("span");
+  sub.className = "proton-network-modal-item-sub";
+  sub.textContent = iface.name;
+
+  text.appendChild(aliasInput);
+  text.appendChild(sub);
+
+  li.appendChild(icon);
+  li.appendChild(text);
+  li.appendChild(dot);
+
+    // === Drag-n-drop ===
+  li.addEventListener("dragstart", (ev) => {
+    // Не даём тащить, если взаимодействуем с input
+    if (ev.target === aliasInput) {
+      ev.preventDefault();
+      return;
+    }
+
+    _draggedItemData = { name: iface.name, side: side };
+    li.classList.add("is-dragging");
+
+    // Обязательно для Firefox
+    try {
+      ev.dataTransfer.setData("text/plain", iface.name);
+      ev.dataTransfer.effectAllowed = "move";
+    } catch (e) {}
+
+    // Прозрачный drag image не обязателен, оставляем дефолт
+  });
+
+  li.addEventListener("dragend", () => {
+    li.classList.remove("is-dragging");
+    _draggedItemData = null;
+    // Снимаем подсветку со всех списков
+    modal.querySelectorAll(".proton-network-modal-list").forEach((l) => {
+      l.classList.remove("is-dragover");
+      clearDropIndicators(l);
+    });
+  });
+
+  // === Клик — по-прежнему работает как быстрый способ перемещения ===
+  // (для тех, кто не хочет тащить мышью)
+  li.addEventListener("click", (ev) => {
+    if (ev.target === aliasInput) return;
+    // Игнорируем клик после drag
+    if (li.classList.contains("is-dragging")) return;
+
+    if (side === "available") {
+      _networkModalState.selected.add(iface.name);
+    } else {
+      _networkModalState.selected.delete(iface.name);
+      delete _networkModalState.aliases[iface.name];
+    }
+    renderNetworkModalLists(modal);
+  });
+
+  return li;
+}
 
 // ---------------------------------------------------------------------------
 // Эмодзи-иконки интерфейсов
@@ -1107,15 +1546,19 @@ function buildNetworkSparkline(hist) {
     const card = ensureCard();
     if (!card) return;
 
+	// Загружаем сохранённое состояние интерфейсов из localStorage
+    // (UCI-синхронизация подхватит и перезапишет после syncFromUci)
+    userSelectedInterfaces = readSelectedInterfacesFromStorage();
+    interfaceAliases = readAliasesFromStorage();
+
     startNativeHideObserver();
 
-    // Шестерёнка для выбора интерфейсов (пока заглушка — реализуем в 2.3)
+  // Шестерёнка для выбора интерфейсов
     const networkSettingsBtn = card.querySelector('[data-role="network-settings"]');
     if (networkSettingsBtn && !networkSettingsBtn.dataset.protonBound) {
       networkSettingsBtn.dataset.protonBound = "1";
       networkSettingsBtn.addEventListener("click", () => {
-        // TODO: 2.3 — модальное окно выбора интерфейсов
-        console.log("[Proton2025] Network settings — TODO in 2.3");
+        openNetworkSettingsModal();
       });
     }
 

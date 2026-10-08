@@ -650,4 +650,9 @@ window.ProtonTranslations = {
    "Interfaces": "Schnittstellen",
   "Configure interfaces": "Schnittstellen konfigurieren",
   "No active interfaces": "Keine aktiven Schnittstellen",
+  
+  "Auto mode": "Automatikmodus",
+  "show top active interfaces": "aktive Schnittstellen anzeigen",
+  "Selected": "Ausgewählt",
+  "Drop interfaces here": "Schnittstellen hier ablegen",
 };

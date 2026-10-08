@@ -14606,3 +14606,308 @@ body[data-page="admin-status-overview"] .cbi-section .cbi-title h3 {
 :root[data-theme="light"] .proton-log-proc {
     color: #ea580c;
 }
+
+/* ---------- Network settings modal ---------- */
+
+.proton-network-modal {
+    /* Модалка шире стандартной, потому что два списка рядом */
+    max-width: 720px;
+    width: calc(100% - 40px);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 22px 24px;
+}
+
+:root[data-theme="light"] .proton-network-modal {
+    background: rgba(255, 255, 255, 0.95);
+}
+
+.proton-network-modal h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--proton-text-primary);
+}
+
+.proton-network-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+}
+
+/* === Auto mode toggle === */
+.proton-network-modal-auto {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    background: rgba(var(--proton-accent-rgb), 0.04);
+    cursor: pointer;
+    user-select: none;
+    transition: var(--proton-transition);
+}
+
+.proton-network-modal-auto:hover {
+    background: rgba(var(--proton-accent-rgb), 0.08);
+    border-color: rgba(var(--proton-accent-rgb), 0.3);
+}
+
+.proton-network-modal-auto input[type="checkbox"] {
+    display: none;
+}
+
+.proton-network-modal-auto-slider {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    flex: 0 0 40px;
+    background: var(--proton-muted);
+    border-radius: 11px;
+    transition: var(--proton-transition);
+}
+
+.proton-network-modal-auto-slider::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    transition: var(--proton-transition);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.proton-network-modal-auto input[type="checkbox"]:checked + .proton-network-modal-auto-slider {
+    background: var(--proton-accent);
+}
+
+.proton-network-modal-auto input[type="checkbox"]:checked + .proton-network-modal-auto-slider::after {
+    transform: translateX(18px);
+}
+
+.proton-network-modal-auto-text {
+    font-size: 0.85rem;
+    color: var(--proton-text-primary);
+}
+
+/* === Two lists === */
+.proton-network-modal-lists {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    min-height: 260px;
+    max-height: 55vh;
+}
+
+.proton-network-modal-list-col {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 6px;
+}
+
+.proton-network-modal-list-header {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--proton-text-secondary);
+    padding: 0 4px;
+    opacity: 0.7;
+}
+
+.proton-network-modal-list {
+    flex: 1 1 auto;
+    list-style: none;
+    margin: 0;
+    padding: 6px;
+    border: 1px dashed var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    background: rgba(var(--proton-accent-rgb), 0.02);
+    overflow-y: auto;
+    min-height: 200px;
+    transition: var(--proton-transition);
+}
+
+.proton-network-modal-list.is-dragover {
+    border-color: var(--proton-accent);
+    background: rgba(var(--proton-accent-rgb), 0.08);
+}
+
+.proton-network-modal-empty,
+.proton-network-modal-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    padding: 20px;
+    color: var(--proton-text-secondary);
+    font-size: 0.8rem;
+    opacity: 0.6;
+    text-align: center;
+    list-style: none;
+}
+
+/* === Interface item === */
+.proton-network-modal-item {
+    display: grid;
+    grid-template-columns: 20px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    background: var(--proton-bg-secondary);
+    cursor: grab;
+    user-select: none;
+    transition: var(--proton-transition);
+    min-width: 0;
+}
+
+.proton-network-modal-item:last-child {
+    margin-bottom: 0;
+}
+
+.proton-network-modal-item:hover {
+    background: var(--proton-bg-hover);
+    border-color: rgba(var(--proton-accent-rgb), 0.25);
+}
+
+.proton-network-modal-item.is-dragging {
+    opacity: 0.4;
+    cursor: grabbing;
+}
+
+/* Drag-n-drop — визуальные подсказки */
+.proton-network-modal-item.is-dragging {
+    opacity: 0.4;
+    cursor: grabbing;
+    /* Слегка выдвигаем, чтобы выделить */
+    transform: scale(0.98);
+}
+
+.proton-network-modal-item.drop-target-before {
+    /* Линия сверху — элемент встанет ПЕРЕД этим */
+    box-shadow: 0 -3px 0 -1px var(--proton-accent);
+}
+
+.proton-network-modal-item.drop-target-after {
+    /* Линия снизу — элемент встанет ПОСЛЕ этого */
+    box-shadow: 0 3px 0 -1px var(--proton-accent);
+}
+
+/* Плавный переход для подсветки dragover */
+.proton-network-modal-list.is-dragover {
+    border-color: var(--proton-accent);
+    background: rgba(var(--proton-accent-rgb), 0.08);
+    border-style: solid;
+}
+
+.proton-network-modal-item-icon {
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    line-height: 1;
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+    font-variant-emoji: emoji;
+}
+
+.proton-network-modal-item-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.proton-network-modal-item-name {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--proton-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.proton-network-modal-item-sub {
+    font-size: 0.7rem;
+    color: var(--proton-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.proton-network-modal-item-alias-input {
+    width: 100%;
+    padding: 2px 4px;
+    font-size: 0.82rem;
+    font-family: inherit;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--proton-text-primary);
+    outline: none;
+    transition: var(--proton-transition);
+    min-width: 0;
+}
+
+.proton-network-modal-item-alias-input:hover {
+    border-color: var(--proton-border);
+    background: rgba(var(--proton-accent-rgb), 0.03);
+}
+
+.proton-network-modal-item-alias-input:focus {
+    border-color: var(--proton-accent);
+    background: rgba(var(--proton-accent-rgb), 0.06);
+    box-shadow: 0 0 0 2px var(--proton-accent-glow);
+}
+
+.proton-network-modal-item-status {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: 0 0 8px;
+    background: var(--proton-muted);
+}
+
+.proton-network-modal-item-status.is-up {
+    background: var(--proton-success);
+    box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.15);
+}
+
+.proton-network-modal-item-status.is-down {
+    background: var(--proton-muted);
+    opacity: 0.6;
+}
+
+/* Заблокированные списки в авто-режиме */
+.proton-network-modal-lists.is-disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* === Responsive === */
+@media (max-width: 640px) {
+    .proton-network-modal-lists {
+        grid-template-columns: 1fr;
+        max-height: none;
+    }
+
+    .proton-network-modal-list {
+        min-height: 140px;
+        max-height: 200px;
+    }
+}

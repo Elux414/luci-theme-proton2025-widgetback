@@ -668,4 +668,13 @@ window.ProtonTranslations = {
   "Interfaces": "Интерфейсы",
   "Configure interfaces": "Настроить интерфейсы",
   "No active interfaces": "Нет активных интерфейсов",
+  
+  // --- Network settings modal ---
+  "Auto mode": "Авто-режим",
+  "show top active interfaces": "показывать активные интерфейсы",
+  "Selected": "Выбрано",
+  "Drop interfaces here": "Перетащите интерфейсы сюда",
+  "All interfaces are selected": "Все интерфейсы уже выбраны",
+  "Up": "Активен",
+  "Down": "Неактивен",
 };

@@ -650,4 +650,12 @@ window.ProtonTranslations = {
   "Interfaces": "Interfejsy",
   "Configure interfaces": "Konfiguruj interfejsy",
   "No active interfaces": "Brak aktywnych interfejsów",
+  
+  "Auto mode": "Tryb automatyczny",
+  "show top active interfaces": "pokazuj aktywne interfejsy",
+  "Selected": "Wybrane",
+  "Drop interfaces here": "Upuść interfejsy tutaj",
+  "All interfaces are selected": "Wszystkie interfejsy są wybrane",
+  "Up": "Aktywny",
+  "Down": "Nieaktywny",
 };
