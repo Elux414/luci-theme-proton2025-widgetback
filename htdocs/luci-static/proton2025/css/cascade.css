@@ -13339,6 +13339,336 @@ body.login-page .login-password-toggle:focus-visible {
     white-space: nowrap;
 }
 
+/* ---------- Processes block in System card ---------- */
+
+.proton-dashboard-processes {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--proton-border);
+    border-radius: calc(var(--proton-radius) * 0.8);
+    background: rgba(var(--proton-accent-rgb), 0.025);
+}
+
+.proton-dashboard-processes-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.proton-dashboard-processes-spark {
+    display: inline-block;
+    width: 90px;
+    height: 24px;
+    flex: 0 0 auto;
+}
+
+.proton-dashboard-processes-spark-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.proton-dashboard-processes-spark-line {
+    fill: none;
+    stroke: var(--proton-accent);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+}
+
+.proton-dashboard-processes-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.proton-dashboard-processes-value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.proton-dashboard-processes-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    color: var(--proton-text-primary);
+}
+
+.proton-dashboard-processes-running {
+    font-size: 0.78rem;
+    color: var(--proton-text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.proton-dashboard-processes-tops {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.proton-dashboard-processes-top {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.proton-dashboard-processes-top-label {
+    font-size: 0.68rem;
+    color: var(--proton-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    opacity: 0.75;
+}
+
+.proton-dashboard-processes-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.proton-dashboard-processes-item {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    min-width: 0;
+}
+
+.proton-dashboard-processes-name {
+    color: var(--proton-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.proton-dashboard-processes-val {
+    color: var(--proton-text-secondary);
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+    font-weight: 500;
+}
+
+.proton-dashboard-processes-empty {
+    color: var(--proton-text-secondary);
+    font-size: 0.78rem;
+    opacity: 0.6;
+    list-style: none;
+}
+
+:root[data-theme="light"] .proton-dashboard-processes {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+@media (max-width: 600px) {
+    .proton-dashboard-processes-tops {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* ---------- Network interfaces block ---------- */
+
+.proton-dashboard-network {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--proton-border);
+    border-radius: calc(var(--proton-radius) * 0.8);
+    background: rgba(var(--proton-accent-rgb), 0.025);
+}
+
+.proton-dashboard-network-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.proton-dashboard-network-settings {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--proton-accent-glow);
+    color: var(--proton-accent);
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    transition: var(--proton-transition);
+    flex: 0 0 auto;
+}
+
+.proton-dashboard-network-settings:hover {
+    background: var(--proton-accent-glow);
+    transform: scale(1.08);
+}
+
+.proton-dashboard-network-settings svg {
+    display: block;
+}
+
+/* Сетка плиток интерфейсов */
+.proton-dashboard-network-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 8px;
+}
+
+/* Плитка одного интерфейса */
+.proton-dashboard-network-row {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+        "icon name"
+        "spark spark"
+        "rates rates";
+    column-gap: 8px;
+    row-gap: 4px;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    background: rgba(var(--proton-accent-rgb), 0.04);
+    transition: var(--proton-transition);
+    min-width: 0;
+}
+
+.proton-dashboard-network-row:hover {
+    background: rgba(var(--proton-accent-rgb), 0.08);
+    border-color: rgba(var(--proton-accent-rgb), 0.25);
+}
+
+.proton-dashboard-network-row.is-down {
+    opacity: 0.55;
+}
+
+/* Иконка — эмодзи, крупная и заметная */
+.proton-dashboard-network-icon {
+    grid-area: icon;
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    line-height: 1;
+    text-align: center;
+    /* Эмодзи-фон, чтобы форма была одинакова на всех платформах */
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji",
+                 "Segoe UI Symbol", "Android Emoji", "EmojiSymbols", sans-serif;
+    font-variant-emoji: emoji;
+}
+
+/* Имя — крупное, не обрезается */
+.proton-dashboard-network-name {
+    grid-area: name;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--proton-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    line-height: 1.2;
+}
+
+/* Sparkline — вся ширина плитки */
+.proton-dashboard-network-spark {
+    grid-area: spark;
+    display: block;
+    width: 100%;
+    height: 22px;
+    min-width: 0;
+}
+
+.proton-dashboard-network-spark-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.proton-dashboard-network-spark-rx {
+    fill: none;
+    stroke: #5e9eff;
+    stroke-width: 1.4;
+    vector-effect: non-scaling-stroke;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+.proton-dashboard-network-spark-tx {
+    fill: none;
+    stroke: #a78bfa;
+    stroke-width: 1.4;
+    vector-effect: non-scaling-stroke;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+/* Rates — в одну строку по всей ширине плитки */
+.proton-dashboard-network-rates {
+    grid-area: rates;
+    display: inline-flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.72rem;
+    font-weight: 500;
+    white-space: nowrap;
+    width: 100%;
+}
+
+.proton-dashboard-network-rates .rx {
+    color: #5e9eff;
+}
+
+.proton-dashboard-network-rates .tx {
+    color: #a78bfa;
+}
+
+.proton-dashboard-network-empty {
+    grid-column: 1 / -1;
+    color: var(--proton-text-secondary);
+    font-size: 0.78rem;
+    opacity: 0.6;
+    padding: 4px 0;
+}
+
+:root[data-theme="light"] .proton-dashboard-network {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .proton-dashboard-network-row {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .proton-dashboard-network-row:hover {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(var(--proton-accent-rgb), 0.3);
+}
+
 /* Hide the native LuCI System section when our card is present */
 .proton-hide-native-system {
     display: none !important;

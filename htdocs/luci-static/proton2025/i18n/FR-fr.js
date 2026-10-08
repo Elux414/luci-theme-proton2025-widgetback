@@ -646,4 +646,14 @@ window.ProtonTranslations = {
     "Les paramètres Proton2025 n'ont pas pu être enregistrés. Veuillez réessayer.",
   "Proton2025 settings sync timed out. Please retry.":
     "Le délai de synchronisation des paramètres Proton2025 a expiré. Veuillez réessayer.",
+	
+  "Processes": "Processus",
+  "Top CPU": "Top CPU",
+  "Top RAM": "Top RAM",
+  "running": "en cours",
+  "no data": "aucune donnée",
+  
+  "Interfaces": "Interfaces",
+  "Configure interfaces": "Configurer les interfaces",
+  "No active interfaces": "Aucune interface active",
 };

@@ -640,4 +640,14 @@ window.ProtonTranslations = {
     "Proton2025-Einstellungen konnten nicht gespeichert werden. Bitte erneut versuchen.",
   "Proton2025 settings sync timed out. Please retry.":
     "Zeitüberschreitung bei der Proton2025-Einstellungssynchronisierung. Bitte erneut versuchen.",
+	
+  "Processes": "Prozesse",
+  "Top CPU": "Top-CPU",
+  "Top RAM": "Top-RAM",
+  "running": "aktiv",
+  "no data": "keine Daten",
+  
+   "Interfaces": "Schnittstellen",
+  "Configure interfaces": "Schnittstellen konfigurieren",
+  "No active interfaces": "Keine aktiven Schnittstellen",
 };

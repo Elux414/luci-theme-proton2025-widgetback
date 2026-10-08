@@ -87,4 +87,14 @@ window.ProtonTranslations = {
     "Proton2025 settings could not be saved. Please retry.",
   "Proton2025 settings sync timed out. Please retry.":
     "Proton2025 settings sync timed out. Please retry.",
+	
+  "Processes": "Processes",
+  "Top CPU": "Top CPU",
+  "Top RAM": "Top RAM",
+  "running": "running",
+  "no data": "no data",
+  
+  "Interfaces": "Interfaces",
+  "Configure interfaces": "Configure interfaces",
+  "No active interfaces": "No active interfaces",
 };

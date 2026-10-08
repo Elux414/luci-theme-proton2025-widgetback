@@ -640,4 +640,14 @@ window.ProtonTranslations = {
     "Nie udało się zapisać ustawień Proton2025. Spróbuj ponownie.",
   "Proton2025 settings sync timed out. Please retry.":
     "Przekroczono limit czasu synchronizacji ustawień Proton2025. Spróbuj ponownie.",
+	
+  "Processes": "Procesy",
+  "Top CPU": "Top CPU",
+  "Top RAM": "Top RAM",
+  "running": "aktywnych",
+  "no data": "brak danych",
+  
+  "Interfaces": "Interfejsy",
+  "Configure interfaces": "Konfiguruj interfejsy",
+  "No active interfaces": "Brak aktywnych interfejsów",
 };

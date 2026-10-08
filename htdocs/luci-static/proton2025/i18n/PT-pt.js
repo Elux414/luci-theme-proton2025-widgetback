@@ -642,4 +642,14 @@ window.ProtonTranslations = {
     "Não foi possível guardar as definições do Proton2025. Tente novamente.",
   "Proton2025 settings sync timed out. Please retry.":
     "A sincronização das definições do Proton2025 excedeu o tempo limite. Tente novamente.",
+	
+  "Processes": "Procesos",
+  "Top CPU": "Top CPU",
+  "Top RAM": "Top RAM",
+  "running": "en ejecución",
+  "no data": "sin datos",
+  
+  "Interfaces": "Interfaces",
+  "Configure interfaces": "Configurar interfaces",
+  "No active interfaces": "Sem interfaces ativas",
 };

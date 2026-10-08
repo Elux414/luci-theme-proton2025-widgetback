@@ -12,7 +12,10 @@
 					"getSystemInfo",
 					"getCpuUsage",
 					"getServiceInfo",
-					"getServiceLog"
+					"getServiceLog",
+					"getProcessCount",
+					"getTopProcesses",
+					"getNetworkStats"
 				],
                 "luci.proton-search-cache": [
                     "loadCache"

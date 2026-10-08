@@ -252,6 +252,171 @@ function getCpuUsage() {
 	return { usage: int(usage * 10) / 10, cores: cores };
 }
 
+// --- Process count (running / total) ---------------------------------------
+//
+// Берём 4-е поле /proc/loadavg: "X.XX X.XX X.XX running/total last_pid".
+// running — процессов в состоянии R, total — общее число процессов
+// (включая потоки ядра, что нормально для busybox/OpenWrt).
+
+function readProcessCount() {
+	let content = readFileContent('/proc/loadavg');
+	if (!content) return null;
+
+	let parts = split(content, ' ');
+	if (length(parts) < 4) return null;
+
+	let pair = parts[3];
+	if (!pair) return null;
+
+	let slash = index(pair, '/');
+	if (slash < 0) return null;
+
+	let running = +(substr(pair, 0, slash) ?? 0);
+	let total = +(substr(pair, slash + 1) ?? 0);
+
+	if (running != running || total != total) return null;
+
+	return { running: running, total: total };
+}
+
+function getProcessCount() {
+	let counts = readProcessCount();
+
+	if (!counts) {
+		return { running: null, total: null };
+	}
+
+	return {
+		running: counts.running,
+		total: counts.total,
+		timestamp: time()
+	};
+}
+
+// --- Top processes by CPU / memory -----------------------------------------
+//
+// Ограничение на количество процессов, чтобы не улететь по времени на
+// роутерах с сотнями потоков. 150 — разумный компромисс (обычно в системе
+// 60-120 процессов).
+const MAX_PROC_SCAN = 150;
+
+// Читаем /proc/<pid>/stat: поле 14 (utime) + 15 (stime) = тики CPU.
+// Поле 22 (starttime) не нужно, берём только CPU.
+function readProcCpu(pid) {
+	let content = readFileContent('/proc/' + pid + '/stat');
+	if (!content) return null;
+
+	let lastParen = rindex(content, ')');
+	if (lastParen < 0) return null;
+
+	let tail = substr(content, lastParen + 2);
+	let fields = split(tail, ' ');
+
+	// После comm: state(0) ppid(1) ... utime(11) stime(12)
+	if (length(fields) < 13) return null;
+
+	let utime = +(fields[11] ?? 0);
+	let stime = +(fields[12] ?? 0);
+
+	if (utime != utime || stime != stime) return null;
+
+	return utime + stime;
+}
+
+// Читаем /proc/<pid>/statm: 2-е поле = RSS в страницах.
+function readProcRss(pid) {
+	let content = readFileContent('/proc/' + pid + '/statm');
+	if (!content) return null;
+
+	let parts = split(trim(content), ' ');
+	if (length(parts) < 2) return null;
+
+	let pages = +(parts[1] ?? 0);
+	if (pages != pages) return null;
+
+	// Обычно 4096 байт на страницу; в OpenWrt на MIPS может быть 4 KiB тоже.
+	return pages * 4096;
+}
+
+// Имя процесса — из /proc/<pid>/comm (обрезано до 15 символов),
+// или из cmdline как fallback.
+function readProcName(pid) {
+	let comm = readFileContent('/proc/' + pid + '/comm');
+	if (comm) {
+		let trimmed = trim(comm);
+		if (length(trimmed) > 0) return trimmed;
+	}
+
+	// Fallback: первый токен cmdline
+	let cmdline = readFileContent('/proc/' + pid + '/cmdline');
+	if (!cmdline) return '?';
+
+	// cmdline разделён нулями
+	let parts = split(cmdline, "\x00");
+	if (length(parts) > 0 && length(trim(parts[0])) > 0)
+		return trim(parts[0]);
+
+	return '?';
+}
+
+// Возвращает топ-N процессов по CPU (ticks) или по RSS.
+// kind: 'cpu' | 'ram'
+function getTopProcesses(kind, limit) {
+	if (kind != 'cpu' && kind != 'ram') kind = 'cpu';
+	if (limit == null || limit < 1 || limit > 20) limit = 3;
+
+	let entries = lsdir('/proc');
+	if (!entries) return { processes: [] };
+
+	let procs = [];
+	let scanned = 0;
+
+	for (let name in entries) {
+		if (scanned >= MAX_PROC_SCAN) break;
+
+		// Только числовые директории (PID)
+		if (match(name, /^[0-9]+$/) == null) continue;
+		scanned++;
+
+		let pid = +name;
+		let pname = readProcName(pid);
+		if (!pname) continue;
+
+		let value = 0;
+		let metric_name = '';
+
+		if (kind == 'cpu') {
+			value = readProcCpu(pid) ?? 0;
+			metric_name = 'cpu_ticks';
+		} else {
+			value = readProcRss(pid) ?? 0;
+			metric_name = 'rss_bytes';
+		}
+
+		push(procs, {
+			pid: pid,
+			name: pname,
+			value: value
+		});
+	}
+
+	// Сортировка по убыванию
+	procs = sort(procs, function(a, b) { return b.value - a.value; });
+	if (length(procs) > limit) procs = slice(procs, 0, limit);
+
+	let result = [];
+	for (let p in procs) {
+		push(result, {
+			pid: p.pid,
+			name: p.name,
+			cpu_ticks: kind == 'cpu' ? p.value : 0,
+			rss_bytes: kind == 'ram' ? p.value : 0
+		});
+	}
+
+	return { processes: result, kind: kind };
+}
+
 // --- Service info (uptime, pid) --------------------------------------------
 //
 // Uptime и pid берём из /proc/<pid>/stat. Формула:
@@ -397,6 +562,152 @@ function getServiceLog(req) {
 	return { success: true, lines: result };
 }
 
+// --- Network interfaces -----------------------------------------------------
+//
+// Читаем данные напрямую из /proc и /sys, без ubus.call — чтобы
+// избежать проблем с ACL/контекстом rpcd.
+//
+// Источники:
+//   /proc/net/dev                    — счётчики rx/tx байт и пакетов
+//   /sys/class/net/<iface>/operstate — состояние up/down
+//   /sys/class/net/<iface>/carrier   — наличие линка
+//   /sys/class/net/<iface>/type      — тип (1=ethernet, 772=loopback, ...)
+//   /etc/config/network              — метаданные UCI (device, proto)
+
+// Хелпер: сортировка массива по up (true вверх), затем по имени.
+function sortInterfaces(arr) {
+	let n = length(arr);
+	for (let i = 0; i < n - 1; i++) {
+		let minIdx = i;
+		for (let j = i + 1; j < n; j++) {
+			let a = arr[minIdx];
+			let b = arr[j];
+			let aUp = a.up ? 1 : 0;
+			let bUp = b.up ? 1 : 0;
+			if (bUp > aUp) {
+				minIdx = j;
+				continue;
+			}
+			if (bUp == aUp && b.name < a.name) {
+				minIdx = j;
+			}
+		}
+		if (minIdx != i) {
+			let tmp = arr[i];
+			arr[i] = arr[minIdx];
+			arr[minIdx] = tmp;
+		}
+	}
+	return arr;
+}
+
+function getNetworkStats() {
+	// --- 1. Счётчики из /proc/net/dev ---
+	let devContent = readfile('/proc/net/dev');
+	if (!devContent) {
+		return { interfaces: [], error: '/proc/net/dev unavailable' };
+	}
+
+	let counters = {};
+	let lines = split(devContent, "\n");
+
+	for (let li = 2; li < length(lines); li++) {
+		let line = trim(lines[li]);
+		if (length(line) == 0) continue;
+
+		let colon = index(line, ':');
+		if (colon < 0) continue;
+
+		let iface = trim(substr(line, 0, colon));
+		let rest = trim(substr(line, colon + 1));
+
+		// Поля: rx_bytes rx_packets ... (8 полей) tx_bytes tx_packets ... (8 полей)
+		let f = split(rest, /[ \t]+/);
+		if (length(f) < 16) continue;
+
+		let rx = +(f[0]);
+		if (rx != rx) rx = 0;
+		let tx = +(f[8]);
+		if (tx != tx) tx = 0;
+
+		counters[iface] = { rx_bytes: rx, tx_bytes: tx };
+	}
+
+	// --- 2. Метаданные UCI из /etc/config/network ---
+	let metaByDevice = {};
+	let uc = cursor();
+	uc.load('network');
+
+	uc.foreach('network', 'interface', function(s) {
+		let dev = s.device;
+		if (!dev) return;
+
+		if (!metaByDevice[dev]) {
+			metaByDevice[dev] = {
+				interface: s['.name'],
+				proto: s.proto || ''
+			};
+		}
+	});
+
+	// --- 3. Финальный список ---
+	let interfaces = [];
+
+	for (let name in counters) {
+		// Фильтруем loopback
+		if (name == 'lo') continue;
+
+		// Фильтруем интерфейсы без присутствия физически.
+		// В /sys/class/net/<iface>/ есть файл `ifindex`, если интерфейс существует.
+		let operstate = readFileContent('/sys/class/net/' + name + '/operstate');
+		let carrier = readFileContent('/sys/class/net/' + name + '/carrier');
+		let devType = readFileContent('/sys/class/net/' + name + '/type');
+
+		// up = operstate == "up" или "unknown" (для bridge) — берём "up"
+		let up = operstate == 'up';
+		let isCarrier = carrier == '1';
+
+		// type: 1 = ethernet, 772 = loopback, 65534 = none, 512/... = другие
+		let typeStr = 'network';
+		let devTypeNum = +(devType);
+		if (devTypeNum == 1) typeStr = 'ethernet';
+		else if (devTypeNum == 772) typeStr = 'loopback';
+		else if (name == 'br-lan' || match(name, /^br-/)) typeStr = 'bridge';
+
+		let meta = metaByDevice[name];
+		if (!meta) meta = {};
+
+		let ifaceName = meta.interface;
+		if (!ifaceName) ifaceName = '';
+		let proto = meta.proto;
+		if (!proto) proto = '';
+
+		// display_name — то, что показываем в карточке. По умолчанию —
+		// имя устройства (br-lan, eth0). Alias/interace (lan, wan) идёт
+		// отдельно и используется в модальном окне настройки.
+		let displayName = name;
+
+		let c = counters[name];
+
+		push(interfaces, {
+			name: name,
+			display_name: displayName,
+			iface: ifaceName,
+			proto: proto,
+			type: typeStr,
+			up: up,
+			present: true,
+			carrier: isCarrier,
+			rx_bytes: c.rx_bytes,
+			tx_bytes: c.tx_bytes
+		});
+	}
+
+	interfaces = sortInterfaces(interfaces);
+
+	return { interfaces: interfaces, timestamp: time() };
+}
+
 const methods = {
 	getSystemInfo: {
 		call: function() {
@@ -418,6 +729,24 @@ const methods = {
 		args: { name: 'name', lines: 0 },
 		call: function(req) {
 			return getServiceLog(req);
+		}
+	},
+	getProcessCount: {
+		call: function() {
+			return getProcessCount();
+		}
+	},
+	getTopProcesses: {
+		args: { kind: 'kind', limit: 0 },
+		call: function(req) {
+			let kind = req.args?.kind ?? 'cpu';
+			let limit = +(req.args?.limit ?? 3);
+			return getTopProcesses(kind, limit);
+		}
+	},
+	getNetworkStats: {
+		call: function() {
+			return getNetworkStats();
 		}
 	}
 };

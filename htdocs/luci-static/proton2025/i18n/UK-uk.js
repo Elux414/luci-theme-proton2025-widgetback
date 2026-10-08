@@ -636,4 +636,14 @@ window.ProtonTranslations = {
     "Не вдалося зберегти налаштування Proton2025. Спробуйте ще раз.",
   "Proton2025 settings sync timed out. Please retry.":
     "Час синхронізації налаштувань Proton2025 вичерпано. Спробуйте ще раз.",
+	
+  "Processes": "Процеси",
+  "Top CPU": "Топ за ЦП",
+  "Top RAM": "Топ за пам'яттю",
+  "running": "активних",
+  "no data": "немає даних",
+  
+   "Interfaces": "Інтерфейси",
+  "Configure interfaces": "Налаштувати інтерфейси",
+  "No active interfaces": "Немає активних інтерфейсів",
 };

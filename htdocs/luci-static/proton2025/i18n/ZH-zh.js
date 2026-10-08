@@ -613,4 +613,14 @@ window.ProtonTranslations = {
     "无法保存 Proton2025 设置。请重试。",
   "Proton2025 settings sync timed out. Please retry.":
     "Proton2025 设置同步超时。请重试。",
+	
+  "Processes": "进程",
+  "Top CPU": "CPU 排行",
+  "Top RAM": "内存排行",
+  "running": "运行中",
+  "no data": "无数据",
+  
+  "Interfaces": "接口",
+  "Configure interfaces": "配置接口",
+  "No active interfaces": "无活动接口",
 };
