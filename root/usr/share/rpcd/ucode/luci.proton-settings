@@ -57,7 +57,17 @@ const VALID_OPTIONS = {
 		'underwater',
 		'fluid'
     	]
-	}
+	},
+	// --- Applications widget ---
+	apps_widget: { default: '[]', pattern: 'json_array', maxlen: 4096 },
+	
+	// --- Services widget ---
+	services_selected: { default: '["dnsmasq","dropbear"]', pattern: 'json_array', maxlen: 4096 },
+	services_deep_check: { default: '0', values: ['0', '1'] },
+	
+	// --- Network interfaces ---
+	network_selected: { default: '[]', pattern: 'json_array', maxlen: 4096 },
+	network_aliases: { default: '{}', pattern: 'json_object', maxlen: 8192 },
 };
 
 // Validate option value
@@ -71,6 +81,32 @@ function validateOption(name, value) {
 
 	if (opt.pattern === 'hex') {
 		return match(value, /^#[0-9a-fA-F]{6}$/) != null;
+	}
+
+	// JSON-массив строк: ["a", "b", "c"]
+	if (opt.pattern === 'json_array') {
+		if (opt.maxlen != null && length(value) > opt.maxlen) return false;
+		let parsed;
+		try { parsed = json(value); } catch (e) { return false; }
+		if (type(parsed) != 'array') return false;
+		// Проверяем, что все элементы — строки
+		for (let item in parsed) {
+			if (type(item) != 'string') return false;
+		}
+		return true;
+	}
+
+	// JSON-объект { key: "value" }
+	if (opt.pattern === 'json_object') {
+		if (opt.maxlen != null && length(value) > opt.maxlen) return false;
+		let parsed;
+		try { parsed = json(value); } catch (e) { return false; }
+		if (type(parsed) != 'object') return false;
+		// Проверяем, что все значения — строки
+		for (let key in parsed) {
+			if (type(parsed[key]) != 'string') return false;
+		}
+		return true;
 	}
 
 	// Free-form string (optionally length-capped), e.g. the login logo.

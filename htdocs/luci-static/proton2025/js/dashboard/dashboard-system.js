@@ -893,25 +893,36 @@ function saveNetworkModalState() {
 
   // Selected
   const selectedArr = Array.from(_networkModalState.selected);
-  if (selectedArr.length === 0) {
-    // Пустой массив = авто-режим
-    localStorage.removeItem("proton-network-selected");
-    userSelectedInterfaces = null;
-  } else {
-    localStorage.setItem("proton-network-selected", JSON.stringify(selectedArr));
-    userSelectedInterfaces = selectedArr;
-  }
+  const selectedJson = JSON.stringify(selectedArr);
+  localStorage.setItem("proton-network-selected", selectedJson);
+  userSelectedInterfaces = selectedArr.length === 0 ? null : selectedArr;
 
   // Aliases
   const aliases = _networkModalState.aliases || {};
-  if (Object.keys(aliases).length === 0) {
-    localStorage.removeItem("proton-network-aliases");
-  } else {
-    localStorage.setItem("proton-network-aliases", JSON.stringify(aliases));
-  }
+  const aliasesJson = JSON.stringify(aliases);
+  localStorage.setItem("proton-network-aliases", aliasesJson);
   interfaceAliases = aliases;
 
-  // TODO: 2.3.4 — сохранение в UCI
+  // === Прямое сохранение в UCI ===
+  // Не полагаемся на перехват localStorage.setItem — он сбрасывается
+  // LuCI-core'ом и работает нестабильно.
+  if (
+    window.protonSettingsSync &&
+    typeof window.protonSettingsSync.saveLocalKeysToUci === "function"
+  ) {
+    window.protonSettingsSync
+      .saveLocalKeysToUci({
+        "proton-network-selected": selectedJson,
+        "proton-network-aliases": aliasesJson,
+      })
+      .then((ok) => {
+        if (ok) {
+          console.log("[Proton2025] Network settings saved to UCI");
+        } else {
+          console.warn("[Proton2025] Failed to save network settings to UCI");
+        }
+      });
+  }
 }
 
 // ---------------------------------------------------------------------------

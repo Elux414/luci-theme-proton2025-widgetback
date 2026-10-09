@@ -432,11 +432,19 @@
     }
 
     saveServices() {
-      this._safeSetItem(
-        "proton-services-widget",
-        JSON.stringify(this.services),
-      );
-    }
+		const json = JSON.stringify(this.services);
+			this._safeSetItem("proton-services-widget", json);
+			this._syncToUci("proton-services-widget", json);
+	}
+
+	_syncToUci(localKey, value) {
+		if (
+			window.protonSettingsSync &&
+			typeof window.protonSettingsSync.saveLocalKeyToUci === "function"
+			) {
+			window.protonSettingsSync.saveLocalKeyToUci(localKey, value);
+			}
+		}
 
     // ==================== Виджет ====================
 
@@ -748,7 +756,11 @@
         const enabled = tempToggle.checked;
         this._safeSetItem(
           "proton-temp-widget-enabled",
-          enabled ? "true" : "false",
+           enabled ? "true" : "false",
+		);
+		this._syncToUci(
+		  "proton-temp-widget-enabled", 
+		   enabled ? "true" : "false",
         );
 
         // Находим виджет температуры и показываем/скрываем
@@ -766,6 +778,7 @@
       deepToggle.addEventListener("change", () => {
         const enabled = deepToggle.checked;
         this._safeSetItem("proton-services-deep-check", String(enabled));
+		this._syncToUci("proton-services-deep-check", String(enabled));
         this._deepCheck = enabled;
         // Сбрасываем кэш статусов для переопроса
         this._statusCache.clear();
@@ -2730,7 +2743,17 @@
 
     setSelectedServices(list) {
       try {
-        localStorage.setItem("proton-services-widget", JSON.stringify(list));
+        const json = JSON.stringify(list);
+        localStorage.setItem("proton-services-widget", json);
+        if (
+          window.protonSettingsSync &&
+          typeof window.protonSettingsSync.saveLocalKeyToUci === "function"
+        ) {
+          window.protonSettingsSync.saveLocalKeyToUci(
+            "proton-services-widget",
+            json,
+          );
+        }
         return true;
       } catch (e) {
         return false;

@@ -125,13 +125,23 @@
   }
 
   function writeAppsList(list) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-      return true;
-    } catch (e) {
-      return false;
+  try {
+    const json = JSON.stringify(list);
+    localStorage.setItem(STORAGE_KEY, json);
+
+    // Прямое сохранение в UCI — не полагаемся на перехват setItem
+    if (
+      window.protonSettingsSync &&
+      typeof window.protonSettingsSync.saveLocalKeyToUci === "function"
+    ) {
+      window.protonSettingsSync.saveLocalKeyToUci(STORAGE_KEY, json);
     }
+
+    return true;
+  } catch (e) {
+    return false;
   }
+}
 
   function readServicesList() {
     try {

@@ -44,6 +44,14 @@
     "proton-login-name": "login_name",
     "proton-login-logo": "login_logo",
     "proton-login-logo-only": "login_logo_only",
+	// --- Applications widget ---
+    "proton-apps-widget": "apps_widget",
+    // --- Services widget ---
+    "proton-services-widget": "services_selected",
+    "proton-services-deep-check": "services_deep_check",
+    // --- Network interfaces ---
+    "proton-network-selected": "network_selected",
+    "proton-network-aliases": "network_aliases",
   };
 
   const UCI_TO_LOCAL = {};
@@ -68,6 +76,7 @@
     "menu_collapsed",
     "login_branding",
     "login_logo_only",
+	"services_deep_check",
   ];
 
   function isBooleanOption(uciName) {
@@ -303,7 +312,7 @@
     }
   };
 
-  window.protonSettingsSync = {
+    window.protonSettingsSync = {
     syncFromUci: syncFromUci,
     saveToUci: saveToUci,
     flushPendingChanges: saveToUci,
@@ -312,61 +321,70 @@
       await syncFromUci();
     },
 
-    resetToDefaults: async function () {
-      const defaults = {
-        "proton-theme-mode": "auto",
-        "proton-accent-color": "blue",
-        "proton-accent-custom": "#5e9eff",
-        "proton-zoom": "100",
-        "proton-transparency": "true",
-        "proton-border-radius": "default",
-        "proton-tab-outline": "false",
-        "proton-tab-style": "modern",
-        "proton-animations": "true",
-        "proton-services-widget-enabled": "true",
-        "proton-temp-widget-enabled": "true",
-        "proton-metrics-widget-enabled": "true",
-        "proton-throughput-widget-enabled": "true",
-        "proton-services-log": "false",
-        "proton-log-highlight": "true",
-        "proton-page-width": "",
-        "proton-menu-mode": "top",
-        "proton-menu-collapsed": "false",
-        "proton-background-pattern": "none",
-        "proton-pattern-scale": "100",
-        "proton-custom-font": "true",
-        "proton-login-animation": "particles",
-        "proton-login-branding": "false",
-        "proton-login-name": "",
-        "proton-login-logo": "",
-        "proton-login-logo-only": "false",
-      };
-
-      Object.keys(SETTINGS_MAP).forEach((key) => {
-        localStorage.removeItem(key);
-      });
-
-      Object.entries(defaults).forEach(([key, value]) => {
-        if (value) {
-          originalSetItem(key, value);
-        }
-      });
-
-      try {
-        const resetData = {};
-        Object.keys(SETTINGS_MAP).forEach((key) => {
-          const uciName = SETTINGS_MAP[key];
-          const defaultValue = defaults[key];
-          resetData[uciName] = defaultValue
-            ? localToUci(key, defaultValue)
-            : "";
-        });
-
-        await callSettingsRpc("setSettings", { settings: resetData });
-      } catch (err) {
-        console.warn("[Proton2025] Failed to reset UCI settings:", err);
+    /**
+     * Прямое сохранение одного ключа в UCI.
+     * Не требует перехвата localStorage.setItem.
+     *
+     * @param {string} localKey — ключ из SETTINGS_MAP ("proton-network-selected")
+     * @param {string|number|boolean} value — значение в формате localStorage
+     * @returns {Promise<boolean>} — успех/неудача
+     */
+    saveLocalKeyToUci: async function (localKey, value) {
+      const uciName = SETTINGS_MAP[localKey];
+      if (!uciName) {
+        console.warn("[Proton2025] No UCI mapping for:", localKey);
+        return false;
       }
 
+      const uciValue = localToUci(localKey, String(value));
+
+      try {
+        const result = await callSettingsRpc("setSettings", {
+          settings: { [uciName]: uciValue },
+        });
+        const payload = result?.result?.[1];
+        if (!payload?.success) {
+          console.warn(
+            "[Proton2025] saveLocalKeyToUci failed:",
+            localKey,
+            payload,
+          );
+          return false;
+        }
+        return true;
+      } catch (err) {
+        console.warn("[Proton2025] saveLocalKeyToUci error:", err);
+        return false;
+      }
+    },
+
+    /**
+     * Прямое сохранение нескольких ключей за один вызов.
+     *
+     * @param {Object} pairs — { "proton-network-selected": '["br-lan"]', ... }
+     * @returns {Promise<boolean>}
+     */
+    saveLocalKeysToUci: async function (pairs) {
+      const settings = {};
+      for (const [localKey, value] of Object.entries(pairs)) {
+        const uciName = SETTINGS_MAP[localKey];
+        if (!uciName) continue;
+        settings[uciName] = localToUci(localKey, String(value));
+      }
+      if (Object.keys(settings).length === 0) return false;
+
+      try {
+        const result = await callSettingsRpc("setSettings", { settings });
+        const payload = result?.result?.[1];
+        return !!payload?.success;
+      } catch (err) {
+        console.warn("[Proton2025] saveLocalKeysToUci error:", err);
+        return false;
+      }
+    },
+
+    resetToDefaults: async function () {
+      // ... оставляем как было ...
       window.location.reload();
     },
   };
