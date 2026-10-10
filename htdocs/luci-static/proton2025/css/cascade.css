@@ -461,6 +461,21 @@ html.proton-pattern-dots {
     --proton-pattern-size: var(--proton-pattern-cell) var(--proton-pattern-cell);
 }
 
+html[class*="proton-pattern-"] .proton-dashboard-card,
+:root[data-theme="light"][class*="proton-pattern-"] .proton-dashboard-card {
+    background:
+    linear-gradient(
+        180deg,
+        rgba(var(--proton-accent-rgb), 0.06) 0%,
+                    rgba(var(--proton-accent-rgb), 0.12) 100%
+    ),
+    linear-gradient(
+        180deg,
+        rgba(var(--proton-card-rgb), 0.65) 0%,
+                    var(--proton-card-solid) 50%
+    );
+}
+
 :root[data-theme="light"].proton-pattern-grid {
     --proton-pattern-image:
         linear-gradient(var(--proton-pattern-light-line) 1px, transparent 1px),
@@ -13125,9 +13140,11 @@ body.login-page .login-password-toggle:focus-visible {
     flex-direction: column;
     margin: 0;
     padding: 18px 20px 14px;
-    background: var(--proton-bg-secondary);
+    background: var(--proton-bg-tertiary);
     border: 1px solid var(--proton-border);
     border-radius: var(--proton-radius);
+    box-shadow: var(--proton-shadow-sm);
+    transition: var(--proton-transition);
     overflow: hidden;
 }
 
@@ -14910,4 +14927,32 @@ body[data-page="admin-status-overview"] .cbi-section .cbi-title h3 {
         min-height: 140px;
         max-height: 200px;
     }
+}
+
+/* Match native LuCI section styling on Internet and Temperature widgets */
+html body .proton-dashboard-internet,
+html body #proton-temp-widget {
+    background: var(--proton-bg-tertiary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius);
+    box-shadow: var(--proton-shadow-sm);
+    transition: var(--proton-transition);
+}
+
+/* Match native LuCI pattern background */
+html[class*="proton-pattern-"] body .proton-dashboard-internet,
+html[class*="proton-pattern-"] body #proton-temp-widget,
+:root[data-theme="light"][class*="proton-pattern-"] body .proton-dashboard-internet,
+:root[data-theme="light"][class*="proton-pattern-"] body #proton-temp-widget {
+    background:
+    linear-gradient(
+        180deg,
+        rgba(var(--proton-accent-rgb), 0.06) 0%,
+                    rgba(var(--proton-accent-rgb), 0.12) 100%
+    ),
+    linear-gradient(
+        180deg,
+        rgba(var(--proton-card-rgb), 0.65) 0%,
+                    var(--proton-card-solid) 50%
+    );
 }
