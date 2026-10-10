@@ -12,8 +12,8 @@
 <footer class="proton-footer">
 	{{ _('Powered by') }} <a href="https://github.com/openwrt/luci">LuCI</a> ({{ version.luciversion }})
 	/ {{ version.distname }} ({{ version.distversion }}) {{ version.distrevision }}
-	/ Proton2025 Theme v1.4.2
-	/ <a href="https://github.com/ChesterGoodiny/luci-theme-proton2025" target="_blank" rel="noopener noreferrer">GitHub</a>
+	/ Proton2025 Expanded Theme v1.0.3p
+	/ <a href="https://github.com/Elux414/luci-theme-proton2025-widgetback" target="_blank" rel="noopener noreferrer">GitHub</a>
 </footer>
 
 <script>
