@@ -1,0 +1,466 @@
+// Proton2025 Theme - Services History & Health Check RPC Module
+// Copyright 2025-2026 ChesterGoodiny
+// Licensed under the Apache License, Version 2.0
+// See LICENSE and NOTICE for details.
+// Stores per-service history points and health summary in /tmp/proton-services-history/
+
+'use strict';
+
+import { readfile, writefile, lsdir, mkdir, stat, unlink, popen } from 'fs';
+
+const STORAGE_DIR = '/tmp/proton-services-history';
+const MAX_AGE_HOURS_DEFAULT = 24;
+const SERVICE_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+// --- Внутренние хелперы ---------------------------------------------------
+
+// Проверка валидности имени сервиса — защита от path traversal.
+function validServiceName(name) {
+	if (!name || type(name) != 'string') return false;
+	if (match(name, SERVICE_NAME_RE) == null) return false;
+	return true;
+}
+
+// Создать директорию, если её нет.
+function ensureStorageDir() {
+	let s = stat(STORAGE_DIR);
+	if (!s || s.type != 'directory') {
+		mkdir(STORAGE_DIR, 0o755);
+	}
+}
+
+// Путь к файлу истории сервиса.
+function historyPath(service) {
+	return STORAGE_DIR + '/' + service + '.json';
+}
+
+// Путь к файлу сводного здоровья.
+function healthPath() {
+	return STORAGE_DIR + '/_health.json';
+}
+
+// Путь к файлу user actions.
+function userActionsPath() {
+	return STORAGE_DIR + '/.user_actions.json';
+}
+
+// Безопасное чтение JSON. Возвращает null при ошибке.
+function readJsonFile(path) {
+	let raw = readfile(path);
+	if (!raw) return null;
+	try {
+		return json(raw);
+	} catch (e) {
+		return null;
+	}
+}
+
+// Безопасная запись JSON. Возвращает true/false.
+function writeJsonFile(path, data) {
+	try {
+		let raw = sprintf('%.J', data);
+		if (raw == null) return false;
+		writefile(path, raw);
+		return true;
+	} catch (e) {
+		return false;
+	}
+}
+
+// Удалить точку старше max_age_hours.
+// points — массив вида [t, status, pid, hint].
+// t — unix seconds.
+function filterByAge(points, maxAgeHours) {
+	if (!points || type(points) != 'array') return [];
+	if (maxAgeHours <= 0) return points;
+
+	let now = time();
+	let cutoff = now - (maxAgeHours * 3600);
+	let out = [];
+
+	for (let p in points) {
+		if (!p || type(p) != 'array' || length(p) < 1) continue;
+		let t = +p[0];
+		if (t != t) continue;
+		if (t >= cutoff) push(out, p);
+	}
+
+	return out;
+}
+
+// --- API: readHistory -----------------------------------------------------
+//
+// Читает историю сервиса. Если файла нет — возвращает пустой набор.
+// Обрезает точки старше max_age_hours (если передано).
+
+function readHistory(req) {
+	let name = req.args?.name;
+	if (!validServiceName(name)) {
+		return { success: false, error: 'Invalid service name', points: [] };
+	}
+
+	ensureStorageDir();
+
+	let path = historyPath(name);
+	let data = readJsonFile(path);
+
+	if (!data) {
+		return {
+			success: true,
+			service: name,
+			points: [],
+			sample_interval: null,
+			max_age_hours: null
+		};
+	}
+
+	let maxAge = +data.max_age_hours;
+	if (maxAge != maxAge || maxAge <= 0) maxAge = MAX_AGE_HOURS_DEFAULT;
+
+	let filtered = filterByAge(data.points, maxAge);
+
+	return {
+		success: true,
+		service: name,
+		points: filtered,
+		sample_interval: +data.sample_interval || null,
+		max_age_hours: maxAge
+	};
+}
+
+// --- API: writeHistory ----------------------------------------------------
+//
+// Записывает точки в историю сервиса.
+// req.args: { name, sample_interval, max_age_hours, points: [[t,s,p,h],...] }
+//
+// Логика: читаем файл, мёржим точки (по timestamp, новые перезаписывают),
+// обрезаем по возрасту, пишем обратно.
+
+function writeHistory(req) {
+	let name = req.args?.name;
+	if (!validServiceName(name)) {
+		return { success: false, error: 'Invalid service name' };
+	}
+
+	let points = req.args?.points;
+	if (!points || type(points) != 'array') {
+		return { success: false, error: 'Invalid points' };
+	}
+
+	let sampleInterval = +req.args?.sample_interval;
+	if (sampleInterval != sampleInterval || sampleInterval <= 0) sampleInterval = 10;
+
+	let maxAgeHours = +req.args?.max_age_hours;
+	if (maxAgeHours != maxAgeHours || maxAgeHours <= 0) maxAgeHours = MAX_AGE_HOURS_DEFAULT;
+
+	ensureStorageDir();
+
+	let path = historyPath(name);
+	let existing = readJsonFile(path);
+	let existingPoints = (existing && existing.points) ? existing.points : [];
+
+	// Мёржим: строим map по timestamp.
+	let byTime = {};
+	for (let p in existingPoints) {
+		if (!p || type(p) != 'array' || length(p) < 1) continue;
+		let t = +p[0];
+		if (t != t) continue;
+		byTime['' + t] = p;
+	}
+	for (let p in points) {
+		if (!p || type(p) != 'array' || length(p) < 1) continue;
+		let t = +p[0];
+		if (t != t) continue;
+		byTime['' + t] = p;
+	}
+
+	// Собираем и сортируем по timestamp.
+	let merged = [];
+	for (let k, p in byTime) push(merged, p);
+	merged = sort(merged, function(a, b) { return (+a[0]) - (+b[0]); });
+
+	// Обрезаем по возрасту.
+	merged = filterByAge(merged, maxAgeHours);
+
+	let payload = {
+		service: name,
+		sample_interval: sampleInterval,
+		max_age_hours: maxAgeHours,
+		points: merged
+	};
+
+	if (!writeJsonFile(path, payload)) {
+		return { success: false, error: 'Write failed' };
+	}
+
+	return {
+		success: true,
+		written: length(merged),
+		path: path
+	};
+}
+
+// --- API: clearHistory ----------------------------------------------------
+//
+// Удаляет файл истории сервиса.
+
+function clearHistory(req) {
+	let name = req.args?.name;
+	if (!validServiceName(name)) {
+		return { success: false, error: 'Invalid service name' };
+	}
+
+	let path = historyPath(name);
+	try {
+		unlink(path);
+	} catch (e) {
+		// Файл не существует — не ошибка.
+	}
+
+	return { success: true };
+}
+
+// --- API: readHealthHistory -----------------------------------------------
+
+function readHealthHistory(req) {
+	ensureStorageDir();
+
+	let data = readJsonFile(healthPath());
+
+	if (!data) {
+		return {
+			success: true,
+			points: [],
+			sample_interval: null,
+			max_age_hours: null
+		};
+	}
+
+	let maxAge = +data.max_age_hours;
+	if (maxAge != maxAge || maxAge <= 0) maxAge = MAX_AGE_HOURS_DEFAULT;
+
+	let filtered = filterByAge(data.points, maxAge);
+
+	return {
+		success: true,
+		points: filtered,
+		sample_interval: +data.sample_interval || null,
+		max_age_hours: maxAge
+	};
+}
+
+// --- API: writeHealthHistory ----------------------------------------------
+//
+// req.args: { sample_interval, max_age_hours, points: [[t,running,total,incidents],...] }
+
+function writeHealthHistory(req) {
+	let points = req.args?.points;
+	if (!points || type(points) != 'array') {
+		return { success: false, error: 'Invalid points' };
+	}
+
+	let sampleInterval = +req.args?.sample_interval;
+	if (sampleInterval != sampleInterval || sampleInterval <= 0) sampleInterval = 10;
+
+	let maxAgeHours = +req.args?.max_age_hours;
+	if (maxAgeHours != maxAgeHours || maxAgeHours <= 0) maxAgeHours = MAX_AGE_HOURS_DEFAULT;
+
+	ensureStorageDir();
+
+	let existing = readJsonFile(healthPath());
+	let existingPoints = (existing && existing.points) ? existing.points : [];
+
+	let byTime = {};
+	for (let p in existingPoints) {
+		if (!p || type(p) != 'array' || length(p) < 1) continue;
+		let t = +p[0];
+		if (t != t) continue;
+		byTime['' + t] = p;
+	}
+	for (let p in points) {
+		if (!p || type(p) != 'array' || length(p) < 1) continue;
+		let t = +p[0];
+		if (t != t) continue;
+		byTime['' + t] = p;
+	}
+
+	let merged = [];
+	for (let k, p in byTime) push(merged, p);
+	merged = sort(merged, function(a, b) { return (+a[0]) - (+b[0]); });
+	merged = filterByAge(merged, maxAgeHours);
+
+	let payload = {
+		sample_interval: sampleInterval,
+		max_age_hours: maxAgeHours,
+		points: merged
+	};
+
+	if (!writeJsonFile(healthPath(), payload)) {
+		return { success: false, error: 'Write failed' };
+	}
+
+	return {
+		success: true,
+		written: length(merged)
+	};
+}
+
+// --- API: readUserActions -------------------------------------------------
+
+function readUserActions(req) {
+	ensureStorageDir();
+
+	let data = readJsonFile(userActionsPath());
+	if (!data || type(data) != 'object') {
+		return { success: true, actions: {} };
+	}
+
+	return { success: true, actions: data };
+}
+
+// --- API: writeUserAction -------------------------------------------------
+//
+// req.args: { service, action: "stop" | null }
+// action=null — удалить флаг.
+
+function writeUserAction(req) {
+	let service = req.args?.service;
+	if (!validServiceName(service)) {
+		return { success: false, error: 'Invalid service name' };
+	}
+
+	let action = req.args?.action;
+
+	ensureStorageDir();
+
+	let data = readJsonFile(userActionsPath());
+	if (!data || type(data) != 'object') data = {};
+
+	if (action == null || action == '') {
+		delete data[service];
+	} else if (type(action) == 'string') {
+		data[service] = {
+			action: action,
+			at: time()
+		};
+	} else {
+		return { success: false, error: 'Invalid action' };
+	}
+
+	if (!writeJsonFile(userActionsPath(), data)) {
+		return { success: false, error: 'Write failed' };
+	}
+
+	return { success: true };
+}
+
+// --- API: getStorageStats -------------------------------------------------
+//
+// Возвращает размер директории в байтах и количество файлов.
+// Используется в UI для отображения.
+
+function getStorageStats(req) {
+	let s = stat(STORAGE_DIR);
+	if (!s || s.type != 'directory') {
+		return { success: true, files: 0, bytes: 0 };
+	}
+
+	let entries = lsdir(STORAGE_DIR);
+	if (!entries) {
+		return { success: true, files: 0, bytes: 0 };
+	}
+
+	let totalBytes = 0;
+	let fileCount = 0;
+
+	for (let name in entries) {
+		let st = stat(STORAGE_DIR + '/' + name);
+		if (!st || st.type != 'file') continue;
+		totalBytes += (+st.size || 0);
+		fileCount++;
+	}
+
+	return {
+		success: true,
+		files: fileCount,
+		bytes: totalBytes,
+		path: STORAGE_DIR
+	};
+}
+
+// --- API: clearAll --------------------------------------------------------
+//
+// Полная очистка директории. Для сброса настроек.
+
+function clearAll(req) {
+	let entries = lsdir(STORAGE_DIR);
+	if (!entries) return { success: true, removed: 0 };
+
+	let removed = 0;
+	for (let name in entries) {
+		let path = STORAGE_DIR + '/' + name;
+		try {
+			unlink(path);
+			removed++;
+		} catch (e) {}
+	}
+
+	return { success: true, removed: removed };
+}
+
+// --- RPC method definitions ----------------------------------------------
+
+const methods = {
+	readHistory: {
+		args: { name: 'name' },
+		call: function(req) {
+			return readHistory(req);
+		}
+	},
+	writeHistory: {
+		args: { name: 'name', sample_interval: 0, max_age_hours: 0, points: [] },
+		call: function(req) {
+			return writeHistory(req);
+		}
+	},
+	clearHistory: {
+		args: { name: 'name' },
+		call: function(req) {
+			return clearHistory(req);
+		}
+	},
+	readHealthHistory: {
+		call: function() {
+			return readHealthHistory();
+		}
+	},
+	writeHealthHistory: {
+		args: { sample_interval: 0, max_age_hours: 0, points: [] },
+		call: function(req) {
+			return writeHealthHistory(req);
+		}
+	},
+	readUserActions: {
+		call: function() {
+			return readUserActions();
+		}
+	},
+	writeUserAction: {
+		args: { service: 'service', action: '' },
+		call: function(req) {
+			return writeUserAction(req);
+		}
+	},
+	getStorageStats: {
+		call: function() {
+			return getStorageStats();
+		}
+	},
+	clearAll: {
+		call: function() {
+			return clearAll();
+		}
+	}
+};
+
+return { 'luci.proton-services-history': methods };

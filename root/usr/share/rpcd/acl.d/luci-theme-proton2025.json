@@ -50,7 +50,13 @@
 				"iwinfo": [
 					"devices",
 					"assoclist"
-				]
+				],
+				"luci.proton-services-history": [
+                    "readHistory",
+                    "readHealthHistory",
+                    "readUserActions",
+                    "getStorageStats"
+                ]
             },
             "uci": [
                 "proton2025",
@@ -94,6 +100,13 @@
                 ],
                 "rc": [
                     "init"
+                ],
+                "luci.proton-services-history": [
+                    "writeHistory",
+                    "writeHealthHistory",
+                    "writeUserAction",
+                    "clearHistory",
+                    "clearAll"
                 ]
             },
             "uci": [

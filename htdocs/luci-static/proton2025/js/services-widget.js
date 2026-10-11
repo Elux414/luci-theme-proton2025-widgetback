@@ -127,6 +127,12 @@
       this._statusCache = new Map();
       this._serviceElements = new Map(); // Кэш DOM-элементов
       this._rcListAll = null;
+      // Для истории: предыдущий PID каждого сервиса (для детекта рестарта)
+      this._prevPid = new Map();
+      // Флаг, что история инициализирована
+      this._historyReady = false;
+      this._historyPollTimer = null;
+      this._historySampleInterval = 10;
 
       // Маппинг имён init-скриптов на имена процессов (для pidof fallback)
       this._processNameMap = {
@@ -186,6 +192,52 @@
         return true;
       } catch (e) {
         return false;
+      }
+    }
+
+    async _initHistory() {
+      if (!window.ProtonServicesHistory) return;
+
+      try {
+        await window.ProtonServicesHistory.init();
+        this._historyReady = true;
+        this._logInfo("History module initialized");
+
+        // Ждём либо события sync, либо таймаута 1500 мс
+        await new Promise((resolve) => {
+          let done = false;
+          const finish = () => {
+            if (done) return;
+            done = true;
+            window.removeEventListener("proton-settings-synced", finish);
+            resolve();
+          };
+          window.addEventListener("proton-settings-synced", finish);
+          setTimeout(finish, 1500);
+        });
+
+        this._logInfo("Loading history for services", { services: this.services.slice() });
+
+        for (const serviceName of this.services) {
+          try {
+            const entry = await window.ProtonServicesHistory.loadService(serviceName);
+            this._logInfo("History loaded for " + serviceName, {
+              points: entry ? entry.points.length : 0,
+            });
+          } catch (e) {
+            this._logInfo("History load failed for " + serviceName, e);
+          }
+        }
+
+        try {
+          await window.ProtonServicesHistory.loadHealth();
+          this._logInfo("Health history loaded");
+        } catch (e) {
+          this._logInfo("Health load failed", e);
+        }
+      } catch (e) {
+        this._logInfo("History init failed", e);
+        this._historyReady = false;
       }
     }
 
@@ -377,28 +429,25 @@
 
     // ==================== Инициализация ====================
 
-    init() {
-    if (this._safeGetItem("proton-services-widget-enabled") === "false") {
-      return;
-    }
+    async init() {
+      if (this._safeGetItem("proton-services-widget-enabled") === "false") {
+        return;
+      }
 
-    if (!this.isOverviewPage()) return;
+      if (!this.isOverviewPage()) return;
 
-    // Legacy services-widget визуально заменён карточкой Applications.
-    // Мы НЕ инжектим его карточку, но продолжаем инициализировать
-    // список сервисов — ProtonServicesApi использует его данные.
-    // (dashboard-apps.js ждёт window.protonServicesWidget.)
+      // Сначала завершаем инициализацию истории, чтобы _historyReady
+      // был установлен ДО того, как startStatusMonitoring проверит его.
+      await this._initHistory();
 
-    // Пропускаем injectWidget, но выполняем load данных:
-    this.refreshAvailableServices()
+      this.refreshAvailableServices()
       .then(() => {
-        // Диспатчим событие, чтобы dashboard-apps.js знал, что можно стартовать
         window.dispatchEvent(new CustomEvent("proton-services-widget-ready"));
       })
       .catch(() => {});
 
-    this.startStatusMonitoring();
-}
+      this.startStatusMonitoring();
+    }
 
     isOverviewPage() {
       // Проверяем через dispatchpath (надёжнее чем data-page, который пустой на корневой странице)
@@ -1116,6 +1165,28 @@
       return matchCount;
     }
 
+    _appendHealthPoint() {
+      if (!this._historyReady || !window.ProtonServicesHistory) return;
+
+      const total = this.services.length;
+      if (total === 0) return;
+
+      let running = 0;
+      let stoppedCrashed = 0;
+      let healthFailed = 0;
+
+      for (const st of this._statusCache.values()) {
+        if (st === "running") running++;
+        // Остальные пока не считаем инцидентами — на Этапе 6.
+      }
+
+      // Инциденты: пока 0. На Этапе 6 будем считать переходы running→stopped.
+      const incidents = 0;
+
+      const ts = Math.floor(Date.now() / 1000);
+      window.ProtonServicesHistory.appendHealthPoint([ts, running, total, incidents]);
+    }
+
     // ==================== Управление сервисами ====================
 
     addService(serviceName) {
@@ -1338,7 +1409,9 @@
     // ==================== Проверка статуса ====================
 
     async updateAllStatuses() {
-      if (!this._mounted) return;
+      // ЭТАП 2: разрешаем работу без смонтированного виджета,
+      // если модуль истории активен — иначе точки никогда не запишутся.
+      if (!this._mounted && !this._historyReady) return;
       if (this._isUpdating) {
         this._logDebug("Skip: update already in progress");
         return;
@@ -1439,6 +1512,7 @@
                   this._statusCache.set(serviceName, status);
                   this.updateServiceCard(serviceName, status);
                 }
+                this._appendHistoryPoint(serviceName, status);
               }
 
               // Deep check: запрашиваем service list для «спящих» сервисов
@@ -1452,11 +1526,14 @@
                     this._statusCache.set(serviceName, status);
                     this.updateServiceCard(serviceName, status);
                   }
+                  // === ЭТАП 2: запись точки ===
+                  this._appendHistoryPoint(serviceName, status);
                 } catch (e) {
                   if (this._statusCache.get(serviceName) !== "stopped") {
                     this._statusCache.set(serviceName, "stopped");
                     this.updateServiceCard(serviceName, "stopped");
                   }
+                  this._appendHistoryPoint(serviceName, "stopped");
                 }
               }
 
@@ -1474,11 +1551,14 @@
                     this._statusCache.set(serviceName, status);
                     this.updateServiceCard(serviceName, status);
                   }
+                  // === ЭТАП 2: запись точки ===
+                  this._appendHistoryPoint(serviceName, status);
                 } catch (e) {
                   if (this._statusCache.get(serviceName) !== "unknown") {
                     this._statusCache.set(serviceName, "unknown");
                     this.updateServiceCard(serviceName, "unknown");
                   }
+                  this._appendHistoryPoint(serviceName, "unknown");
                 }
               }
               return;
@@ -1515,6 +1595,9 @@
         this._appendUiLogLine(
           `Check complete [${mode}]: ${statsStr} (${this._formatElapsedMs(elapsedMs)})`,
         );
+
+        // === Этап 2: запись точки здоровья ===
+        this._appendHealthPoint();
       }
     }
 
@@ -1543,12 +1626,101 @@
           this._statusCache.set(serviceName, status);
           this.updateServiceCard(serviceName, status);
         }
+        // === Этап 2: запись точки в историю ===
+        this._appendHistoryPoint(serviceName, status);
       } catch (error) {
         if (this._statusCache.get(serviceName) !== "error") {
           this._statusCache.set(serviceName, "error");
           this.updateServiceCard(serviceName, "error");
         }
+        this._appendHistoryPoint(serviceName, "error");
       }
+    }
+
+    _appendHistoryPoint(serviceName, status) {
+      if (!this._historyReady || !window.ProtonServicesHistory) return;
+      if (!this._isValidServiceName(serviceName)) return;
+
+      // Маппинг строковых статусов в коды
+      // 0 = stopped-crashed, 1 = running, 2 = unknown, 3 = health-failed
+      let statusCode = 2; // unknown
+      if (status === "running") statusCode = 1;
+      else if (status === "stopped" || status === "not-installed") statusCode = 0;
+      else if (status === "error") statusCode = 2;
+
+      // Определяем PID (из /proc через существующий RPC getServiceInfo)
+      // Не блокируем запись: пишем точку с pid=0, а PID подтянем асинхронно
+      // в следующий раз. Это компромисс — точный PID нужен только для
+      // детекта рестарта, а его можно определить и по смене между точками.
+      const ts = Math.floor(Date.now() / 1000);
+      const pid = 0; // заполним ниже асинхронно
+      const hint = this._computeHint(serviceName, status);
+
+      window.ProtonServicesHistory.appendServicePoint(serviceName, [
+        ts, statusCode, pid, hint
+      ]);
+
+      // Асинхронно уточняем PID и обновляем точку, если получилось.
+      this._fetchAndAttachPid(serviceName, ts);
+    }
+
+    async _fetchAndAttachPid(serviceName, ts) {
+      // Не вызываем, если RPC не готов.
+      if (!window.L || !L.rpc || typeof L.rpc.declare !== "function") return;
+
+      try {
+        if (!this._getServiceInfoRpc) {
+          this._getServiceInfoRpc = L.rpc.declare({
+            object: "luci.proton-system",
+            method: "getServiceInfo",
+            params: ["name"],
+            expect: { "": {} },
+          });
+        }
+        const res = await L.resolveDefault(this._getServiceInfoRpc(serviceName), null);
+        if (!res || !res.success || !res.pid) return;
+
+        const status = this._statusCache.get(serviceName);
+        let statusCode = 1;
+        if (status === "stopped" || status === "not-installed") statusCode = 0;
+        else if (status === "error") statusCode = 2;
+
+        // Перезаписываем ту же точку с актуальным PID.
+        // Это безопасно: appendServicePoint дедуплицирует по timestamp.
+        const hint = this._computeHint(serviceName, status);
+        window.ProtonServicesHistory.appendServicePoint(serviceName, [
+          ts, statusCode, res.pid, hint
+        ]);
+
+        // Запоминаем PID для детекта рестарта.
+        this._prevPid.set(serviceName, res.pid);
+      } catch (e) {
+        // Не критично, оставляем pid=0.
+      }
+    }
+
+    _computeHint(serviceName, status) {
+      // Проверяем user_actions флаг
+      if (window.ProtonServicesHistory) {
+        const action = window.ProtonServicesHistory.getUserAction(serviceName);
+        if (action === "stop") return 4; // user-stopped
+      }
+
+      // Если статус running — проверяем, не сменился ли PID
+      if (status === "running") {
+        const prevPid = this._prevPid.get(serviceName);
+        // prevPid==null — первая точка, считаем обычным running.
+        // prevPid!=null и отличается от текущего — рестарт.
+        // Но текущий PID мы не знаем здесь синхронно, поэтому hint=1
+        // определится только при следующем _fetchAndAttachPid.
+        // Пока ставим 0, чтобы не путать.
+        return 0;
+      }
+
+      // stopped-crashed по умолчанию. На Этапе 6 заменим на syslog-анализ.
+      if (status === "stopped") return 0;
+      if (status === "not-installed") return 2; // clean-exit / not-installed
+      return 0;
     }
 
     // Deep check через ubus service list — получает полные данные включая data.*_status
@@ -1768,11 +1940,22 @@
     // ==================== Мониторинг ====================
 
     startStatusMonitoring() {
+      // === ЭТАП 2: история пишется независимо от _mounted ===
+      // Если модуль истории доступен, запускаем периодический опрос
+      // для записи точек, даже если legacy-виджет не смонтирован.
+      if (this._historyReady && !this._historyPollTimer) {
+        const interval = (this._historySampleInterval || 10) * 1000;
+        this._logInfo("Starting history poll", { interval });
+        this._historyPollTimer = setInterval(() => {
+          if (document.hidden) return;
+          this.updateAllStatuses().catch(() => {});
+        }, interval);
+      }
+
+      // === Старая логика для _mounted — без изменений ===
       if (!this._mounted) return;
 
       this._setupMutationObserver();
-      // Таймерный опрос отключён по требованию: обновления происходят
-      // при первичном рендере, при действиях пользователя и при возврате на вкладку.
 
       if (!this._onVisibilityChange) {
         let lastVisibleTime = Date.now();
@@ -1844,6 +2027,15 @@
 
     stop() {
       this._mounted = false;
+
+      // === ЭТАП 2: flush + остановка истории ===
+      if (this._historyReady && window.ProtonServicesHistory) {
+        window.ProtonServicesHistory.flush().catch(() => {});
+      }
+      if (this._historyPollTimer) {
+        clearInterval(this._historyPollTimer);
+        this._historyPollTimer = null;
+      }
 
       this._clearBackendRetry();
 

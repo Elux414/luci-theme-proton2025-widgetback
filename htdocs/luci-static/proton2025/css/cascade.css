@@ -13545,7 +13545,7 @@ body.login-page .login-password-toggle:focus-visible {
 /* Сетка плиток интерфейсов */
 .proton-dashboard-network-list {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     gap: 8px;
 }
 

@@ -366,6 +366,7 @@ body {
 <script src="{{ media }}/js/translations.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/i18n/{{ __localeFile }}.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/settings-sync.js?v={{ __pv }}" defer></script>
+<script src="{{ media }}/js/services-history.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/mobile-settings-fallback.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/overview-decorations.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/services-widget.js?v={{ __pv }}" defer></script>
