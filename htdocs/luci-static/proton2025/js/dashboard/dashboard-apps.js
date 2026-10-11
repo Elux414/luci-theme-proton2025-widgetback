@@ -366,8 +366,24 @@ function renderLogLine(rawLine) {
       </div>
 
       <div class="proton-dashboard-card-body">
-        <div class="proton-apps-grid" data-role="grid" role="list"></div>
-        <div class="proton-apps-detail-slot" data-role="detail-slot"></div>
+      <div class="proton-apps-grid" data-role="grid" role="list"></div>
+
+      <!-- Health-график: показывается, когда ничего не выбрано -->
+      <div class="proton-apps-summary" data-role="summary">
+        <div class="proton-apps-summary-header">
+        <span class="proton-apps-summary-title" data-i18n="Services Health">${t("Services Health")}</span>
+        <div class="proton-apps-graph-toolbar" data-role="summary-graph-toolbar">
+        <button type="button" class="proton-apps-graph-period" data-period="300">${t("5m")}</button>
+        <button type="button" class="proton-apps-graph-period" data-period="3600">${t("1h")}</button>
+        <button type="button" class="proton-apps-graph-period" data-period="21600">${t("6h")}</button>
+        <button type="button" class="proton-apps-graph-period" data-period="86400">${t("24h")}</button>
+        </div>
+      </div>
+      <div class="proton-apps-graph-container" data-role="summary-graph"></div>
+      <div class="proton-apps-summary-footer" data-role="summary-footer"></div>
+      </div>
+
+      <div class="proton-apps-detail-slot" data-role="detail-slot"></div>
       </div>
 
       <div class="proton-dashboard-card-footer">
@@ -461,6 +477,68 @@ function renderLogLine(rawLine) {
     grid.replaceChildren(fragment);
 }
 
+/**
+ * Инициализация графика в detail-панели сервиса.
+ * Рисует график, вешает обработчики на панель периодов.
+ */
+function initDetailGraph(box, serviceName, toolbar, container) {
+  if (!box || !container || !toolbar) return;
+
+  // Начальный рендер
+  renderDetailGraph(box, serviceName, container);
+
+  // Обработчик клика по периодам
+  toolbar.addEventListener("click", function (e) {
+    const btn = e.target.closest(".proton-apps-graph-period");
+    if (!btn) return;
+    const period = parseInt(btn.dataset.period, 10);
+    if (!period || period === detailGraphPeriodSec) return;
+
+    detailGraphPeriodSec = period;
+    toolbar.querySelectorAll(".proton-apps-graph-period").forEach(function (b) {
+      b.classList.toggle("active", parseInt(b.dataset.period, 10) === period);
+    });
+    renderDetailGraph(box, serviceName, container);
+  });
+}
+
+/**
+ * Рендер графика истории сервиса в detail-панели.
+ */
+function renderDetailGraph(box, serviceName, container) {
+  if (!container) return;
+
+  if (!window.ProtonServicesHistory || !window.ProtonServicesGraph) {
+    container.innerHTML = '<div class="proton-apps-graph-empty">' + t("Loading...") + '</div>';
+    return;
+  }
+
+  const windowMs = detailGraphPeriodSec * 1000;
+  let points = [];
+  try {
+    points = window.ProtonServicesHistory.getServiceHistoryForRender(serviceName, windowMs, {
+      targetCount: 200,
+    });
+  } catch (e) {
+    console.warn("[Proton2025] Failed to get service history:", e);
+    points = [];
+  }
+
+  const width = container.clientWidth || 400;
+  const height = container.clientHeight || 80;
+
+  if (!points.length) {
+    container.innerHTML = '<div class="proton-apps-graph-empty">' + t("No data") + '</div>';
+    return;
+  }
+
+  window.ProtonServicesGraph.renderServiceGraph(container, points, {
+    width: width,
+    height: height,
+    windowMs: windowMs,
+  });
+}
+
   // ---------------------------------------------------------------------------
   // Detail panel
   // ---------------------------------------------------------------------------
@@ -474,6 +552,13 @@ function renderLogLine(rawLine) {
     card.querySelectorAll(".proton-apps-chip.active").forEach(function (chip) {
       chip.classList.remove("active");
     });
+
+    // Показываем summary снова
+    const summaryEl = card.querySelector('[data-role="summary"]');
+    if (summaryEl) summaryEl.style.display = "";
+
+    // Перерисовываем health-график (ширина могла измениться)
+    renderSummaryGraph(card);
   }
 
   async function toggleServiceDetail(name) {
@@ -486,6 +571,10 @@ function renderLogLine(rawLine) {
 
     const card = document.getElementById("proton-dashboard-apps");
     if (!card) return;
+
+    // Скрываем summary при выборе сервиса
+    const summaryEl = card.querySelector('[data-role="summary"]');
+    if (summaryEl) summaryEl.style.display = "none";
 
     card.querySelectorAll(".proton-apps-chip").forEach(function (chip) {
       chip.classList.toggle("active", chip.dataset.service === name);
@@ -565,6 +654,49 @@ function renderLogLine(rawLine) {
     meta.appendChild(metaUptime);
     meta.appendChild(metaPid);
 
+    // === График истории сервиса ===
+    const graphWrap = document.createElement("div");
+    graphWrap.className = "proton-apps-detail-graph";
+    graphWrap.dataset.role = "service-graph";
+
+    const graphHeader = document.createElement("div");
+    graphHeader.className = "proton-apps-detail-graph-header";
+
+    const graphTitle = document.createElement("span");
+    graphTitle.className = "proton-apps-detail-graph-title";
+    graphTitle.textContent = t("Service History");
+
+    const graphToolbar = document.createElement("div");
+    graphToolbar.className = "proton-apps-graph-toolbar";
+    graphToolbar.dataset.role = "service-graph-toolbar";
+
+    const periods = [
+      { sec: 300, label: t("5m") },
+ { sec: 3600, label: t("1h") },
+ { sec: 21600, label: t("6h") },
+ { sec: 86400, label: t("24h") },
+    ];
+
+    periods.forEach(function (p) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "proton-apps-graph-period";
+      btn.dataset.period = String(p.sec);
+      btn.textContent = p.label;
+      if (p.sec === detailGraphPeriodSec) btn.classList.add("active");
+      graphToolbar.appendChild(btn);
+    });
+
+    graphHeader.appendChild(graphTitle);
+    graphHeader.appendChild(graphToolbar);
+
+    const graphContainer = document.createElement("div");
+    graphContainer.className = "proton-apps-detail-graph-container";
+    graphContainer.dataset.role = "service-graph-container";
+
+    graphWrap.appendChild(graphHeader);
+    graphWrap.appendChild(graphContainer);
+
     // Actions
     const actions = document.createElement("div");
     actions.className = "proton-apps-detail-actions";
@@ -631,9 +763,13 @@ function renderLogLine(rawLine) {
     // Собираем
     box.appendChild(header);
     box.appendChild(meta);
+    box.appendChild(graphWrap);
     box.appendChild(actions);
     box.appendChild(logToggleWrap);
     box.appendChild(logBox);
+
+    // === Обработчики графика ===
+    initDetailGraph(box, name, graphToolbar, graphContainer);
 
     // Подгружаем uptime/pid асинхронно
     fetchServiceInfo(name).then(function (res) {
@@ -829,6 +965,10 @@ function renderLogLine(rawLine) {
 
     updateSubtitle(card, services, statuses);
     updateFooter(card, services);
+    // Обновляем health-график
+    if (!selectedService) {
+      renderSummaryGraph(card);
+    }
 }
 
   // ---------------------------------------------------------------------------
@@ -1067,6 +1207,10 @@ function renderLogLine(rawLine) {
   // Lifecycle
   // ---------------------------------------------------------------------------
 
+  // Период графика по умолчанию (в секундах)
+  let summaryGraphPeriodSec = 3600;
+  let detailGraphPeriodSec = 3600;
+
   function start() {
     if (window.__protonAppsStarted) return true;
     window.__protonAppsStarted = true;
@@ -1075,7 +1219,7 @@ function renderLogLine(rawLine) {
     if (!card) return false;
 
     if (card.dataset.protonInit === "true") {
-        return true;
+      return true;
     }
     card.dataset.protonInit = "true";
 
@@ -1085,20 +1229,167 @@ function renderLogLine(rawLine) {
 
     const settingsBtn = card.querySelector('[data-role="settings"]');
     if (settingsBtn) {
-        settingsBtn.addEventListener("click", openSettingsModal);
+      settingsBtn.addEventListener("click", openSettingsModal);
     }
+
+    // === Этап 4.1: Health-график ===
+    initSummaryGraph(card);
 
     if (pollTimer) return true;
     pollStatuses();
     pollTimer = setInterval(pollStatuses, POLL_INTERVAL);
 
     visibilityHandler = function () {
-        if (!document.hidden) pollStatuses();
+      if (!document.hidden) pollStatuses();
     };
-    document.addEventListener("visibilitychange", visibilityHandler);
+      document.addEventListener("visibilitychange", visibilityHandler);
+      // Реагируем на изменение размера окна — перерисовываем график
+      window.addEventListener("resize", function () {
+        const c = document.getElementById("proton-dashboard-apps");
+        if (!c) return;
+        if (selectedService) return;
+        renderSummaryGraph(c);
+      });
 
-    return true;
-}
+      return true;
+  }
+
+  /**
+   * Инициализация health-графика: кнопки периодов + первый рендер.
+   */
+  function initSummaryGraph(card) {
+    const toolbar = card.querySelector('[data-role="summary-graph-toolbar"]');
+    if (!toolbar) return;
+
+    // Устанавливаем активную кнопку
+    updateGraphPeriodButtons(toolbar, summaryGraphPeriodSec);
+
+    // Клик по кнопке периода
+    toolbar.addEventListener("click", function (e) {
+      const btn = e.target.closest(".proton-apps-graph-period");
+      if (!btn) return;
+      const period = parseInt(btn.dataset.period, 10);
+      if (!period || period === summaryGraphPeriodSec) return;
+
+      summaryGraphPeriodSec = period;
+      updateGraphPeriodButtons(toolbar, period);
+      renderSummaryGraph(card);
+    });
+
+    // Первый рендер
+    renderSummaryGraph(card);
+  }
+
+  /**
+   * Обновляет active-класс на кнопках панели.
+   */
+  function updateGraphPeriodButtons(toolbar, activePeriodSec) {
+    toolbar.querySelectorAll(".proton-apps-graph-period").forEach(function (btn) {
+      const period = parseInt(btn.dataset.period, 10);
+      btn.classList.toggle("active", period === activePeriodSec);
+    });
+  }
+
+  /**
+   * Рендер health-графика.
+   */
+  function renderSummaryGraph(card) {
+    const container = card.querySelector('[data-role="summary-graph"]');
+    const footer = card.querySelector('[data-role="summary-footer"]');
+    if (!container) return;
+
+    // Если выбран сервис — не рендерим (сводка скрыта)
+    if (selectedService) return;
+
+    // Проверяем наличие API
+    if (!window.ProtonServicesHistory || !window.ProtonServicesGraph) {
+      container.innerHTML = '<div class="proton-apps-graph-empty">' + t("Loading...") + '</div>';
+      return;
+    }
+
+    // Получаем данные
+    const windowMs = summaryGraphPeriodSec * 1000;
+    let points = [];
+    try {
+      points = window.ProtonServicesHistory.getHealthHistoryForRender(windowMs, {
+        targetCount: 200,
+      });
+    } catch (e) {
+      console.warn("[Proton2025] Failed to get health history:", e);
+      points = [];
+    }
+
+    // Рендерим график
+    const width = container.clientWidth || 400;
+    // Берём фактическую высоту контейнера, чтобы график растянулся
+    const height = container.clientHeight || 120;
+
+    if (!points.length) {
+      container.innerHTML = '<div class="proton-apps-graph-empty">' + t("No data") + '</div>';
+    } else {
+      window.ProtonServicesGraph.renderHealthGraph(container, points, {
+        width: width,
+        height: height,
+        windowMs: windowMs,
+      });
+    }
+
+    // Обновляем footer со статистикой
+    if (footer) {
+      updateSummaryGraphFooter(footer, points);
+    }
+  }
+
+  /**
+   * Обновляет подпись под health-графиком.
+   */
+  function updateSummaryGraphFooter(footer, points) {
+    if (!points || !points.length) {
+      footer.textContent = "";
+      return;
+    }
+
+    // Последняя точка — актуальное состояние
+    const last = points[points.length - 1];
+    const running = Number(last[1]) || 0;
+    const total = Number(last[2]) || 0;
+
+    // Считаем средние за период
+    let sumRunning = 0;
+    let incidentsTotal = 0;
+    for (const p of points) {
+      sumRunning += Number(p[1]) || 0;
+      incidentsTotal += Number(p[3]) || 0;
+    }
+    const avgRunning = points.length > 0 ? sumRunning / points.length : 0;
+
+    const parts = [];
+    parts.push(
+      '<span class="proton-apps-summary-stat proton-apps-summary-stat-running">' +
+      '<span class="proton-apps-summary-dot running"></span>' +
+      running + " / " + total +
+      "</span>"
+    );
+
+    if (avgRunning < total - 0.5) {
+      const avgPercent = Math.round((avgRunning / total) * 100);
+      parts.push(
+        '<span class="proton-apps-summary-stat">' +
+        t("Avg") + ": " + avgPercent + "%" +
+        "</span>"
+      );
+    }
+
+    if (incidentsTotal > 0) {
+      parts.push(
+        '<span class="proton-apps-summary-stat proton-apps-summary-stat-error">' +
+        "⚠ " + incidentsTotal + " " + t("incidents") +
+        "</span>"
+      );
+    }
+
+    footer.innerHTML = parts.join("");
+  }
 
   function stop() {
     mounted = false;

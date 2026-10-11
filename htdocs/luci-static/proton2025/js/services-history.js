@@ -396,6 +396,263 @@
     flush().catch(() => {});
   }
 
+  // --- Утилиты анализа истории (Этап 3) ---
+
+  /**
+   * Фильтрует точки по временному окну.
+   * @param {Array} points — точки [[t,s,p,h],...]
+   * @param {number} windowMs — размер окна в миллисекундах
+   * @returns {Array} — отфильтрованные точки
+   */
+  function filterByWindow(points, windowMs) {
+    if (!Array.isArray(points) || points.length === 0) return [];
+    if (!windowMs || windowMs <= 0) return points.slice();
+
+    const now = Math.floor(Date.now() / 1000);
+    const cutoff = now - Math.floor(windowMs / 1000);
+    const out = [];
+    for (const p of points) {
+      if (!Array.isArray(p) || p.length < 1) continue;
+      const t = Number(p[0]);
+      if (!Number.isFinite(t)) continue;
+      if (t >= cutoff) out.push(p);
+    }
+    return out;
+  }
+
+  /**
+   * Склейка коротких down-периодов в рестарты.
+   * Если сервис был down <= maxGapSec секунд, а затем снова up —
+   * это рестарт, а не падение. Меняем статус down-точек на hint=1
+   * (restart-detected), а сами точки сохраняем — но помечаем.
+   *
+   * Реально: возвращаем массив с модифицированными точками.
+   *
+   * @param {Array} points — точки
+   * @param {number} sampleInterval — интервал опроса в секундах
+   * @returns {Array} — обработанные точки
+   */
+  function mergeShortDowns(points, sampleInterval) {
+    if (!Array.isArray(points) || points.length < 3) return points.slice();
+
+    const maxGapSec = (sampleInterval || 10) * 2;
+    const out = points.map((p) => p.slice()); // копия
+
+    let downStart = -1;
+    for (let i = 0; i < out.length; i++) {
+      const status = Number(out[i][1]);
+      const isDown = status === 0 || status === 2;
+
+      if (isDown && downStart < 0) {
+        downStart = i;
+      } else if (!isDown && downStart >= 0) {
+        // Нашли конец down-периода
+        const downEnd = i - 1;
+        const downDuration = out[downEnd][0] - out[downStart][0];
+
+        // Если down длился <= maxGapSec и до него был running — это рестарт
+        const beforeDown = downStart > 0 ? out[downStart - 1] : null;
+        const wasRunning = beforeDown && Number(beforeDown[1]) === 1;
+
+        if (wasRunning && downDuration <= maxGapSec) {
+          // Помечаем весь down-период как рестарт (hint=1)
+          for (let j = downStart; j <= downEnd; j++) {
+            out[j][3] = 1; // hint = restart
+          }
+        }
+        downStart = -1;
+      }
+    }
+
+    return out;
+  }
+
+  /**
+   * Прореживание точек до targetCount.
+   * Алгоритм: разбиваем на группы по step точек, в каждой группе
+   * берём "худший" статус (по приоритету).
+   *
+   * Приоритет (от лучшего к худшему):
+   *   running(1) → unknown(2) → stopped(0) → health-failed(3)
+   *
+   * @param {Array} points — точки
+   * @param {number} targetCount — желаемое количество
+   * @returns {Array} — прореженные точки
+   */
+  function downsample(points, targetCount) {
+    if (!Array.isArray(points) || points.length <= targetCount) {
+      return points.slice();
+    }
+
+    const step = Math.ceil(points.length / targetCount);
+    const out = [];
+
+    for (let i = 0; i < points.length; i += step) {
+      const group = points.slice(i, i + step);
+
+      // Ищем худший статус в группе
+      let worst = group[0];
+      let worstPriority = getPointPriority(worst);
+
+      for (let j = 1; j < group.length; j++) {
+        const pr = getPointPriority(group[j]);
+        if (pr > worstPriority) {
+          worst = group[j];
+          worstPriority = pr;
+        }
+      }
+
+      out.push(worst);
+    }
+
+    return out;
+  }
+
+  /**
+   * Приоритет точки для прореживания: чем выше — тем важнее показать.
+   * Running = 0, unknown/stopped = выше, health-failed = самый высокий.
+   */
+  function getPointPriority(point) {
+    if (!Array.isArray(point) || point.length < 2) return 0;
+    const status = Number(point[1]);
+    const hint = point.length > 3 ? Number(point[3]) : 0;
+
+    // health-failed — самый важный
+    if (status === 3) return 100;
+    // crashed — важно
+    if (status === 0 && hint === 3) return 90;
+    // silent death / unknown stop
+    if (status === 0 && hint === 0) return 80;
+    // user-stopped
+    if (status === 0 && hint === 4) return 40;
+    // clean-exit
+    if (status === 0 && hint === 2) return 30;
+    // restart-detected на running
+    if (status === 1 && hint === 1) return 50;
+    // unknown
+    if (status === 2) return 60;
+    // running — базовый
+    if (status === 1) return 0;
+
+    return 0;
+  }
+
+  /**
+   * Статистика по точкам за период.
+   * Возвращает: { downs, restarts, userStops, uptimePercent }
+   *
+   * @param {Array} points — точки
+   * @returns {object}
+   */
+  function computeServiceStats(points) {
+    const stats = {
+      downs: 0,
+      restarts: 0,
+      userStops: 0,
+      totalPoints: Array.isArray(points) ? points.length : 0,
+ uptimePoints: 0,
+    };
+
+    if (!Array.isArray(points) || points.length === 0) return stats;
+
+    let prevStatus = null;
+    for (const p of points) {
+      if (!Array.isArray(p) || p.length < 2) continue;
+      const status = Number(p[1]);
+      const hint = p.length > 3 ? Number(p[3]) : 0;
+
+      // Считаем uptime
+      if (status === 1) stats.uptimePoints++;
+
+      // Определяем переходы
+      if (prevStatus !== null) {
+        // running → down
+        if (prevStatus === 1 && status !== 1) {
+          if (hint === 4) stats.userStops++;
+          else if (hint === 2) {
+            // clean-exit — не считаем падением
+          } else {
+            stats.downs++;
+          }
+        }
+      }
+
+      // Рестарты: running точки с hint=1
+      if (status === 1 && hint === 1) {
+        stats.restarts++;
+      }
+
+      prevStatus = status;
+    }
+
+    stats.uptimePercent =
+    stats.totalPoints > 0
+    ? Math.round((stats.uptimePoints / stats.totalPoints) * 100)
+    : 0;
+
+    return stats;
+  }
+
+  /**
+   * Получить историю сервиса, отфильтрованную и обработанную для рендера.
+   * Возвращает готовый к отрисовке массив.
+   *
+   * @param {string} service
+   * @param {number} windowMs
+   * @param {object} options — { sampleInterval, targetCount }
+   * @returns {Array}
+   */
+  function getServiceHistoryForRender(service, windowMs, options) {
+    const opts = options || {};
+    const targetCount = opts.targetCount || 200;
+    const sampleInterval = opts.sampleInterval || 10;
+
+    const raw = getServiceHistory(service);
+    const filtered = filterByWindow(raw, windowMs);
+    const merged = mergeShortDowns(filtered, sampleInterval);
+    const reduced = downsample(merged, targetCount);
+    return reduced;
+  }
+
+  /**
+   * Получить health-историю, готовую к рендеру.
+   * Точки: [t, running, total, incidents].
+   */
+  function getHealthHistoryForRender(windowMs, options) {
+    const opts = options || {};
+    const targetCount = opts.targetCount || 200;
+
+    const raw = memory.health.points;
+    const filtered = filterByWindow(raw, windowMs);
+
+    // Прореживание для health — берём среднее по группе
+    if (filtered.length <= targetCount) return filtered.slice();
+
+    const step = Math.ceil(filtered.length / targetCount);
+    const out = [];
+    for (let i = 0; i < filtered.length; i += step) {
+      const group = filtered.slice(i, i + step);
+      // Средние по группе
+      let sumRunning = 0;
+      let sumTotal = 0;
+      let sumIncidents = 0;
+      for (const p of group) {
+        sumRunning += Number(p[1]) || 0;
+        sumTotal += Number(p[2]) || 0;
+        sumIncidents += Number(p[3]) || 0;
+      }
+      // Берём timestamp середины группы
+      const midPoint = group[Math.floor(group.length / 2)];
+      out.push([
+        midPoint[0],
+        Math.round(sumRunning / group.length),
+               Math.round(sumTotal / group.length),
+               sumIncidents,
+      ]);
+    }
+    return out;
+  }
+
   // --- Экспорт ---
 
   window.ProtonServicesHistory = {
@@ -413,6 +670,13 @@
     startAutoFlush,
     stopAutoFlush,
     flushOnPageHide,
+    // === Этап 3: утилиты анализа ===
+    getServiceHistoryForRender,
+    getHealthHistoryForRender,
+    computeServiceStats,
+    filterByWindow,
+    mergeShortDowns,
+    downsample,
     // Утилита для получения размера хранилища (для UI настроек)
     async getStorageStats() {
       const rpc = ensureRpc();

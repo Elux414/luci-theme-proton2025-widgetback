@@ -677,4 +677,13 @@ window.ProtonTranslations = {
   "All interfaces are selected": "Все интерфейсы уже выбраны",
   "Up": "Активен",
   "Down": "Неактивен",
+
+  // --- Services history graph ---
+  "Services Health": "Здоровье сервисов",
+  "5m": "5м",
+  "1h": "1ч",
+  "6h": "6ч",
+  "24h": "24ч",
+  "No data": "Нет данных",
+  "Service History": "История сервиса",
 };

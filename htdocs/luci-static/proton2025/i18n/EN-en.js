@@ -105,4 +105,13 @@ window.ProtonTranslations = {
   "All interfaces are selected": "All interfaces are selected",
   "Up": "Up",
   "Down": "Down",
+
+  // --- Services history graph ---
+  "Services Health": "Services Health",
+  "5m": "5m",
+  "1h": "1h",
+  "6h": "6h",
+  "24h": "24h",
+  "No data": "No data",
+  "Service History": "Service History",
 };

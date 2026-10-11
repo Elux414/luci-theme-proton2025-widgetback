@@ -631,4 +631,13 @@ window.ProtonTranslations = {
   "All interfaces are selected": "所有接口均已被选中",
   "Up": "活动",
   "Down": "非活动",
+
+  // --- Services history graph ---
+  "Services Health": "服务健康",
+  "5m": "5分",
+  "1h": "1时",
+  "6h": "6时",
+  "24h": "24时",
+  "No data": "无数据",
+  "Service History": "服务历史",
 };

@@ -655,4 +655,13 @@ window.ProtonTranslations = {
   "show top active interfaces": "aktive Schnittstellen anzeigen",
   "Selected": "Ausgewählt",
   "Drop interfaces here": "Schnittstellen hier ablegen",
+
+  // --- Services history graph ---
+  "Services Health": "Dienste-Zustand",
+  "5m": "5 Min",
+  "1h": "1 Std",
+  "6h": "6 Std",
+  "24h": "24 Std",
+  "No data": "Keine Daten",
+  "Service History": "Dienstverlauf",
 };

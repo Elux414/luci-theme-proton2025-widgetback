@@ -14956,3 +14956,232 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
                     var(--proton-card-solid) 50%
     );
 }
+
+/* =====================================================
+ *  Health-график в карточке Приложения
+ *  ===================================================== */
+
+.proton-apps-summary {
+    margin-top: 10px;
+    padding: 10px 12px 8px;
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    background: rgba(var(--proton-accent-rgb), 0.02);
+    animation: fadeIn 0.2s ease;
+    /* Растягиваем блок на всю доступную высоту карточки */
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.proton-apps-summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+
+.proton-apps-summary-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--proton-text-primary);
+    letter-spacing: -0.01em;
+}
+
+/* Панель периодов */
+.proton-apps-graph-toolbar {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    background: rgba(var(--proton-accent-rgb), 0.04);
+    flex-shrink: 0;
+}
+
+.proton-apps-graph-period {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--proton-text-secondary);
+    font-size: 0.78rem;
+    font-weight: 600;
+    font-family: inherit;
+    padding: 4px 9px;
+    border-radius: calc(var(--proton-radius-sm) - 2px);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.proton-apps-graph-period:hover {
+    background: rgba(var(--proton-accent-rgb), 0.1);
+    color: var(--proton-text-primary);
+}
+
+.proton-apps-graph-period.active {
+    background: var(--proton-accent);
+    color: #fff;
+}
+
+/* Контейнер графика */
+.proton-apps-graph-container {
+    width: 100%;
+    flex: 1 1 auto;
+    min-height: 100px;
+    position: relative;
+    border-radius: calc(var(--proton-radius-sm) - 2px);
+    overflow: hidden;
+    background: rgba(148, 163, 184, 0.04);
+}
+
+.proton-health-graph-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.proton-health-graph-bg {
+    fill: rgba(255, 255, 255, 0.015);
+}
+
+.proton-health-graph-running {
+    /* цвет задаётся через атрибут fill в JS */
+}
+
+.proton-health-graph-remaining {
+    /* цвет задаётся через атрибут fill в JS */
+}
+
+.proton-health-graph-border {
+    /* без заливки */
+}
+
+.proton-health-graph-gap-mark {
+    /* пунктирная метка разрыва */
+}
+
+.proton-apps-graph-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--proton-text-secondary);
+    font-size: 0.8rem;
+    opacity: 0.6;
+}
+
+/* Футер со статистикой */
+.proton-apps-summary-footer {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 8px;
+    font-size: 0.78rem;
+    color: var(--proton-text-secondary);
+}
+
+.proton-apps-summary-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.proton-apps-summary-stat-running {
+    color: var(--proton-text-primary);
+}
+
+.proton-apps-summary-stat-error {
+    color: #f87171;
+}
+
+.proton-apps-summary-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--proton-muted);
+    flex-shrink: 0;
+}
+
+.proton-apps-summary-dot.running {
+    background: #34d399;
+    box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.15);
+}
+
+/* Light theme */
+:root[data-theme="light"] .proton-apps-summary {
+    background: rgba(0, 0, 0, 0.015);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .proton-apps-graph-toolbar {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+:root[data-theme="light"] .proton-apps-graph-container {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+/* График в детальной панели сервиса */
+.proton-apps-detail-graph {
+    margin-top: 12px;
+    padding: 10px 12px 10px;
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    background: rgba(var(--proton-accent-rgb), 0.03);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.proton-apps-detail-graph-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.proton-apps-detail-graph-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--proton-text-primary);
+    letter-spacing: -0.01em;
+}
+
+.proton-apps-detail-graph-container {
+    width: 100%;
+    height: 80px;
+    min-height: 80px;
+    position: relative;
+    border-radius: calc(var(--proton-radius-sm) - 2px);
+    overflow: hidden;
+    background: rgba(148, 163, 184, 0.04);
+}
+
+.proton-apps-detail-graph-container .proton-apps-graph-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--proton-text-secondary);
+    font-size: 0.8rem;
+    opacity: 0.6;
+}
+
+:root[data-theme="light"] .proton-apps-detail-graph {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .proton-apps-detail-graph-container {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.proton-service-graph-bg {
+    fill: rgba(148, 163, 184, 0.04);
+}

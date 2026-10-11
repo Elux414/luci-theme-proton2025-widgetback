@@ -1171,18 +1171,19 @@
       const total = this.services.length;
       if (total === 0) return;
 
-      let running = 0;
-      let stoppedCrashed = 0;
-      let healthFailed = 0;
+      // Пропускаем, если кэш статусов ещё не заполнен
+      // (иначе на старте пишем running: 0, что портит график)
+      if (this._statusCache.size === 0) return;
 
+      let running = 0;
       for (const st of this._statusCache.values()) {
         if (st === "running") running++;
-        // Остальные пока не считаем инцидентами — на Этапе 6.
       }
 
-      // Инциденты: пока 0. На Этапе 6 будем считать переходы running→stopped.
-      const incidents = 0;
+      // Если running = 0, а статусы ещё не все — тоже пропускаем
+      if (running === 0 && this._statusCache.size < total) return;
 
+      const incidents = 0;
       const ts = Math.floor(Date.now() / 1000);
       window.ProtonServicesHistory.appendHealthPoint([ts, running, total, incidents]);
     }
