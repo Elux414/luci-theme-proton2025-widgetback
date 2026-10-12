@@ -127,6 +127,8 @@
       this._statusCache = new Map();
       this._serviceElements = new Map(); // Кэш DOM-элементов
       this._rcListAll = null;
+	  this._rpcAnalyzeStopReason = null;
+	  this._rpcAppendEvent = null;
       // Для истории: предыдущий PID каждого сервиса (для детекта рестарта)
       this._prevPid = new Map();
       // Флаг, что история инициализирована
@@ -194,6 +196,30 @@
         return false;
       }
     }
+	
+	_ensureAnalyzeRpc() {
+    if (!window.L || !L.rpc || typeof L.rpc.declare !== "function") return false;
+
+    if (!this._rpcAnalyzeStopReason) {
+        this._rpcAnalyzeStopReason = L.rpc.declare({
+            object: "luci.proton-system",
+            method: "analyzeStopReason",
+            params: ["name"],
+            expect: { "": {} },
+        });
+    }
+
+    if (!this._rpcAppendEvent) {
+        this._rpcAppendEvent = L.rpc.declare({
+            object: "luci.proton-services-events",
+            method: "appendEvent",
+            params: ["service", "type", "hint", "details"],
+            expect: { "": {} },
+        });
+    }
+
+    return true;
+}
 
     async _initHistory() {
       if (!window.ProtonServicesHistory) return;
@@ -715,13 +741,6 @@
         dot: card.querySelector(".proton-service-status-dot"),
         text: card.querySelector(".proton-service-status-text"),
       });
-
-      // Если статус уже известен из предыдущих проверок, применяем его к новому DOM.
-      // Иначе после полной перерисовки карточки могут зависать на "Checking...".
-      const cachedStatus = this._statusCache.get(info.serviceName);
-      if (cachedStatus) {
-        this.updateServiceCard(info.serviceName, cachedStatus);
-      }
 
       return card;
     }
@@ -1409,7 +1428,7 @@
 
     // ==================== Проверка статуса ====================
 
-    async updateAllStatuses() {
+        async updateAllStatuses() {
       // ЭТАП 2: разрешаем работу без смонтированного виджета,
       // если модуль истории активен — иначе точки никогда не запишутся.
       if (!this._mounted && !this._historyReady) return;
@@ -1436,9 +1455,6 @@
               this.updateServiceCard(serviceName, "unknown");
             }
           }
-
-          // Частый кейс после reload: LuCI JS API ещё не готов.
-          // Запланируем несколько коротких ретраев (не периодический таймер).
           this._scheduleBackendRetry("no-backend");
           return;
         }
@@ -1458,110 +1474,42 @@
             }
             const allServices = await L.resolveDefault(this._rcListAll(), {});
 
-            // Проверяем, что RPC вернул валидные данные
             if (
               allServices &&
               typeof allServices === "object" &&
               Object.keys(allServices).length > 0
             ) {
-              this._useExecMode = false; // RPC работает, используем быстрый режим
+              this._useExecMode = false;
               mode = "rpc";
 
-              // Сервисы, которых нет в rc.list — проверим через init-скрипт
+              // Сервисы, которых нет в rc.list — обрабатываем через
+              // checkServiceStatus (он сам сделает init.d / pidof fallback).
               const missingServices = [];
-
-              // Сервисы, требующие глубокой проверки (enabled но не running)
-              const needDeepCheck = [];
 
               for (const serviceName of this.services) {
                 if (!this._isValidServiceName(serviceName)) continue;
 
-                let status = "stopped";
-
-                if (allServices[serviceName]) {
-                  const svc = allServices[serviceName];
-                  if (svc.running === true) {
-                    status = "running";
-                  } else if (svc.enabled === true) {
-                    // Сервис включен, но не запущен как демон (возможно daemonless)
-                    if (this._deepCheck) {
-                      needDeepCheck.push(serviceName);
-                    } else {
-                      // Простой режим: принудительно проверяем через init.d
-                      const initCheck =
-                        await this.checkViaInitScript(serviceName);
-                      if (initCheck === "running") {
-                        status = "running";
-                        this._appendUiLogLine(
-                          `[Fallback] ${serviceName} is running`,
-                        );
-                      } else if (initCheck === null) {
-                        status = "unknown";
-                        this._appendUiLogLine(
-                          `[Fallback] ${serviceName} init.d check unavailable`,
-                        );
-                      }
-                    }
-                  }
-                } else {
-                  // Сервис не найден в rc.list — нужна отдельная проверка
+                if (!allServices[serviceName]) {
                   missingServices.push(serviceName);
                   continue;
                 }
 
-                if (this._statusCache.get(serviceName) !== status) {
-                  this._statusCache.set(serviceName, status);
-                  this.updateServiceCard(serviceName, status);
-                }
-                this._appendHistoryPoint(serviceName, status);
+                // updateServiceStatus сам разберётся:
+                //   - running: true    → быстрый путь
+                //   - enabled + deep   → _deepCheckService внутри checkServiceStatus
+                //   - enabled без deep → init.d fallback внутри checkServiceStatus
+                await this.updateServiceStatus(serviceName);
               }
 
-              // Deep check: запрашиваем service list для «спящих» сервисов
-              for (const serviceName of needDeepCheck) {
-                try {
-                  const status = await this._deepCheckService(serviceName);
-                  if (status === "running") {
-                    this._appendUiLogLine(`[Deep] ${serviceName} is running`);
-                  }
-                  if (this._statusCache.get(serviceName) !== status) {
-                    this._statusCache.set(serviceName, status);
-                    this.updateServiceCard(serviceName, status);
-                  }
-                  // === ЭТАП 2: запись точки ===
-                  this._appendHistoryPoint(serviceName, status);
-                } catch (e) {
-                  if (this._statusCache.get(serviceName) !== "stopped") {
-                    this._statusCache.set(serviceName, "stopped");
-                    this.updateServiceCard(serviceName, "stopped");
-                  }
-                  this._appendHistoryPoint(serviceName, "stopped");
-                }
-              }
-
-              // Fallback: для сервисов, не найденных в rc.list,
-              // проверяем через init-скрипт или индивидуальный RPC-запрос
               if (missingServices.length > 0) {
                 this._appendUiLogLine(
                   `Checking ${missingServices.length} missing services...`,
                 );
               }
               for (const serviceName of missingServices) {
-                try {
-                  const status = await this.checkServiceStatus(serviceName);
-                  if (this._statusCache.get(serviceName) !== status) {
-                    this._statusCache.set(serviceName, status);
-                    this.updateServiceCard(serviceName, status);
-                  }
-                  // === ЭТАП 2: запись точки ===
-                  this._appendHistoryPoint(serviceName, status);
-                } catch (e) {
-                  if (this._statusCache.get(serviceName) !== "unknown") {
-                    this._statusCache.set(serviceName, "unknown");
-                    this.updateServiceCard(serviceName, "unknown");
-                  }
-                  this._appendHistoryPoint(serviceName, "unknown");
-                }
+                await this.updateServiceStatus(serviceName);
               }
+
               return;
             }
           } catch (e) {
@@ -1569,7 +1517,7 @@
           }
         }
 
-        // Fallback на exec-режим - используем последовательный опрос для снижения нагрузки
+        // Fallback на exec-режим
         this._useExecMode = true;
         mode = hasExec ? "exec" : hasRpc ? "rpc-empty" : "none";
         await this._updateStatusesSequentiallyNoLock();
@@ -1597,7 +1545,6 @@
           `Check complete [${mode}]: ${statsStr} (${this._formatElapsedMs(elapsedMs)})`,
         );
 
-        // === Этап 2: запись точки здоровья ===
         this._appendHealthPoint();
       }
     }
@@ -1621,49 +1568,177 @@
     }
 
     async updateServiceStatus(serviceName) {
-      try {
-        const status = await this.checkServiceStatus(serviceName);
-        if (this._statusCache.get(serviceName) !== status) {
-          this._statusCache.set(serviceName, status);
-          this.updateServiceCard(serviceName, status);
+    try {
+        const prevStatus = this._statusCache.get(serviceName);
+        const newStatus = await this.checkServiceStatus(serviceName);
+
+        const isTransition = prevStatus !== newStatus;
+
+        let hint = null;
+        let details = "";
+        let pidFromAnalysis = null;
+
+        if (isTransition && prevStatus === "running" && newStatus !== "running") {
+            // Реальный переход running → не-running.
+            const analysis = await this._analyzeTransition(serviceName);
+            hint = analysis.hint;
+            details = analysis.details;
+            pidFromAnalysis = analysis.pid;
+
+            if (analysis.type && analysis.type !== "running") {
+                await this._appendEvent(
+                    serviceName,
+                    analysis.type,
+                    hint,
+                    details
+                );
+            }
+        } else if (
+            isTransition &&
+            newStatus === "running" &&
+            prevStatus &&
+            prevStatus !== "running"
+        ) {
+            // Сервис вернулся в running.
+            if (window.ProtonServicesHistory) {
+                const action =
+                    window.ProtonServicesHistory.getUserAction(serviceName);
+                if (action) {
+                    window.ProtonServicesHistory.setUserAction(
+                        serviceName,
+                        null
+                    );
+                }
+            }
+
+            hint = 1;
+            details = "service returned to running";
+            await this._appendEvent(serviceName, "restart", hint, details);
         }
-        // === Этап 2: запись точки в историю ===
-        this._appendHistoryPoint(serviceName, status);
-      } catch (error) {
+
+        if (isTransition) {
+            this._statusCache.set(serviceName, newStatus);
+        }
+
+        this._appendHistoryPoint(
+            serviceName,
+            newStatus,
+            hint,
+            details,
+            pidFromAnalysis
+        );
+    } catch (error) {
         if (this._statusCache.get(serviceName) !== "error") {
-          this._statusCache.set(serviceName, "error");
-          this.updateServiceCard(serviceName, "error");
+            this._statusCache.set(serviceName, "error");
         }
-        this._appendHistoryPoint(serviceName, "error");
-      }
+        this._appendHistoryPoint(serviceName, "error", null, "", null);
+    }
+}
+	
+	async _analyzeTransition(serviceName) {
+    // 1. user_actions — приоритетнее backend-каскада.
+    if (window.ProtonServicesHistory) {
+        const action = window.ProtonServicesHistory.getUserAction(serviceName);
+        if (action === "stop") {
+            return {
+                hint: 4,
+                details: "stopped by user",
+                type: "user-stop",
+                pid: null,
+            };
+        }
     }
 
-    _appendHistoryPoint(serviceName, status) {
-      if (!this._historyReady || !window.ProtonServicesHistory) return;
-      if (!this._isValidServiceName(serviceName)) return;
-
-      // Маппинг строковых статусов в коды
-      // 0 = stopped-crashed, 1 = running, 2 = unknown, 3 = health-failed
-      let statusCode = 2; // unknown
-      if (status === "running") statusCode = 1;
-      else if (status === "stopped" || status === "not-installed") statusCode = 0;
-      else if (status === "error") statusCode = 2;
-
-      // Определяем PID (из /proc через существующий RPC getServiceInfo)
-      // Не блокируем запись: пишем точку с pid=0, а PID подтянем асинхронно
-      // в следующий раз. Это компромисс — точный PID нужен только для
-      // детекта рестарта, а его можно определить и по смене между точками.
-      const ts = Math.floor(Date.now() / 1000);
-      const pid = 0; // заполним ниже асинхронно
-      const hint = this._computeHint(serviceName, status);
-
-      window.ProtonServicesHistory.appendServicePoint(serviceName, [
-        ts, statusCode, pid, hint
-      ]);
-
-      // Асинхронно уточняем PID и обновляем точку, если получилось.
-      this._fetchAndAttachPid(serviceName, ts);
+    // 2. Backend: каскад ubus → logread.
+    if (!this._ensureAnalyzeRpc()) {
+        return { hint: 0, details: "", type: "silent-death", pid: null };
     }
+
+    try {
+        const res = await L.resolveDefault(
+            this._rpcAnalyzeStopReason(serviceName),
+            null
+        );
+
+        if (!res || !res.success) {
+            return { hint: 0, details: "", type: "silent-death", pid: null };
+        }
+
+        if (res.type === "running") {
+            // Не должно случаться, но подстрахуемся.
+            return {
+                hint: 0,
+                details: "",
+                type: "running",
+                pid: res.pid || null,
+            };
+        }
+
+        const hintMap = {
+            "crash": 3,
+            "clean-exit": 2,
+            "restart": 1,
+            "silent-death": 0,
+            "unknown": 3,
+        };
+
+        const type = res.type || "unknown";
+        const hint = hintMap[type] != null ? hintMap[type] : 0;
+
+        return {
+            hint: hint,
+            details: res.details || "",
+            type: type,
+            pid: res.pid || null,
+        };
+    } catch (e) {
+        this._logDebug("analyzeStopReason failed", e);
+        return { hint: 0, details: "", type: "silent-death", pid: null };
+    }
+}
+
+async _appendEvent(serviceName, type, hint, details) {
+    if (!this._ensureAnalyzeRpc()) return;
+    if (type === "running") return;
+
+    try {
+        await L.resolveDefault(
+            this._rpcAppendEvent(serviceName, type, hint, details || ""),
+            null
+        );
+    } catch (e) {
+        this._logDebug("appendEvent failed", e);
+    }
+}
+	
+    _appendHistoryPoint(serviceName, status, hint, details, pidOverride) {
+    if (!this._historyReady || !window.ProtonServicesHistory) return;
+    if (!this._isValidServiceName(serviceName)) return;
+
+    let statusCode = 2;
+    if (status === "running") statusCode = 1;
+    else if (status === "stopped" || status === "not-installed") statusCode = 0;
+    else if (status === "error") statusCode = 2;
+
+    if (hint == null) {
+        hint = this._computeHint(serviceName, status);
+    }
+
+    const ts = Math.floor(Date.now() / 1000);
+    const pid = pidOverride != null ? pidOverride : 0;
+
+    window.ProtonServicesHistory.appendServicePoint(serviceName, [
+        ts,
+        statusCode,
+        pid,
+        hint,
+    ]);
+
+    // Если pid неизвестен и статус running — подтянем асинхронно.
+    if (status === "running" && !pidOverride) {
+        this._fetchAndAttachPid(serviceName, ts);
+    }
+}
 
     async _fetchAndAttachPid(serviceName, ts) {
       // Не вызываем, если RPC не готов.

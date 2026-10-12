@@ -157,7 +157,7 @@
    * @param {object} options — { width, height, sampleInterval }
    * @returns {SVGElement|null}
    */
-  function renderServiceGraph(container, points, options) {
+    function renderServiceGraph(container, points, options) {
       if (!container) return null;
 
       const opts = options || {};
@@ -178,23 +178,18 @@
       const innerWidth = width - PADDING_LEFT - PADDING_RIGHT;
       const innerHeight = height - PADDING_TOP - PADDING_BOTTOM;
 
-      // === Привязка к правому краю ===
-      // Если передан requestedWindowSec, рассчитываем, сколько ширины
-      // должны занимать данные. Данные всегда прижаты к правому краю.
-      // Левая часть — пустая область (нет данных).
       const requestedWindowSec = Number(opts.windowMs) ? Number(opts.windowMs) / 1000 : 0;
-      const actualDurationSec = durationSec; // сколько данных по факту
+      const actualDurationSec = durationSec;
       let dataWidthRatio = 1;
 
       if (requestedWindowSec > 0 && actualDurationSec < requestedWindowSec) {
           dataWidthRatio = actualDurationSec / requestedWindowSec;
-          if (dataWidthRatio < 0.02) dataWidthRatio = 0.02; // не даём исчезнуть совсем
+          if (dataWidthRatio < 0.02) dataWidthRatio = 0.02;
       }
 
       const dataWidth = innerWidth * dataWidthRatio;
       const dataLeftX = PADDING_LEFT + (innerWidth - dataWidth);
 
-      // Обновляем функцию timeToX: привязываем к правому краю.
       const timeToX = (t) => {
           if (durationSec === 0) return dataLeftX + dataWidth / 2;
           const ratio = (t - startTime) / durationSec;
@@ -208,7 +203,6 @@
       svg.setAttribute("preserveAspectRatio", "none");
       svg.setAttribute("aria-hidden", "true");
 
-      // Фон
       const bg = document.createElementNS(svgNS, "rect");
       bg.setAttribute("x", PADDING_LEFT);
       bg.setAttribute("y", PADDING_TOP);
@@ -217,10 +211,6 @@
       bg.setAttribute("class", "proton-service-graph-bg");
       svg.appendChild(bg);
 
-      // === Один проход по всем точкам (подход 2) ===
-      // Каждый интервал [prev.t, curr.t] рисуем прямоугольником.
-      // Если gap > GAP_THRESHOLD_SEC, поверх рисуем вертикальную серую
-      // полоску, показывающую разрыв.
       for (let i = 1; i < points.length; i++) {
           const prev = points[i - 1];
           const curr = points[i];
@@ -240,7 +230,6 @@
           const color = getStatusColor(worstStatus, 0);
           const cls = getStatusClass(worstStatus, 0);
 
-          // Основной прямоугольник статуса
           const rect = document.createElementNS(svgNS, "rect");
           rect.setAttribute("x", x1);
           rect.setAttribute("y", PADDING_TOP);
@@ -251,7 +240,6 @@
           rect.setAttribute("opacity", 0.7);
           svg.appendChild(rect);
 
-          // Разрыв — вертикальная метка поверх прямоугольника
           if (gap > GAP_THRESHOLD_SEC) {
               const gapMark = document.createElementNS(svgNS, "line");
               gapMark.setAttribute("x1", x1);
@@ -265,7 +253,6 @@
               svg.appendChild(gapMark);
           }
 
-          // Рестарт-метка (если curr running + hint=1)
           const currHint = curr.length > 3 ? Number(curr[3]) || 0 : 0;
           if (currStatus === 1 && currHint === 1) {
               const restartMark = document.createElementNS(svgNS, "line");
@@ -281,7 +268,6 @@
           }
       }
 
-      // Обводка
       const border = document.createElementNS(svgNS, "rect");
       border.setAttribute("x", PADDING_LEFT);
       border.setAttribute("y", PADDING_TOP);
@@ -513,17 +499,530 @@
       container.appendChild(svg);
       return svg;
   }
+  
+  function renderWorstStatusGraph(container, points, options) {
+    if (!container) return null;
+
+    const opts = options || {};
+    const width = opts.width || container.clientWidth || 400;
+    const height = opts.height || HEALTH_GRAPH_HEIGHT;
+
+    container.innerHTML = "";
+
+    if (!Array.isArray(points) || points.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "proton-graph-empty";
+        empty.textContent = "No data";
+        container.appendChild(empty);
+        return null;
+    }
+
+    const { startTime, endTime, durationSec } = getTimeRange(points);
+    const innerWidth = width - PADDING_LEFT - PADDING_RIGHT;
+    const innerHeight = height - PADDING_TOP - PADDING_BOTTOM;
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("class", "proton-worst-graph-svg");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("aria-hidden", "true");
+
+    // Привязка к правому краю (как в renderServiceGraph)
+    const requestedWindowSec = Number(opts.windowMs) ? Number(opts.windowMs) / 1000 : 0;
+    const actualDurationSec = durationSec;
+    let dataWidthRatio = 1;
+
+    if (requestedWindowSec > 0 && actualDurationSec < requestedWindowSec) {
+        dataWidthRatio = actualDurationSec / requestedWindowSec;
+        if (dataWidthRatio < 0.02) dataWidthRatio = 0.02;
+    }
+
+    const dataWidth = innerWidth * dataWidthRatio;
+    const dataLeftX = PADDING_LEFT + (innerWidth - dataWidth);
+
+    const timeToX = (t) => {
+        if (durationSec === 0) return dataLeftX + dataWidth / 2;
+        const ratio = (t - startTime) / durationSec;
+        return dataLeftX + ratio * dataWidth;
+    };
+
+    // Уровни важности.
+    // status 1 (running)        → priority 1 → y = 75% высоты (снизу)
+    // status 2 (unknown)        → priority 2 → y = 50%
+    // status 0 (crashed)        → priority 3 → y = 25%
+    // status 3 (health-failed)  → priority 4 → y = 0% (верх)
+    function statusToPriority(status) {
+        if (status === 3) return 4;   // health-failed
+        if (status === 0) return 3;   // crashed
+        if (status === 2) return 2;   // unknown
+        if (status === 1) return 1;   // running
+        return 1;
+    }
+
+    function priorityToY(priority) {
+        // priority 1 → bottom, priority 4 → top.
+        const ratio = (priority - 1) / 3;   // 0 .. 1
+        return PADDING_TOP + innerHeight * (1 - ratio);
+    }
+
+    function statusToClass(status) {
+        if (status === 3) return "proton-worst-graph-level-health";
+        if (status === 0) return "proton-worst-graph-level-crash";
+        if (status === 2) return "proton-worst-graph-level-unknown";
+        return "proton-worst-graph-level-running";
+    }
+
+    function statusToColor(status) {
+        if (status === 3) return "#f97316";  // оранжевый
+        if (status === 0) return "#ef4444";  // красный
+        if (status === 2) return "#fbbf24";  // жёлтый
+        return "#34d399";                    // зелёный
+    }
+
+        const baselineY = PADDING_TOP + innerHeight;
+    const MIN_SEGMENT_HEIGHT = 4;
+    const maxHeight = innerHeight - MIN_SEGMENT_HEIGHT;
+
+    // Рисуем ступеньки.
+    for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const t = Number(p[0]);
+        const status = Number(p[1]);
+
+        const nextT = i + 1 < points.length
+            ? Number(points[i + 1][0])
+            : endTime + (durationSec / Math.max(points.length, 1));
+
+        const x1 = timeToX(t);
+        const x2 = timeToX(nextT);
+        const rectWidth = Math.max(1, x2 - x1);
+
+        const priority = statusToPriority(status);
+        const ratio = (priority - 1) / 3;  // 0 для running, 1 для health-failed
+        const topY = baselineY - MIN_SEGMENT_HEIGHT - (ratio * maxHeight);
+        const rectHeight = baselineY - topY;
+
+        const rect = document.createElementNS(svgNS, "rect");
+        rect.setAttribute("x", x1);
+        rect.setAttribute("y", topY);
+        rect.setAttribute("width", rectWidth);
+        rect.setAttribute("height", rectHeight);
+        rect.setAttribute("class", "proton-worst-graph-segment " + statusToClass(status));
+        rect.setAttribute("fill", statusToColor(status));
+        rect.setAttribute("opacity", 0.7);
+        svg.appendChild(rect);
+    }
+
+    container.appendChild(svg);
+    return svg;
+}
+
+  // --- Timeline событий (Этап 6.7) ----------------------------------------
+  //
+  // Рисует полосу вертикальных штрихов — по одному на событие.
+  // Цвет и высота штриха зависят от типа события:
+  //   crash       → красный,   полная высота
+  //   health-fail → оранжевый, полная высота
+  //   silent-death/unknown → жёлтый, средняя высота
+  //   user-stop   → серый,     низкая высота
+  //   clean-exit  → серый,     низкая высота
+  //   restart     → зелёный,   низкая высота
+  //
+  // events: массив [ts, service, type, hint, details]
+  // options: { width, height, windowMs }
+
+  const EVENT_COLORS = {
+    crash: "#ef4444",
+    "health-fail": "#f97316",
+    "silent-death": "#fbbf24",
+    unknown: "#fbbf24",
+    "user-stop": "#6b7280",
+    "clean-exit": "#9ca3af",
+    restart: "#34d399",
+  };
+
+  const EVENT_HEIGHT_RATIO = {
+    crash: 1.0,
+    "health-fail": 1.0,
+    "silent-death": 0.6,
+    unknown: 0.6,
+    "user-stop": 0.35,
+    "clean-exit": 0.35,
+    restart: 0.35,
+  };
+
+  // Типы, которые считаются «реально проблемными» — они включают
+  // индикатор плотности в стеке.
+  const EVENT_PROBLEM_TYPES = {
+    crash: true,
+    "health-fail": true,
+    "silent-death": true,
+    unknown: true,
+  };
+
+    // Порядок полос в стеке — сверху вниз по критичности.
+  const EVENT_STACK_RANK = {
+    crash: 0,
+    "health-fail": 1,
+    "silent-death": 2,
+    unknown: 3,
+    restart: 4,
+    "user-stop": 5,
+    "clean-exit": 6,
+  };
+
+  function renderEventTimeline(container, events, options) {
+    if (!container) return null;
+
+    const opts = options || {};
+    const width = opts.width || container.clientWidth || 400;
+    const height = opts.height || 100;
+    const selectedGroupKey = opts.selectedGroupKey || null;
+    const onEventClick = typeof opts.onEventClick === "function"
+      ? opts.onEventClick
+      : null;
+
+    container.style.height = height + "px";
+    container.style.minHeight = height + "px";
+    container.innerHTML = "";
+
+    // Пустой набор событий — показываем placeholder.
+    if (!Array.isArray(events) || events.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "proton-events-timeline-empty";
+      empty.textContent =
+        typeof window.protonT === "function"
+          ? window.protonT("No incidents")
+          : "No incidents";
+      container.appendChild(empty);
+      return null;
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const windowMs = Number(opts.windowMs) || 0;
+    let startSec, endSec;
+
+    if (windowMs > 0) {
+      endSec = nowSec;
+      startSec = nowSec - Math.floor(windowMs / 1000);
+    } else {
+      let minT = Infinity;
+      let maxT = -Infinity;
+      for (const e of events) {
+        const t = Number(e[0]);
+        if (!Number.isFinite(t)) continue;
+        if (t < minT) minT = t;
+        if (t > maxT) maxT = t;
+      }
+      if (!Number.isFinite(minT) || !Number.isFinite(maxT)) {
+        const empty = document.createElement("div");
+        empty.className = "proton-events-timeline-empty";
+        empty.textContent =
+          typeof window.protonT === "function"
+            ? window.protonT("No incidents")
+            : "No incidents";
+        container.appendChild(empty);
+        return null;
+      }
+      startSec = minT;
+      endSec = Math.max(maxT, startSec + 1);
+    }
+
+    const durationSec = Math.max(1, endSec - startSec);
+
+    const timeToX = (t) => {
+      const ratio = (t - startSec) / durationSec;
+      return Math.max(0, Math.min(width, ratio * width));
+    };
+
+    const COLUMN_WIDTH = 4;
+    const groups = new Map();
+
+    for (const e of events) {
+      if (!Array.isArray(e) || e.length < 3) continue;
+      const t = Number(e[0]);
+      if (!Number.isFinite(t)) continue;
+      if (t < startSec || t > endSec) continue;
+
+      const x = timeToX(t);
+      const columnIndex = Math.floor(x / COLUMN_WIDTH);
+
+      if (!groups.has(columnIndex)) {
+        groups.set(columnIndex, []);
+      }
+      groups.get(columnIndex).push(e);
+    }
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("class", "proton-events-timeline-svg");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("aria-hidden", "true");
+
+    const baselineY = height;
+
+    for (const [columnIndex, groupEvents] of groups) {
+      const sorted = groupEvents.slice().sort((a, b) => {
+        const ra = EVENT_STACK_RANK[String(a[2])] ?? 99;
+        const rb = EVENT_STACK_RANK[String(b[2])] ?? 99;
+        return ra - rb;
+      });
+
+      const x = columnIndex * COLUMN_WIDTH + COLUMN_WIDTH / 2;
+      const strokeWidth = 3;
+      const stackHeight = height;
+
+      const groupKey = String(columnIndex);
+      const isSelected = selectedGroupKey === groupKey;
+
+      const hasProblem = sorted.some(
+        (e) => EVENT_PROBLEM_TYPES[String(e[2])] === true,
+      );
+
+      // Стек из нескольких событий — рисуем полосы.
+      if (sorted.length > 1) {
+        const segmentHeight = stackHeight / sorted.length;
+
+        for (let i = 0; i < sorted.length; i++) {
+          const e = sorted[i];
+          const type = String(e[2] || "unknown");
+          const color = EVENT_COLORS[type] || EVENT_COLORS.unknown;
+
+          const y1 = baselineY - stackHeight + i * segmentHeight;
+          const y2 = y1 + segmentHeight;
+
+          const line = document.createElementNS(svgNS, "line");
+          line.setAttribute("x1", x);
+          line.setAttribute("y1", y1);
+          line.setAttribute("x2", x);
+          line.setAttribute("y2", y2);
+          line.setAttribute("stroke", color);
+          line.setAttribute("stroke-width", strokeWidth);
+          line.setAttribute("stroke-linecap", "butt");
+          line.setAttribute(
+            "class",
+            "proton-events-timeline-mark proton-events-timeline-" + type,
+          );
+          svg.appendChild(line);
+        }
+
+        // Индикатор плотности — красная обводка вокруг стека.
+        if (sorted.length >= 3 && hasProblem) {
+          const outline = document.createElementNS(svgNS, "rect");
+          outline.setAttribute("x", x - strokeWidth / 2 - 1);
+          outline.setAttribute("y", baselineY - stackHeight - 1);
+          outline.setAttribute("width", strokeWidth + 2);
+          outline.setAttribute("height", stackHeight + 2);
+          outline.setAttribute("fill", "none");
+          outline.setAttribute("stroke", "#ef4444");
+          outline.setAttribute("stroke-width", 1);
+          outline.setAttribute("stroke-opacity", 0.9);
+          outline.setAttribute("class", "proton-events-timeline-outline");
+          outline.setAttribute("pointer-events", "none");
+          svg.appendChild(outline);
+        }
+      } else {
+        // Одиночное событие — обычный штрих.
+        const type = String(sorted[0][2] || "unknown");
+        const color = EVENT_COLORS[type] || EVENT_COLORS.unknown;
+
+        const line = document.createElementNS(svgNS, "line");
+        line.setAttribute("x1", x);
+        line.setAttribute("y1", baselineY - stackHeight);
+        line.setAttribute("x2", x);
+        line.setAttribute("y2", baselineY);
+        line.setAttribute("stroke", color);
+        line.setAttribute("stroke-width", strokeWidth);
+        line.setAttribute("stroke-linecap", "round");
+        line.setAttribute(
+          "class",
+          "proton-events-timeline-mark proton-events-timeline-" + type,
+        );
+        svg.appendChild(line);
+      }
+
+      // Подсветка выбранной группы.
+      if (isSelected) {
+        const highlight = document.createElementNS(svgNS, "rect");
+        highlight.setAttribute("x", x - strokeWidth / 2 - 1);
+        highlight.setAttribute("y", baselineY - stackHeight - 1);
+        highlight.setAttribute("width", strokeWidth + 2);
+        highlight.setAttribute("height", stackHeight + 2);
+        highlight.setAttribute("fill", "none");
+        highlight.setAttribute("stroke", "#ffffff");
+        highlight.setAttribute("stroke-width", 1);
+        highlight.setAttribute("stroke-opacity", 0.85);
+        highlight.setAttribute("class", "proton-events-timeline-highlight");
+        highlight.setAttribute("pointer-events", "none");
+        svg.appendChild(highlight);
+      }
+
+      // Невидимая область клика — поверх штриха, шириной strokeWidth + 2.
+      if (onEventClick) {
+        const hitArea = document.createElementNS(svgNS, "rect");
+        hitArea.setAttribute("x", x - strokeWidth / 2 - 1);
+        hitArea.setAttribute("y", 0);
+        hitArea.setAttribute("width", strokeWidth + 2);
+        hitArea.setAttribute("height", stackHeight);
+        hitArea.setAttribute("fill", "transparent");
+        hitArea.setAttribute("class", "proton-events-timeline-hitarea");
+        hitArea.setAttribute("cursor", "pointer");
+
+        // Передаём в обработчик сам columnIndex и копию событий группы.
+        const capturedGroup = sorted.slice();
+        const capturedColumnIndex = columnIndex;
+        hitArea.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          onEventClick(capturedColumnIndex, capturedGroup);
+        });
+
+        svg.appendChild(hitArea);
+      }
+    }
+
+		container.appendChild(svg);
+
+    // === Кнопка легенды в левом нижнем углу ===
+    // position: absolute — задаётся через CSS (.proton-events-legend-btn).
+    // Кнопка создаётся как HTML-элемент, а не SVG, чтобы работали
+    // обычные CSS-стили и :hover.
+    if (onEventClick !== null || true) {
+      // Легенда нужна всегда, независимо от наличия колбэка.
+    }
+    attachLegendButton(container);
+
+    return svg;
+  }
+  
+  // Маппинг типа события → короткое имя (для бейджа в панели деталей).
+  const EVENT_TYPE_LABEL = {
+    crash: "CRASH",
+    "health-fail": "H/F",
+    "silent-death": "S/D",
+    unknown: "UNKNOWN",
+    restart: "R",
+    "user-stop": "U/S",
+    "clean-exit": "C/E",
+  };
+
+  // Человекочитаемые названия для легенды.
+  const EVENT_TYPE_FULL = {
+    crash: "Crash",
+    "health-fail": "Health check failed",
+    "silent-death": "Silent death",
+    unknown: "Unknown",
+    restart: "Restart",
+    "user-stop": "User stopped",
+    "clean-exit": "Clean exit",
+  };
+
+  function t(key) {
+    if (typeof window.protonT === "function") return window.protonT(key);
+    return key;
+  }
+
+  function attachLegendButton(container) {
+    // Если кнопка уже есть — не дублируем.
+    let btn = container.querySelector(".proton-events-legend-btn");
+    if (btn) return btn;
+
+    btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "proton-events-legend-btn";
+    btn.setAttribute("aria-label", t("Event types"));
+    btn.setAttribute("aria-expanded", "false");
+    btn.textContent = "?";
+
+    const popup = document.createElement("div");
+    popup.className = "proton-events-legend-popup";
+    popup.setAttribute("role", "dialog");
+    popup.setAttribute("aria-hidden", "true");
+    popup.hidden = true;
+
+    let html = '<div class="proton-events-legend-title">' +
+      escapeHtml(t("Event types")) + "</div>";
+
+    // Порядок строк в легенде — по критичности.
+    const order = [
+      "crash",
+      "health-fail",
+      "silent-death",
+      "unknown",
+      "restart",
+      "user-stop",
+      "clean-exit",
+    ];
+
+    for (const type of order) {
+      const color = EVENT_COLORS[type] || EVENT_COLORS.unknown;
+      const label = EVENT_TYPE_LABEL[type] || type;
+      const full = t(EVENT_TYPE_FULL[type] || type);
+
+      html +=
+        '<div class="proton-events-legend-row">' +
+        '<span class="proton-events-legend-swatch" style="background-color:' +
+        escapeHtml(color) + '"></span>' +
+        '<span class="proton-events-legend-label">' +
+        escapeHtml(label) +
+        "</span>" +
+        '<span class="proton-events-legend-desc">' +
+        escapeHtml(full) +
+        "</span>" +
+        "</div>";
+    }
+
+    popup.innerHTML = html;
+
+    btn.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      const nowOpen = popup.hidden;
+      popup.hidden = !nowOpen;
+      btn.setAttribute("aria-expanded", nowOpen ? "true" : "false");
+      popup.setAttribute("aria-hidden", nowOpen ? "false" : "true");
+      btn.classList.toggle("is-open", nowOpen);
+    });
+
+    // Клик вне окна — закрываем.
+    const outsideClick = function (ev) {
+      if (popup.hidden) return;
+      if (btn.contains(ev.target)) return;
+      if (popup.contains(ev.target)) return;
+      popup.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      popup.setAttribute("aria-hidden", "true");
+      btn.classList.remove("is-open");
+    };
+    document.addEventListener("click", outsideClick, true);
+
+    // Слушаем удаление контейнера, чтобы снять глобальный обработчик.
+    const detach = function () {
+      if (document.body.contains(container)) return;
+      document.removeEventListener("click", outsideClick, true);
+      observer.disconnect();
+    };
+    const observer = new MutationObserver(detach);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    container.appendChild(btn);
+    container.appendChild(popup);
+
+    return btn;
+}
 
   // --- Экспорт ---
 
-  window.ProtonServicesGraph = {
+   window.ProtonServicesGraph = {
     renderServiceGraph,
     renderHealthGraph,
-    // Утилиты (для тестов и повторного использования)
+    renderWorstStatusGraph,
+    renderEventTimeline,
+	EVENT_TYPE_LABEL,
+    EVENT_TYPE_FULL,
     splitIntoSegments,
     getStatusColor,
     getStatusClass,
-    // Константы (для тестов)
     GAP_THRESHOLD_SEC,
     SERVICE_GRAPH_HEIGHT,
     HEALTH_GRAPH_HEIGHT,

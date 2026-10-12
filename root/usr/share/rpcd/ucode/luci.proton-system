@@ -601,6 +601,416 @@ function sortInterfaces(arr) {
 	return arr;
 }
 
+// --- Stop reason analysis --------------------------------------------------
+//
+// Определяет причину остановки сервиса. Двухуровневый каскад:
+//
+//   Уровень 1: ubus call service list
+//     - Если procd хранит exit_code инстанса — точный вердикт:
+//         exit_code == 0  → clean-exit (hint=2, серый)
+//         exit_code != 0  → crash (hint=3, красный)
+//         running: true   → сервис жив, вердикт не нужен
+//     - Происходит после clean stop через init.d: procd удаляет инстанс,
+//       service list отдаёт {}, каскад идёт дальше.
+//
+//   Уровень 2: logread -t -l 200
+//     - Парсим только строки с unix-timestamp в [ ], окно 60 сек.
+//     - Фильтр по имени сервиса (4 формы).
+//     - Маркеры в порядке приоритета: crash > clean-exit > restart.
+//     - Если matched пуст → истинный silent death (hint=0).
+//     - Если matched есть, но маркеров нет → неудачная классификация
+//       (hint=3, в деталях — первая значимая строка).
+//
+// Не полагается на текст в начале строки (Mon Oct 12 ...), только на
+// [<unix>.<ms>].
+
+const STOP_ANALYSIS_WINDOW_SEC = 60;
+const STOP_ANALYSIS_LOG_LINES = 200;
+const STOP_ANALYSIS_MAX_MATCHES = 5;
+
+// Маркеры краха. Регистронезависимо.
+const CRASH_MARKERS = [
+	'segfault',
+	'core dumped',
+	'killed by signal',
+	'terminated by signal',
+	'not stopped on sigterm, sending sigkill',
+	'out of memory',
+	'oom-killer',
+	'fatal error',
+	'panic',
+	'aborted',
+	'failed to start',
+	'failed to start up',
+	'crash loop',
+	'failed to create'
+];
+
+// Явные сигналы — ищем отдельно, потому что "signal 11" может быть
+// в произвольном тексте.
+const CRASH_SIGNAL_PATTERNS = [
+	'signal 6',
+	'signal 7',
+	'signal 11'
+];
+
+// Маркеры планового завершения.
+const CLEAN_EXIT_MARKERS = [
+	'exiting on receipt of sigterm',
+	'received sigterm',
+	'terminating on signal 15',
+	'graceful shutdown'
+];
+
+// Маркеры рестарта.
+const RESTART_MARKERS = [
+	'restarting',
+	'restarted'
+];
+
+// --- Хелперы --------------------------------------------------------------
+
+// Проверяем, что имя сервиса в строке logread — именно НАШ сервис,
+// а не подстрока в чужом имени (catalog/dialog/blog).
+//
+// Порядок проверок — от точного к общему:
+//   1. "<name>["        — busybox/init.d стиль: dnsmasq[1854]:
+//   2. "<name>:"        — procd без PID: dnsmasq:
+//   3. " <name> "       — procd: "service dnsmasq stopped"
+//   4. "<name>.service" — systemd-подобное (на всякий)
+function serviceInLine(line, name) {
+	if (!line || !name) return false;
+
+	if (index(line, name + '[') >= 0) return true;
+	if (index(line, name + ':') >= 0) return true;
+	if (index(line, ' ' + name + ' ') >= 0) return true;
+	if (index(line, name + '.service') >= 0) return true;
+
+	return false;
+}
+
+// Извлекает unix-секунды из "[1791787007.158]".
+// Возвращает null, если формат не распознан.
+//
+// Реальный формат logread -t:
+//   Mon Oct 12 09:36:47 2026 [1791787007.158] authpriv.info ...
+// Ищем первую '[', затем первую '.' внутри неё.
+function parseLogreadTs(line) {
+	let open = index(line, '[');
+	if (open < 0) return null;
+
+	let tail = substr(line, open + 1);
+	let dot = index(tail, '.');
+	if (dot < 0) return null;
+
+	let raw = substr(tail, 0, dot);
+	let ts = +raw;
+	if (ts != ts || ts <= 0) return null;
+
+	return ts;
+}
+
+// Ищет первое совпадение маркера в строке (регистронезависимо).
+function matchMarker(line, markers, kind) {
+	if (!line) return null;
+	let lower = lc(line);
+	for (let m in markers) {
+		if (index(lower, m) >= 0) return { kind: kind, marker: m };
+	}
+	return null;
+}
+
+// Проверяет "exited with code N". Извлекает N.
+function matchNonZeroExit(line) {
+	if (!line) return null;
+	let lower = lc(line);
+	let anchor = index(lower, 'exited with code ');
+	if (anchor < 0) return null;
+
+	let tail = substr(line, anchor + 17);
+	let parts = split(trim(tail), /[ \t;,)]/);
+	if (length(parts) < 1) return null;
+
+	let code = +(parts[0]);
+	if (code != code) return null;
+
+	if (code != 0) return { kind: 'crash', marker: 'exited with code ' + code };
+	return { kind: 'clean-exit', marker: 'exited with code 0' };
+}
+
+// Отрезает всё до ']' включительно — получаем читаемый хвост строки
+// без timestamp и служебного префикса.
+function stripLogreadPrefix(line) {
+	let close = index(line, ']');
+	if (close < 0) return trim(line);
+	return trim(substr(line, close + 1));
+}
+
+// --- Классификация по logread ---------------------------------------------
+
+// Определяет вердикт по отфильтрованным строкам (свежие → старые).
+// Каждая строка в matched — {ts, line}.
+function classifyMatched(matched, service) {
+	if (!length(matched)) {
+		return {
+			type: 'unknown',
+			hint: 0,
+			details: 'no log lines for ' + service + ' in last ' +
+			         STOP_ANALYSIS_WINDOW_SEC + 's',
+			matched_lines: []
+		};
+	}
+
+	for (let i = length(matched) - 1; i >= 0; i--) {
+		let entry = matched[i];
+		let line = entry.line;
+
+		// 1. Явные сигналы (самое точное)
+		let sig = matchMarker(line, CRASH_SIGNAL_PATTERNS, 'crash');
+		if (sig) {
+			return {
+				type: 'crash',
+				hint: 3,
+				details: 'crashed: ' + sig.marker,
+				matched_lines: [line]
+			};
+		}
+
+		// 2. Краш-маркеры
+		let crash = matchMarker(line, CRASH_MARKERS, 'crash');
+		if (crash) {
+			return {
+				type: 'crash',
+				hint: 3,
+				details: 'crashed: ' + crash.marker,
+				matched_lines: [line]
+			};
+		}
+
+		// 3. Non-zero exit
+		let exitInfo = matchNonZeroExit(line);
+		if (exitInfo) {
+			return {
+				type: exitInfo.kind,
+				hint: exitInfo.kind == 'crash' ? 3 : 2,
+				details: (exitInfo.kind == 'crash' ? 'crashed: ' : 'clean-exit: ') + exitInfo.marker,
+				matched_lines: [line]
+			};
+		}
+
+		// 4. Clean-exit
+		let clean = matchMarker(line, CLEAN_EXIT_MARKERS, 'clean-exit');
+		if (clean) {
+			return {
+				type: 'clean-exit',
+				hint: 2,
+				details: 'clean-exit: ' + clean.marker,
+				matched_lines: [line]
+			};
+		}
+
+		// 5. "service <name> stopped"
+		let lower = lc(line);
+		if (index(lower, 'service ') >= 0 && index(lower, ' stopped') >= 0) {
+			return {
+				type: 'clean-exit',
+				hint: 2,
+				details: 'clean-exit: service stopped',
+				matched_lines: [line]
+			};
+		}
+
+		// 6. Restart
+		let restart = matchMarker(line, RESTART_MARKERS, 'restart');
+		if (restart) {
+			return {
+				type: 'restart',
+				hint: 1,
+				details: 'restarted',
+				matched_lines: [line]
+			};
+		}
+	}
+
+	// matched не пуст, но ни один маркер не сработал.
+	// Это НЕ silent death — это неудачная классификация. Красный с
+	// осмысленным текстом из первой строки.
+	let firstLine = matched[0].line;
+	return {
+		type: 'unknown',
+		hint: 3,
+		details: 'stopped: ' + stripLogreadPrefix(firstLine),
+		matched_lines: [firstLine]
+	};
+}
+
+// --- Классификация по ubus ------------------------------------------------
+
+// Читает ubus call service list {name}. Возвращает объект или null.
+function ubusServiceList(service) {
+	// service уже прошёл валидацию [A-Za-z0-9_-]{1,64}.
+	let cmd = 'ubus call service list \'{"name":"' + service + '"}\'';
+	let proc = popen(cmd, 'r');
+	if (!proc) return null;
+	let output = proc.read('all');
+	proc.close();
+	if (!output) return null;
+	try { return json(output); } catch (e) { return null; }
+}
+
+// Пробует получить вердикт из ubus. Возвращает null, если данных нет.
+function analyzeFromUbus(service) {
+	let data = ubusServiceList(service);
+	if (!data || type(data) != 'object') return null;
+
+	let svc = data[service];
+	if (!svc || !svc.instances || type(svc.instances) != 'object')
+		return null;
+
+	let bestExitCode = null;
+	let bestPid = null;
+	let sawRunning = false;
+
+	for (let iname in svc.instances) {
+		let inst = svc.instances[iname];
+		if (!inst || type(inst) != 'object') continue;
+
+		if (inst.running === true) {
+			sawRunning = true;
+			// Запоминаем PID живого инстанса.
+			if (inst.pid != null) {
+				let p = +inst.pid;
+				if (p == p && p > 0) bestPid = p;
+			}
+			continue;
+		}
+
+		if (inst.exit_code != null) {
+			let code = +inst.exit_code;
+			if (code != code) continue;
+			bestExitCode = code;
+		}
+	}
+
+	if (sawRunning) {
+		return {
+			type: 'running',
+			hint: 0,
+			pid: bestPid,
+			details: 'service is running'
+		};
+	}
+
+	if (bestExitCode == null) return null;
+
+	if (bestExitCode === 0) {
+		return {
+			type: 'clean-exit',
+			hint: 2,
+			pid: null,
+			details: 'clean-exit: exited with code 0'
+		};
+	}
+
+	return {
+		type: 'crash',
+		hint: 3,
+		pid: null,
+		details: 'crashed: exited with code ' + bestExitCode
+	};
+}
+
+// --- Public RPC -----------------------------------------------------------
+
+// analyzeStopReason(service) — двухуровневый каскад: ubus → logread.
+// Возвращает вердикт + source, указывающий, откуда он получен.
+function analyzeStopReason(req) {
+	let name = req.args?.name;
+	if (!name || type(name) != 'string') {
+		return { success: false, error: 'Missing service name' };
+	}
+	if (match(name, /^[A-Za-z0-9_-]{1,64}$/) == null) {
+		return { success: false, error: 'Invalid service name' };
+	}
+
+	// --- Уровень 1: ubus ---------------------------------------------------
+	let ubusVerdict = analyzeFromUbus(name);
+	if (ubusVerdict) {
+		return {
+			success: true,
+			type: ubusVerdict.type,
+			hint: ubusVerdict.hint,
+			pid: ubusVerdict.pid,
+			details: ubusVerdict.details,
+			source: 'ubus',
+			matched_lines: [],
+			window_sec: STOP_ANALYSIS_WINDOW_SEC
+		};
+	}
+
+	// --- Уровень 2: logread ------------------------------------------------
+	let proc = popen('/sbin/logread -t -l ' + STOP_ANALYSIS_LOG_LINES, 'r');
+	if (!proc) {
+		return {
+			success: false,
+			error: 'logread unavailable',
+			type: 'unknown',
+			hint: 0,
+			details: 'logread unavailable',
+			source: 'none',
+			matched_lines: []
+		};
+	}
+
+	let output = proc.read('all') ?? '';
+	proc.close();
+
+	if (!output) {
+		return {
+			success: true,
+			type: 'unknown',
+			hint: 0,
+			details: 'logread empty (no lines at all)',
+			source: 'logread',
+			matched_lines: [],
+			window_sec: STOP_ANALYSIS_WINDOW_SEC
+		};
+	}
+
+	let now = time();
+	let matched = [];
+
+	for (let line in split(output, '\n')) {
+		if (!line) continue;
+
+		let ts = parseLogreadTs(line);
+		if (ts == null) continue;
+		if (now - ts > STOP_ANALYSIS_WINDOW_SEC) continue;
+
+		if (!serviceInLine(line, name)) continue;
+
+		push(matched, { ts: ts, line: trim(line) });
+	}
+
+	matched = sort(matched, function(a, b) { return b.ts - a.ts; });
+
+	let verdict = classifyMatched(matched, name);
+
+	let lines = verdict.matched_lines ?? [];
+	if (length(lines) > STOP_ANALYSIS_MAX_MATCHES)
+		lines = slice(lines, 0, STOP_ANALYSIS_MAX_MATCHES);
+
+	return {
+		success: true,
+		type: verdict.type,
+		hint: verdict.hint,
+		details: verdict.details,
+		source: 'logread',
+		matched_lines: lines,
+		window_sec: STOP_ANALYSIS_WINDOW_SEC
+	};
+}
+
 function getNetworkStats() {
 	// --- 1. Счётчики из /proc/net/dev ---
 	let devContent = readfile('/proc/net/dev');
@@ -729,6 +1139,12 @@ const methods = {
 		args: { name: 'name', lines: 0 },
 		call: function(req) {
 			return getServiceLog(req);
+		}
+	},
+	analyzeStopReason: {
+    args: { name: 'name' },
+    call: function(req) {
+        return analyzeStopReason(req);
 		}
 	},
 	getProcessCount: {

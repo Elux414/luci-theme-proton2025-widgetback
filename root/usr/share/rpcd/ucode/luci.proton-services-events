@@ -1,0 +1,313 @@
+// Proton2025 Theme - Services Events RPC Module
+// Copyright 2025-2026 ChesterGoodiny
+// Licensed under the Apache License, Version 2.0
+// See LICENSE and NOTICE for details.
+// Stores discrete service events (crash / clean-exit / restart / user-stop /
+// health-fail) in /tmp/proton-services-history/_events.json.
+// Events complement the compact point history: points give a continuous line
+// for the graph, events give precise markers for the timeline overlay.
+
+'use strict';
+
+import { readfile, writefile, lsdir, mkdir, stat, unlink } from 'fs';
+
+const STORAGE_DIR = '/tmp/proton-services-history';
+const EVENTS_PATH = STORAGE_DIR + '/_events.json';
+const MAX_AGE_HOURS_DEFAULT = 24;
+const MAX_EVENTS = 1000;
+const SERVICE_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const VALID_TYPES = [
+	'crash',
+	'clean-exit',
+	'restart',
+	'user-stop',
+	'health-fail',
+	'silent-death'
+];
+const MAX_DETAILS_LEN = 200;
+
+// --- Внутренние хелперы ---------------------------------------------------
+
+function validServiceName(name) {
+	if (!name || type(name) != 'string') return false;
+	if (match(name, SERVICE_NAME_RE) == null) return false;
+	return true;
+}
+
+function validType(t) {
+	if (!t || type(t) != 'string') return false;
+	for (let v in VALID_TYPES) {
+		if (v == t) return true;
+	}
+	return false;
+}
+
+function ensureStorageDir() {
+	let s = stat(STORAGE_DIR);
+	if (!s || s.type != 'directory') {
+		mkdir(STORAGE_DIR, 0o755);
+	}
+}
+
+function readJsonFile(path) {
+	let raw = readfile(path);
+	if (!raw) return null;
+	try {
+		return json(raw);
+	} catch (e) {
+		return null;
+	}
+}
+
+function writeJsonFile(path, data) {
+	try {
+		let raw = sprintf('%.J', data);
+		if (raw == null) return false;
+		writefile(path, raw);
+		return true;
+	} catch (e) {
+		return false;
+	}
+}
+
+// Удаляет события старше max_age_hours.
+function filterByAge(events, maxAgeHours) {
+	if (!events || type(events) != 'array') return [];
+	if (maxAgeHours <= 0) return events;
+
+	let now = time();
+	let cutoff = now - (maxAgeHours * 3600);
+	let out = [];
+
+	for (let e in events) {
+		if (!e || type(e) != 'array' || length(e) < 1) continue;
+		let t = +e[0];
+		if (t != t) continue;
+		if (t >= cutoff) push(out, e);
+	}
+
+	return out;
+}
+
+// Обрезает детали до MAX_DETAILS_LEN. Убирает управляющие символы.
+function sanitizeDetails(details) {
+	if (details == null) return '';
+	let s = '' + details;
+	// Убираем \n, \r, \t
+	s = replace(s, /\n/g, ' ');
+	s = replace(s, /\r/g, ' ');
+	s = replace(s, /\t/g, ' ');
+	s = trim(s);
+	if (length(s) > MAX_DETAILS_LEN) {
+		s = substr(s, 0, MAX_DETAILS_LEN - 3) + '...';
+	}
+	return s;
+}
+
+// --- API: appendEvent -----------------------------------------------------
+//
+// Добавляет одно событие. Дедупликация по (t, service, type):
+// если событие с таким же timestamp и типом уже есть — перезаписываем.
+// Это защищает от двойной записи при быстрых переходах.
+
+function appendEvent(req) {
+	let service = req.args?.service;
+	if (!validServiceName(service)) {
+		return { success: false, error: 'Invalid service name' };
+	}
+
+	let eventType = req.args?.type;
+	if (!validType(eventType)) {
+		return {
+			success: false,
+			error: 'Invalid event type',
+			valid_types: VALID_TYPES
+		};
+	}
+
+	let hint = +req.args?.hint;
+	if (hint != hint || hint < 0 || hint > 4) hint = 0;
+
+	let details = sanitizeDetails(req.args?.details);
+
+	let now = time();
+
+	ensureStorageDir();
+
+	let data = readJsonFile(EVENTS_PATH);
+	if (!data || type(data) != 'object') {
+		data = { max_age_hours: MAX_AGE_HOURS_DEFAULT, events: [] };
+	}
+	if (!data.events || type(data.events) != 'array') {
+		data.events = [];
+	}
+
+	let maxAge = +data.max_age_hours;
+	if (maxAge != maxAge || maxAge <= 0) maxAge = MAX_AGE_HOURS_DEFAULT;
+
+	// Дедупликация по timestamp: если событие с тем же t и service уже есть —
+	// заменяем его. Это безопасно, потому что переход происходит один раз
+	// на poll-цикл.
+	let replaced = false;
+	for (let i = 0; i < length(data.events); i++) {
+		let e = data.events[i];
+		if (!e || type(e) != 'array' || length(e) < 2) continue;
+		if (+e[0] === now && '' + e[1] === service) {
+			data.events[i] = [now, service, eventType, hint, details];
+			replaced = true;
+			break;
+		}
+	}
+	if (!replaced) {
+		push(data.events, [now, service, eventType, hint, details]);
+	}
+
+	// Ротация по времени.
+	data.events = filterByAge(data.events, maxAge);
+
+	// Жёсткий лимит.
+	if (length(data.events) > MAX_EVENTS) {
+		data.events = slice(data.events, length(data.events) - MAX_EVENTS);
+	}
+
+	data.max_age_hours = maxAge;
+
+	if (!writeJsonFile(EVENTS_PATH, data)) {
+		return { success: false, error: 'Write failed' };
+	}
+
+	return {
+		success: true,
+		total: length(data.events),
+		replaced: replaced
+	};
+}
+
+// --- API: readEvents ------------------------------------------------------
+//
+// Читает события. Параметры:
+//   service (optional) — фильтр по имени сервиса
+//   window_ms (optional) — окно в миллисекундах от текущего момента
+//
+// Возвращает отсортированный по времени массив (свежие последними).
+
+function readEvents(req) {
+	ensureStorageDir();
+
+	let data = readJsonFile(EVENTS_PATH);
+	if (!data || type(data) != 'object' || !data.events) {
+		return { success: true, events: [], total: 0 };
+	}
+
+	let events = data.events;
+	if (type(events) != 'array') events = [];
+
+	let maxAge = +data.max_age_hours;
+	if (maxAge != maxAge || maxAge <= 0) maxAge = MAX_AGE_HOURS_DEFAULT;
+
+	let cutoff = time() - (maxAge * 3600);
+
+	// Дополнительное окно от клиента.
+	let windowMs = +req.args?.window_ms;
+	if (windowMs == windowMs && windowMs > 0) {
+		let windowCutoff = time() - int(windowMs / 1000);
+		if (windowCutoff > cutoff) cutoff = windowCutoff;
+	}
+
+	// Фильтр по сервису.
+	let serviceFilter = req.args?.service;
+	let hasServiceFilter = validServiceName(serviceFilter);
+
+	let result = [];
+	for (let e in events) {
+		if (!e || type(e) != 'array' || length(e) < 5) continue;
+		let t = +e[0];
+		if (t != t) continue;
+		if (t < cutoff) continue;
+		if (hasServiceFilter && '' + e[1] != serviceFilter) continue;
+
+		push(result, [t, '' + e[1], '' + e[2], +e[3] || 0, '' + e[4]]);
+	}
+
+	// Сортировка по времени (свежие последними).
+	result = sort(result, function(a, b) { return (+a[0]) - (+b[0]); });
+
+	return {
+		success: true,
+		events: result,
+		total: length(result),
+		path: EVENTS_PATH
+	};
+}
+
+// --- API: clearEvents -----------------------------------------------------
+
+function clearEvents(req) {
+	try {
+		unlink(EVENTS_PATH);
+	} catch (e) {
+		// Файла нет — не ошибка.
+	}
+	return { success: true };
+}
+
+// --- API: getStorageStats -------------------------------------------------
+//
+// Возвращает размер файла событий и количество записей.
+
+function getStorageStats(req) {
+	let s = stat(EVENTS_PATH);
+	if (!s || s.type != 'file') {
+		return { success: true, bytes: 0, events: 0 };
+	}
+
+	let data = readJsonFile(EVENTS_PATH);
+	let count = 0;
+	if (data && data.events && type(data.events) == 'array') {
+		count = length(data.events);
+	}
+
+	return {
+		success: true,
+		bytes: +s.size || 0,
+		events: count,
+		path: EVENTS_PATH
+	};
+}
+
+// --- RPC method definitions ----------------------------------------------
+
+const methods = {
+	appendEvent: {
+		args: {
+			service: 'service',
+			type: 'type',
+			hint: 0,
+			details: ''
+		},
+		call: function(req) {
+			return appendEvent(req);
+		}
+	},
+	readEvents: {
+		args: {
+			service: '',
+			window_ms: 0
+		},
+		call: function(req) {
+			return readEvents(req);
+		}
+	},
+	clearEvents: {
+		call: function() {
+			return clearEvents();
+		}
+	},
+	getStorageStats: {
+		call: function() {
+			return getStorageStats();
+		}
+	}
+};
+
+return { 'luci.proton-services-events': methods };

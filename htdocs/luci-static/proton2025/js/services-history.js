@@ -25,10 +25,11 @@
   //   health: { points: [[t,r,total,inc],...], sampleInterval, maxAgeHours },
   //   userActions: Map<service, { action: string, at: number }>
   // }
-  const memory = {
+ const memory = {
     services: new Map(),
     health: { points: [], sampleInterval: null, maxAgeHours: null },
     userActions: new Map(),
+    events: [],
   };
 
   // Очередь "грязных" сервисов — те, у которых есть неотданные точки
@@ -652,6 +653,229 @@
     }
     return out;
   }
+  
+    // --- Timeline: worst status across all services ---------------------------
+  //
+  // Возвращает массив [bucketTs, worstStatus] — наихудший статус по всем
+  // сервисам в каждом бакете времени. Используется для общего графика
+  // «Здоровье сервисов» вместо агрегата running/total.
+  //
+  // Приоритет worst (выше = важнее):
+  //   4: health-failed (status=3)
+  //   3: crashed / silent death (status=0, hint=0 или 3)
+  //   2: unknown (status=2)
+  //   1: running (status=1)
+  //
+  // clean-exit (hint=2) и user-stopped (hint=4) в Блоке 1 не учитываются —
+  // они плановые и не должны портить общий цвет.
+  //
+  // Сервисы без данных в конкретном бакете НЕ учитываются (вариант B).
+
+  function getPointPriorityForWorst(point) {
+    if (!Array.isArray(point) || point.length < 2) return 0;
+
+    const status = Number(point[1]);
+    const hint = point.length > 3 ? Number(point[3]) : 0;
+
+    // Плановые события — не учитываем при определении worst.
+    if (status === 0 && (hint === 2 || hint === 4)) return 0;
+
+    if (status === 3) return 4;       // health-failed
+    if (status === 0) return 3;       // crashed / silent death
+    if (status === 2) return 2;       // unknown
+    if (status === 1) return 1;       // running
+    return 0;
+  }
+
+  function getWorstStatusFromPriority(priority) {
+    if (priority === 4) return 3;     // health-failed
+    if (priority === 3) return 0;     // stopped (crash)
+    if (priority === 2) return 2;     // unknown
+    if (priority === 1) return 1;     // running
+    return null;
+  }
+
+  /**
+   * Возвращает timeline наихудшего статуса по всем сервисам.
+   *
+   * @param {number} windowMs — окно отображения в миллисекундах
+   * @param {object} options — { sampleInterval, targetCount }
+   * @returns {Array} — массив [bucketTs, worstStatus]
+   */
+  function getWorstStatusTimeline(windowMs, options) {
+    const opts = options || {};
+    const targetCount = opts.targetCount || 200;
+    const settings = readSettings();
+    const sampleInterval = opts.sampleInterval || settings.sampleInterval || 10;
+
+    // Собираем все точки всех сервисов в один массив с привязкой к сервису.
+    // Формат: [{service, t, point}, ...]
+    const allPoints = [];
+    for (const [serviceName, entry] of memory.services) {
+      if (!entry || !Array.isArray(entry.points)) continue;
+      for (const p of entry.points) {
+        if (!Array.isArray(p) || p.length < 1) continue;
+        const t = Number(p[0]);
+        if (!Number.isFinite(t)) continue;
+        allPoints.push({ service: serviceName, t: t, point: p });
+      }
+    }
+
+    if (allPoints.length === 0) return [];
+
+    // Группируем по сервису для быстрого поиска ближайшей точки.
+    const byService = new Map();
+    for (const item of allPoints) {
+      if (!byService.has(item.service)) {
+        byService.set(item.service, []);
+      }
+      byService.get(item.service).push(item);
+    }
+
+    // Сортируем точки внутри каждого сервиса по времени.
+    for (const points of byService.values()) {
+      points.sort((a, b) => a.t - b.t);
+    }
+
+    // Определяем окно.
+    const now = Math.floor(Date.now() / 1000);
+    const windowSec = Math.floor(windowMs / 1000);
+    const cutoff = now - windowSec;
+
+    // Шаг бакета: не меньше sampleInterval, но не больше, чем позволяет
+    // уложиться в targetCount бакетов.
+    const minStep = sampleInterval;
+    const maxStep = Math.max(1, Math.floor(windowSec / targetCount));
+    const step = Math.max(minStep, maxStep);
+
+    // Бинарный поиск ближайшей точки к targetTs в отсортированном массиве.
+    function findNearest(points, targetTs, tolerance) {
+      if (!points || points.length === 0) return null;
+
+      let lo = 0;
+      let hi = points.length - 1;
+
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (points[mid].t < targetTs) lo = mid + 1;
+        else hi = mid;
+      }
+
+      // lo — первая точка >= targetTs. Проверяем lo и lo-1.
+      let best = null;
+      let bestDist = Infinity;
+
+      for (const idx of [lo - 1, lo]) {
+        if (idx < 0 || idx >= points.length) continue;
+        const d = Math.abs(points[idx].t - targetTs);
+        if (d < bestDist) {
+          bestDist = d;
+          best = points[idx];
+        }
+      }
+
+      if (best === null) return null;
+      if (bestDist > tolerance) return null;
+      return best;
+    }
+
+    // Строим бакеты.
+    const result = [];
+    const tolerance = Math.ceil(step / 2);
+
+    for (let bucketStart = cutoff; bucketStart <= now; bucketStart += step) {
+      const bucketCenter = bucketStart + Math.floor(step / 2);
+
+      let worstPriority = 0;
+
+      for (const [serviceName, points] of byService) {
+        const nearest = findNearest(points, bucketCenter, tolerance);
+        if (!nearest) continue;
+
+        const priority = getPointPriorityForWorst(nearest.point);
+        if (priority > worstPriority) {
+          worstPriority = priority;
+        }
+      }
+
+      // Если ни одного сервиса с данными — бакет пропускаем.
+      // Это создаёт естественные разрывы в графике.
+      if (worstPriority === 0) continue;
+
+      const worstStatus = getWorstStatusFromPriority(worstPriority);
+      if (worstStatus === null) continue;
+
+      result.push([bucketStart, worstStatus]);
+    }
+
+    return result;
+  }
+
+  // --- Events (Этап 6.7) ----------------------------------------------------
+  //
+  // События хранятся отдельно от точек истории: в /tmp/proton-services-history/_events.json.
+  // Формат события: [ts, service, type, hint, details].
+  // Читаем через RPC luci.proton-services-events.readEvents с окном windowMs.
+  // Кэшируем результат в memory.events, чтобы синхронный рендер не дёргал бэк.
+
+  let eventsRpc = null;
+
+  function ensureEventsRpc() {
+    if (eventsRpc) return eventsRpc;
+    if (!window.L || !L.rpc || typeof L.rpc.declare !== "function") return null;
+
+    eventsRpc = {
+      readEvents: L.rpc.declare({
+        object: "luci.proton-services-events",
+        method: "readEvents",
+        params: ["service", "window_ms"],
+        expect: { "": {} },
+      }),
+    };
+    return eventsRpc;
+  }
+
+  /**
+   * Загружает события с бэка в memory.events.
+   * @param {number} windowMs — окно в миллисекундах
+   * @param {string} [serviceName] — опциональный фильтр по сервису
+   * @returns {Promise<Array>}
+   */
+  async function loadEvents(windowMs, serviceName) {
+    const rpc = ensureEventsRpc();
+    if (!rpc) return [];
+
+    try {
+      const res = await L.resolveDefault(
+        rpc.readEvents(serviceName || "", windowMs || 0),
+        null,
+      );
+
+      if (!res || !res.success || !Array.isArray(res.events)) {
+        memory.events = [];
+        return [];
+      }
+
+      // Нормализуем: [ts, service, type, hint, details]
+      memory.events = res.events.filter((e) =>
+        Array.isArray(e) && e.length >= 5
+      );
+
+      return memory.events;
+    } catch (e) {
+      console.warn("[ProtonServicesHistory] loadEvents failed:", e);
+      memory.events = [];
+      return [];
+    }
+  }
+
+  /**
+   * Синхронный доступ к последнему загруженному массиву событий.
+   * Если loadEvents ещё не вызывался — вернёт пустой массив.
+   */
+  function getCachedEvents() {
+    return Array.isArray(memory.events) ? memory.events : [];
+  }
 
   // --- Экспорт ---
 
@@ -673,10 +897,14 @@
     // === Этап 3: утилиты анализа ===
     getServiceHistoryForRender,
     getHealthHistoryForRender,
+	getWorstStatusTimeline,
     computeServiceStats,
     filterByWindow,
     mergeShortDowns,
     downsample,
+	// === Этап 6.7: события ===
+    loadEvents,
+    getCachedEvents,
     // Утилита для получения размера хранилища (для UI настроек)
     async getStorageStats() {
       const rpc = ensureRpc();

@@ -15030,8 +15030,9 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 /* Контейнер графика */
 .proton-apps-graph-container {
     width: 100%;
-    flex: 1 1 auto;
-    min-height: 100px;
+    height: 120px;
+    min-height: 120px;
+    flex: 0 0 120px;
     position: relative;
     border-radius: calc(var(--proton-radius-sm) - 2px);
     overflow: hidden;
@@ -15045,7 +15046,277 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 }
 
 .proton-health-graph-bg {
-    fill: rgba(255, 255, 255, 0.015);
+    fill: rgba(148, 163, 184, 0.04);
+}
+
+.proton-apps-events-timeline {
+    width: 100%;
+    height: 100px;
+    min-height: 100px;
+    flex: 0 0 100px;
+    position: relative;
+    border-radius: calc(var(--proton-radius-sm) - 2px);
+    overflow: hidden;
+    background: rgba(148, 163, 184, 0.02);
+    transition: height 0.2s ease, min-height 0.2s ease, flex-basis 0.2s ease;
+}
+
+.proton-events-timeline-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.proton-events-timeline-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--proton-text-secondary);
+    font-size: 0.72rem;
+    opacity: 0.55;
+    letter-spacing: 0.02em;
+}
+
+.proton-events-timeline-mark {
+    /* заливка задаётся через stroke в JS */
+}
+
+.proton-events-timeline-outline {
+    /* обводка проблемного стека — без заливки */
+}
+
+/* Кнопка-легенда в левом нижнем углу таймлайна */
+.proton-events-legend-btn {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    margin: 0;
+    border-radius: 50%;
+    border: 1px solid var(--proton-border);
+    background: var(--proton-bg-secondary);
+    color: var(--proton-text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    font-family: inherit;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.proton-events-legend-btn:hover,
+.proton-events-legend-btn.is-open {
+    background: var(--proton-accent-glow);
+    color: var(--proton-accent);
+    border-color: rgba(var(--proton-accent-rgb), 0.4);
+}
+
+.proton-events-legend-btn:focus-visible {
+    outline: 2px solid var(--proton-accent);
+    outline-offset: 2px;
+}
+
+/* Всплывающее окно легенды */
+.proton-events-legend-popup {
+    position: absolute;
+    left: 6px;
+    bottom: calc(100% - 22px);
+    width: 240px;
+    padding: 8px 10px;
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    background: rgba(20, 25, 35, 0.98);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    z-index: 10;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    animation: fadeIn 0.15s ease;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+:root[data-theme="light"] .proton-events-legend-popup {
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.proton-events-legend-title {
+    font-weight: 600;
+    font-size: 0.75rem;
+    color: var(--proton-text-primary);
+    padding-bottom: 6px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--proton-border-light);
+    letter-spacing: 0.02em;
+}
+
+.proton-events-legend-row {
+    display: grid;
+    grid-template-columns: 12px 48px 1fr;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+}
+
+.proton-events-legend-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+}
+
+.proton-events-legend-label {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 700;
+    font-size: 0.68rem;
+    color: var(--proton-text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.proton-events-legend-desc {
+    color: var(--proton-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* Легенда не должна мешать overflow:hidden у контейнера таймлайна */
+.proton-apps-events-timeline {
+    overflow: visible;
+}
+
+:root[data-theme="light"] .proton-apps-events-timeline {
+    background: rgba(0, 0, 0, 0.015);
+}
+
+.proton-apps-events-timeline.is-compact {
+    height: 32px;
+    min-height: 32px;
+    flex: 0 0 32px;
+}
+
+.proton-events-timeline-hitarea {
+    /* прозрачная область клика — только курсор */
+}
+
+.proton-events-timeline-highlight {
+    /* подсветка выбранного штриха — рисуется в JS */
+}
+
+.proton-apps-event-details {
+    margin-top: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    background: rgba(var(--proton-accent-rgb), 0.03);
+    font-size: 0.76rem;
+    line-height: 1.5;
+    min-height: 180px;
+    max-height: 180px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    animation: fadeIn 0.15s ease;
+}
+
+.proton-apps-event-details:empty {
+    display: none;
+}
+
+.proton-apps-event-details-header {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--proton-text-secondary);
+    letter-spacing: 0.02em;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--proton-border-light);
+    margin-bottom: 2px;
+}
+
+.proton-apps-event-row {
+    display: grid;
+    grid-template-columns: 80px 90px 1fr;
+    gap: 8px;
+    align-items: baseline;
+    min-width: 0;
+}
+
+.proton-apps-event-type {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.proton-apps-event-type[data-type="crash"] {
+    color: #fff;
+    background: #ef4444;
+}
+
+.proton-apps-event-type[data-type="health-fail"] {
+    color: #fff;
+    background: #f97316;
+}
+
+.proton-apps-event-type[data-type="silent-death"],
+.proton-apps-event-type[data-type="unknown"] {
+    color: #111827;
+    background: #fbbf24;
+}
+
+.proton-apps-event-type[data-type="restart"] {
+    color: #111827;
+    background: #34d399;
+}
+
+.proton-apps-event-type[data-type="user-stop"] {
+    color: #fff;
+    background: #6b7280;
+}
+
+.proton-apps-event-type[data-type="clean-exit"] {
+    color: #111827;
+    background: #9ca3af;
+}
+
+.proton-apps-event-service {
+    font-weight: 600;
+    color: var(--proton-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.proton-apps-event-msg {
+    color: var(--proton-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+:root[data-theme="light"] .proton-apps-event-details {
+    background: rgba(0, 0, 0, 0.015);
 }
 
 .proton-health-graph-running {

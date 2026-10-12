@@ -15,7 +15,8 @@
 					"getServiceLog",
 					"getProcessCount",
 					"getTopProcesses",
-					"getNetworkStats"
+					"getNetworkStats",
+					"analyzeStopReason"
 				],
                 "luci.proton-search-cache": [
                     "loadCache"
@@ -56,7 +57,11 @@
                     "readHealthHistory",
                     "readUserActions",
                     "getStorageStats"
-                ]
+                ],
+				"luci.proton-services-events": [
+					"readEvents",
+					"getStorageStats"
+				]
             },
             "uci": [
                 "proton2025",
@@ -107,7 +112,11 @@
                     "writeUserAction",
                     "clearHistory",
                     "clearAll"
-                ]
+                ],
+				"luci.proton-services-events": [
+					"appendEvent",
+					"clearEvents"
+				]
             },
             "uci": [
                 "proton2025"
