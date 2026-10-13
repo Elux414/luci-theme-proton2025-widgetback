@@ -1395,9 +1395,7 @@ function renderSummaryEventDetails(card) {
     // Заголовок: время первого события + количество.
     const firstTs = Number(events[0][0]) || 0;
     const timeStr = formatEventTime(firstTs);
-    const headerText = events.length === 1
-        ? timeStr
-        : timeStr + " · " + events.length + " " + t("events");
+    const headerText = timeStr + " · ℹ️ " + events.length;
 
     let html = '<div class="proton-apps-event-details-header">' +
         escapeHtml(headerText) +
@@ -1496,27 +1494,29 @@ function escapeHtml(str) {
     }
 
     // === Таймлайн событий (Этап 6.7) ===
-    if (eventsContainer) {
-        let events = [];
-        try {
-            events = window.ProtonServicesHistory.getCachedEvents();
-        } catch (e) {
-            events = [];
+    // Считаем visibleEvents один раз — он нужен и для timeline, и для сводки.
+    let visibleEvents = [];
+    try {
+        if (window.ProtonServicesHistory
+            && typeof window.ProtonServicesHistory.getCachedEvents === "function") {
+            const allEvents = window.ProtonServicesHistory.getCachedEvents();
+            const nowSec = Math.floor(Date.now() / 1000);
+            const startSec = nowSec - Math.floor(windowMs / 1000);
+            visibleEvents = allEvents.filter((e) => {
+                if (!Array.isArray(e) || e.length < 3) return false;
+                const ts = Number(e[0]);
+                return Number.isFinite(ts) && ts >= startSec && ts <= nowSec;
+            });
         }
+    } catch (e) {
+        visibleEvents = [];
+    }
 
-        // Рисуем только то, что попадает в текущее окно.
-        const nowSec = Math.floor(Date.now() / 1000);
-        const startSec = nowSec - Math.floor(windowMs / 1000);
-        const visible = events.filter((e) => {
-            if (!Array.isArray(e) || e.length < 3) return false;
-            const ts = Number(e[0]);
-            return Number.isFinite(ts) && ts >= startSec && ts <= nowSec;
-        });
-
+    if (eventsContainer) {
         const eventsWidth = eventsContainer.clientWidth || width;
         window.ProtonServicesGraph.renderEventTimeline(
             eventsContainer,
-            visible,
+            visibleEvents,
             {
                 width: eventsWidth,
                 height: summarySelectedEventGroup ? 32 : 100,
@@ -1528,70 +1528,144 @@ function escapeHtml(str) {
             },
         );
 
-        // Синхронизируем компактный режим контейнера.
         eventsContainer.classList.toggle(
             "is-compact",
             !!summarySelectedEventGroup,
         );
 
-        // Рендер панели деталей под таймлайном.
         renderSummaryEventDetails(card);
     }
 
     if (footer) {
-        footer.textContent = "";
+        updateSummaryGraphFooter(footer, visibleEvents);
     }
 }
 
-  /**
+    /**
    * Обновляет подпись под health-графиком.
+   * Формат: ● 8/9 · ⚠ 2 · ⏸ 1 · ⏹ 2 · ⟳ 3
+   * Нулевые счётчики не показываются.
    */
-  function updateSummaryGraphFooter(footer, points) {
-    if (!points || !points.length) {
-      footer.textContent = "";
-      return;
+  function updateSummaryGraphFooter(footer, events) {
+    if (!footer) return;
+
+    // === 1. Running / total из _statusCache ===
+    let running = 0;
+    let total = 0;
+    const widget = window.protonServicesWidget;
+    if (widget && widget._statusCache) {
+      for (const [, status] of widget._statusCache) {
+        total++;
+        if (status === "running") running++;
+      }
     }
 
-    // Последняя точка — актуальное состояние
-    const last = points[points.length - 1];
-    const running = Number(last[1]) || 0;
-    const total = Number(last[2]) || 0;
+    // === 2. Счётчики из событий за окно ===
+    let incidents = 0;
+    let worstIncident = null;
+    let userStops = 0;
+    let cleanExits = 0;
+    let restarts = 0;
 
-    // Считаем средние за период
-    let sumRunning = 0;
-    let incidentsTotal = 0;
-    for (const p of points) {
-      sumRunning += Number(p[1]) || 0;
-      incidentsTotal += Number(p[3]) || 0;
+    const INCIDENT_PRIORITY = {
+      crash: 1,
+      "health-fail": 2,
+      "silent-death": 3,
+      unknown: 4,
+    };
+
+    if (Array.isArray(events)) {
+      for (const e of events) {
+        if (!Array.isArray(e) || e.length < 3) continue;
+        const type = String(e[2] || "");
+        if (INCIDENT_PRIORITY[type] != null) {
+          incidents++;
+          if (
+            worstIncident === null ||
+            INCIDENT_PRIORITY[type] < INCIDENT_PRIORITY[worstIncident]
+          ) {
+            worstIncident = type;
+          }
+        } else if (type === "user-stop") {
+          userStops++;
+        } else if (type === "clean-exit") {
+          cleanExits++;
+        } else if (type === "restart") {
+          restarts++;
+        }
+      }
     }
-    const avgRunning = points.length > 0 ? sumRunning / points.length : 0;
 
+    // === 3. Цвет точки "running" ===
+    let dotColor = "#34d399";
+    if (worstIncident === "crash") {
+      dotColor = "#ef4444";
+    } else if (worstIncident === "health-fail") {
+      dotColor = "#f97316";
+    } else if (worstIncident === "silent-death" || worstIncident === "unknown") {
+      dotColor = "#fbbf24";
+    } else if (total > 0 && running < total) {
+      dotColor = "#fbbf24";
+    }
+
+    // === 4. Сборка строки ===
+    // Все счётчики показываем всегда. Нули — с классом is-zero
+    // (приглушённый цвет через CSS).
     const parts = [];
+
+    if (total > 0) {
+      parts.push(
+        '<span class="proton-apps-summary-part">' +
+        '<span class="proton-apps-summary-symbol" style="color:' +
+        dotColor + '">●</span> ' +
+        '<span class="proton-apps-summary-num">' +
+        running + "/" + total +
+        "</span>" +
+        "</span>"
+      );
+    }
+
+    const zeroClass = (n) => n === 0 ? " is-zero" : "";
+
     parts.push(
-      '<span class="proton-apps-summary-stat proton-apps-summary-stat-running">' +
-      '<span class="proton-apps-summary-dot running"></span>' +
-      running + " / " + total +
+      '<span class="proton-apps-summary-part' + zeroClass(incidents) + '">' +
+      '<span class="proton-apps-summary-symbol proton-apps-summary-warn">⚠</span> ' +
+      '<span class="proton-apps-summary-num">' +
+      incidents +
+      "</span>" +
       "</span>"
     );
 
-    if (avgRunning < total - 0.5) {
-      const avgPercent = Math.round((avgRunning / total) * 100);
-      parts.push(
-        '<span class="proton-apps-summary-stat">' +
-        t("Avg") + ": " + avgPercent + "%" +
-        "</span>"
-      );
-    }
+    parts.push(
+      '<span class="proton-apps-summary-part' + zeroClass(userStops) + '">' +
+      '<span class="proton-apps-summary-symbol proton-apps-summary-userstop">⏸</span> ' +
+      '<span class="proton-apps-summary-num">' +
+      userStops +
+      "</span>" +
+      "</span>"
+    );
 
-    if (incidentsTotal > 0) {
-      parts.push(
-        '<span class="proton-apps-summary-stat proton-apps-summary-stat-error">' +
-        "⚠ " + incidentsTotal + " " + t("incidents") +
-        "</span>"
-      );
-    }
+    parts.push(
+      '<span class="proton-apps-summary-part' + zeroClass(cleanExits) + '">' +
+      '<span class="proton-apps-summary-symbol proton-apps-summary-cleanexit">⏹</span> ' +
+      '<span class="proton-apps-summary-num">' +
+      cleanExits +
+      "</span>" +
+      "</span>"
+    );
 
-    footer.innerHTML = parts.join("");
+    parts.push(
+      '<span class="proton-apps-summary-part' + zeroClass(restarts) + '">' +
+      '<span class="proton-apps-summary-symbol proton-apps-summary-restart">⟳</span> ' +
+      '<span class="proton-apps-summary-num">' +
+      restarts +
+      "</span>" +
+      "</span>"
+    );
+
+    footer.innerHTML = parts.join(
+      '<span class="proton-apps-summary-sep"> · </span>'
+    );
   }
 
   function stop() {

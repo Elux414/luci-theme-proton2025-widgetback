@@ -972,6 +972,31 @@
         "</span>" +
         "</div>";
     }
+	
+	// === Раздел 2: Сводка ===
+    html += '<div class="proton-events-legend-title proton-events-legend-title-split">' +
+        escapeHtml(t("Summary")) +
+        "</div>";
+
+    const summaryRows = [
+        { symbol: "●", cls: "proton-events-legend-symbol-running", label: t("Running now") },
+        { symbol: "⚠", cls: "proton-events-legend-symbol-warn",    label: t("Incidents") },
+        { symbol: "⏸", cls: "proton-events-legend-symbol-userstop", label: t("Stopped by user") },
+        { symbol: "⏹", cls: "proton-events-legend-symbol-cleanexit",label: t("Clean exits") },
+        { symbol: "⟳", cls: "proton-events-legend-symbol-restart",  label: t("Restarts") },
+    ];
+
+    for (const row of summaryRows) {
+        html +=
+            '<div class="proton-events-legend-row proton-events-legend-row-summary">' +
+            '<span class="proton-events-legend-symbol ' + row.cls + '">' +
+            escapeHtml(row.symbol) +
+            "</span>" +
+            '<span class="proton-events-legend-desc proton-events-legend-desc-summary">' +
+            escapeHtml(row.label) +
+            "</span>" +
+            "</div>";
+    }
 
     popup.innerHTML = html;
 

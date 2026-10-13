@@ -15190,6 +15190,57 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
     min-width: 0;
 }
 
+/* Второй раздел легенды — Сводка */
+.proton-events-legend-title-split {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--proton-border-light);
+    margin-bottom: 6px;
+}
+
+.proton-events-legend-row-summary {
+    grid-template-columns: 20px 1fr;
+    gap: 8px;
+}
+
+.proton-events-legend-symbol {
+    display: inline-block;
+    font-size: 1em;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Цвета совпадают с символами в сводке footer'а */
+.proton-events-legend-symbol-running {
+    color: #34d399;
+}
+
+.proton-events-legend-symbol-warn {
+    color: #f97316;
+}
+
+.proton-events-legend-symbol-userstop {
+    color: #a78bfa;
+}
+
+.proton-events-legend-symbol-cleanexit {
+    color: #6c7a89;
+}
+
+.proton-events-legend-symbol-restart {
+    color: #5e9eff;
+}
+
+.proton-events-legend-desc-summary {
+    /* вторая колонка — на всю ширину, без обрезки */
+    color: var(--proton-text-secondary);
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+}
+
 /* Легенда не должна мешать overflow:hidden у контейнера таймлайна */
 .proton-apps-events-timeline {
     overflow: visible;
@@ -15235,7 +15286,7 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 }
 
 .proton-apps-event-details-header {
-    font-size: 0.72rem;
+    font-size: 0.80rem;
     font-weight: 600;
     color: var(--proton-text-secondary);
     letter-spacing: 0.02em;
@@ -15352,7 +15403,7 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
     flex-wrap: wrap;
     gap: 12px;
     margin-top: 8px;
-    font-size: 0.78rem;
+    font-size: 0.98rem;
     color: var(--proton-text-secondary);
 }
 
@@ -15382,6 +15433,58 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 .proton-apps-summary-dot.running {
     background: #34d399;
     box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.15);
+}
+
+/* Сводка: ● 8/9 · ⚠ 2 · ⏸ 1 · ⏹ 2 · ⟳ 3 */
+.proton-apps-summary-part {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    white-space: nowrap;
+    transition: opacity 0.2s ease;
+}
+
+.proton-apps-summary-part.is-zero {
+    opacity: 0.4;
+}
+
+.proton-apps-summary-symbol {
+    display: inline-block;
+    font-size: 1.05em;
+    font-weight: 700;
+    line-height: 1;
+    /* Тонкие глифы сливаются с фоном без жирности. */
+    -webkit-font-smoothing: antialiased;
+}
+
+.proton-apps-summary-num {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+.proton-apps-summary-sep {
+    opacity: 0.4;
+    margin: 0 2px;
+}
+
+/* Инциденты — оранжевый (на тёмной и светлой темах различим) */
+.proton-apps-summary-warn {
+    color: #f97316;
+}
+
+/* User-stop — фиолетовый, не пересекается ни с чем */
+.proton-apps-summary-userstop {
+    color: #a78bfa;
+}
+
+/* Clean-exit — серо-синий, нейтральный */
+.proton-apps-summary-cleanexit {
+    color: #6c7a89;
+}
+
+/* Restart — голубой акцент */
+.proton-apps-summary-restart {
+    color: #5e9eff;
 }
 
 /* Light theme */
