@@ -1,0 +1,973 @@
+// Proton2025 Theme - L7 Health Check RPC Module
+// Copyright 2025-2026 ChesterGoodiny
+// Licensed under the Apache License, Version 2.0
+// See LICENSE and NOTICE for details.
+//
+// Синхронные L7-проверки сервисов по настраиваемым методам.
+// Требования: busybox + ubus + sh (ash).
+// Опционально: curl (для http / proxy_socks5 / proxy_http),
+//              wg из wireguard-tools (для wireguard),
+//              ping (для tunnel_ping, обычно busybox).
+// busybox `timeout` НЕ используется — в базовой сборке его нет.
+// Для custom применён собственный таймаут через фоновой watcher + kill.
+
+'use strict';
+
+import { popen, readfile } from 'fs';
+import { cursor } from 'uci';
+
+// --- Константы --------------------------------------------------------------
+
+const UCI_CONFIG = 'proton2025';
+const UCI_SECTION_SETTINGS = 'settings';
+const UCI_SECTION_HC = 'health_check';
+const LOGGER_TAG = 'proton-healthcheck';
+
+const VALID_METHODS = [
+	'dns',
+	'http',
+	'local_port',
+	'proxy_socks5',
+	'proxy_http',
+	'wireguard',
+	'tunnel_ping',
+	'custom'
+];
+
+// Все возможные поля target по методам. Используется для валидации.
+const METHOD_FIELDS = {
+	dns:          ['host', 'server', 'timeout'],
+	http:         ['url', 'expected_code', 'timeout'],
+	local_port:   ['port', 'proto', 'addr'],
+	proxy_socks5: ['url', 'proxy_port', 'expected_code', 'timeout'],
+	proxy_http:   ['url', 'proxy_port', 'expected_code', 'timeout'],
+	wireguard:    ['iface', 'max_age_sec'],
+	tunnel_ping:  ['iface', 'host', 'timeout'],
+	custom:       ['command', 'timeout']
+};
+
+// Дефолты для per-service полей.
+const METHOD_DEFAULTS = {
+	dns:          { server: '127.0.0.1', timeout: 5 },
+	http:         { expected_code: 200, timeout: 5 },
+	local_port:   { proto: 'tcp', addr: 'any' },
+	proxy_socks5: { proxy_port: 1080, expected_code: 200, timeout: 5 },
+	proxy_http:   { proxy_port: 8080, expected_code: 200, timeout: 5 },
+	wireguard:    { max_age_sec: 180 },
+	tunnel_ping:  { timeout: 5 },
+	custom:       { timeout: 5 }
+};
+
+const MAX_TIMEOUT = 30;
+const MAX_MAX_AGE_SEC = 3600;
+const MAX_CODE = 599;
+const MAX_STR_LEN = 255;
+
+const SERVICE_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+// --- Хелперы ----------------------------------------------------------------
+
+function trimSafe(value) {
+	if (value == null) return '';
+	return trim('' + value);
+}
+
+// Строгий allowlist для host/iface/server.
+// ВАЖНО: дефис внутри символьного класса должен стоять ПЕРВЫМ или ПОСЛЕДНИМ.
+// Экранирование \- в ucode-regex не работает — движок выдаёт
+// "Invalid character range" при компиляции.
+function isSafeToken(value) {
+	if (value == null || type(value) != 'string') return false;
+	if (length(value) == 0 || length(value) > MAX_STR_LEN) return false;
+	return match(value, /^[-A-Za-z0-9._/:@?=+%]+$/) != null;
+}
+
+function isSafeHost(value) {
+	if (!isSafeToken(value)) return false;
+	if (substr(value, 0, 1) == '-') return false;
+	return true;
+}
+
+function isSafeUrl(value) {
+	if (value == null || type(value) != 'string') return false;
+	if (length(value) == 0 || length(value) > MAX_STR_LEN) return false;
+	return match(value, /^https?:\/\/[-A-Za-z0-9._/:@?=+%&~#]+$/) != null;
+}
+
+function isSafeIface(value) {
+	if (!isSafeToken(value)) return false;
+	if (substr(value, 0, 1) == '-') return false;
+	return true;
+}
+
+function isSafePort(value) {
+	let p = +value;
+	if (p != p) return false;
+	if (p < 1 || p > 65535) return false;
+	return p == int(p);
+}
+
+function isSafeTimeout(value) {
+	let t = +value;
+	if (t != t) return false;
+	if (t < 1 || t > MAX_TIMEOUT) return false;
+	return t == int(t);
+}
+
+function isSafeExpectedCode(value) {
+	let c = +value;
+	if (c != c) return false;
+	if (c < 100 || c > MAX_CODE) return false;
+	return c == int(c);
+}
+
+function isSafeMaxAge(value) {
+	let m = +value;
+	if (m != m) return false;
+	if (m < 1 || m > MAX_MAX_AGE_SEC) return false;
+	return m == int(m);
+}
+
+function isSafeCustomCommand(value) {
+	if (value == null || type(value) != 'string') return false;
+	if (length(value) == 0 || length(value) > 1024) return false;
+	if (index(value, '\n') >= 0) return false;
+	if (index(value, '\r') >= 0) return false;
+	if (index(value, "\x00") >= 0) return false;
+	return true;
+}
+
+// --- Probe утилит -----------------------------------------------------------
+//
+// Один раз за сессию rpcd. Кэш в глобальной переменной модуля.
+
+let _probeCache = null;
+
+function hasCommand(name) {
+	let h = popen('command -v ' + name + ' 2>/dev/null', 'r');
+	if (!h) return false;
+	let out = trim(h.read('all') ?? '');
+	h.close();
+	return length(out) > 0;
+}
+
+function probeCapabilities() {
+	if (_probeCache != null) return _probeCache;
+
+	let cap = {
+		dns: false,
+		http: false,
+		http_backend: '',
+		local_port: true,   // всегда доступно — читаем /proc/net/tcp
+		proxy_socks5: false,
+		proxy_http: false,
+		wireguard: false,
+		tunnel_ping: false,
+		custom: true
+	};
+
+	// DNS: busybox nslookup.
+	cap.dns = hasCommand('nslookup');
+
+	// HTTP / proxy: только curl. uclient-fetch и wget не дают код ответа,
+	// поэтому их использовать для проверки нельзя.
+	if (hasCommand('curl')) {
+		cap.http = true;
+		cap.http_backend = 'curl';
+		cap.proxy_socks5 = true;
+		cap.proxy_http = true;
+	}
+
+	// WireGuard: wg ставится с wireguard-tools.
+	cap.wireguard = hasCommand('wg');
+
+	// Tunnel ping: ping есть всегда (busybox).
+	cap.tunnel_ping = hasCommand('ping');
+
+	_probeCache = cap;
+	return cap;
+}
+
+// --- UCI helpers ------------------------------------------------------------
+
+function getGlobalConfig() {
+	let uci = cursor();
+	uci.load(UCI_CONFIG);
+
+	let enabled = uci.get(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_enabled') ?? '0';
+	let interval = uci.get(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_interval') ?? '60';
+	let timeout = uci.get(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_timeout') ?? '5';
+	let threshold = uci.get(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_failures_threshold') ?? '2';
+	let logSyslog = uci.get(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_log_to_syslog') ?? '1';
+
+	return {
+		enabled: enabled == '1',
+		interval: +interval || 60,
+		timeout: +timeout || 5,
+		failures_threshold: +threshold || 2,
+		log_to_syslog: logSyslog == '1'
+	};
+}
+
+function readHealthCheckSections() {
+	let uci = cursor();
+	uci.load(UCI_CONFIG);
+
+	let out = [];
+	uci.foreach(UCI_CONFIG, UCI_SECTION_HC, function(s) {
+		let name = s['.name'];
+		if (!match(name, SERVICE_NAME_RE)) return;
+		push(out, {
+			name: name,
+			enabled: (s.enabled ?? '0') == '1',
+			method: s.method ?? '',
+			fields: s
+		});
+	});
+	return out;
+}
+
+function getServiceConfig(service) {
+	if (match(service, SERVICE_NAME_RE) == null) return null;
+
+	let uci = cursor();
+	uci.load(UCI_CONFIG);
+
+	// uci.get(cfg, section) без option возвращает не объект-секции.
+	// Читаем через foreach, как в readHealthCheckSections.
+	let found = null;
+	uci.foreach(UCI_CONFIG, UCI_SECTION_HC, function(s) {
+		if (s == null || type(s) != 'object') return;
+		if (s['.name'] != service) return;
+
+		found = {
+			name: service,
+			enabled: (s.enabled ?? '0') == '1',
+			method: s.method ?? '',
+			fields: s
+		};
+	});
+
+	if (found == null) return null;
+
+	if (index(VALID_METHODS, found.method) < 0) found.method = '';
+
+	return found;
+}
+
+// --- Runner: DNS ------------------------------------------------------------
+//
+// nslookup <host> <server> — busybox-версия. Внешний таймаут не применяется,
+// nslookup завершается сам по системному resolv timeout.
+
+function runDns(fields, timeout) {
+	let host = trimSafe(fields.host);
+	let server = trimSafe(fields.server) || '127.0.0.1';
+
+	if (!isSafeHost(host)) {
+		return { ok: false, error: 'invalid host', details: 'host is not a valid DNS name' };
+	}
+	if (!isSafeHost(server)) {
+		return { ok: false, error: 'invalid server', details: 'server is not a valid host' };
+	}
+
+	let cmd = 'nslookup ' + host + ' ' + server + ' 2>&1';
+	let h = popen(cmd, 'r');
+	if (!h) {
+		return { ok: false, error: 'popen failed', details: '' };
+	}
+
+	let out = h.read('all') ?? '';
+	let exitCode = h.close();
+
+	if (exitCode != 0) {
+		let oneLine = replace(trim(out), /\s+/g, ' ');
+		if (length(oneLine) > 160) oneLine = substr(oneLine, 0, 157) + '...';
+		return {
+			ok: false,
+			error: 'dns lookup failed',
+			details: oneLine || ('exit ' + exitCode)
+		};
+	}
+
+	if (index(out, "can't resolve") >= 0) {
+		return { ok: false, error: 'dns lookup failed', details: "can't resolve " + host };
+	}
+
+	if (match(out, /Address:\s*[0-9a-fA-F]/) == null) {
+		return { ok: false, error: 'dns empty answer', details: 'no address in response' };
+	}
+
+	return { ok: true, details: host + ' → ok' };
+}
+
+// --- Runner: HTTP -----------------------------------------------------------
+//
+// Только curl. --max-time задаёт жёсткий таймаут.
+// -w "%{http_code}" печатает код ответа в stdout (независимо от тела).
+
+function runHttp(fields, timeout) {
+	let url = trimSafe(fields.url);
+	let expected = +fields.expected_code;
+	if (!isSafeExpectedCode(expected)) expected = 200;
+
+	if (!isSafeUrl(url)) {
+		return { ok: false, error: 'invalid url', details: url };
+	}
+	if (!isSafeTimeout(timeout)) {
+		return { ok: false, error: 'invalid timeout', details: '' };
+	}
+
+	let cmd = 'curl -s -o /dev/null -w "%{http_code}" --max-time ' + timeout + ' ' + url + ' 2>/dev/null';
+
+	let h = popen(cmd, 'r');
+	if (!h) {
+		return { ok: false, error: 'popen failed', details: '' };
+	}
+
+	let out = trim(h.read('all') ?? '');
+	let exitCode = h.close();
+
+	let code = +out;
+	if (code != code || code == 0) {
+		return { ok: false, error: 'http request failed', details: 'exit ' + exitCode };
+	}
+
+	if (code != expected) {
+		return { ok: false, error: 'unexpected http code', details: 'got ' + code + ', expected ' + expected };
+	}
+
+	return { ok: true, details: 'HTTP ' + code };
+}
+
+// --- Runner: local_port -----------------------------------------------------
+//
+// Проверяет, открыт ли локальный TCP-порт, читая /proc/net/tcp (и tcp6).
+//
+// Формат строки:
+//   sl  local_address rem_address   st tx_queue:rx_queue  ...
+//   0:  0100007F:1F90 00000000:0000 0A ...
+//
+// local_address: <hex-ip>:<hex-port>. 0100007F = 127.0.0.1 (little-endian).
+// st == 0A (LISTEN) — порт слушается.
+
+function hexCharToInt(c) {
+	if (c == null || length(c) == 0) return -1;
+	if (c >= '0' && c <= '9') return ord(c) - 48;
+	if (c >= 'a' && c <= 'f') return ord(c) - 87;
+	if (c >= 'A' && c <= 'F') return ord(c) - 55;
+	return -1;
+}
+
+function parseHexPort(hexStr) {
+	let s = trimSafe(hexStr);
+	if (length(s) == 0) return -1;
+	let p = 0;
+	for (let i = 0; i < length(s); i++) {
+		let v = hexCharToInt(substr(s, i, 1));
+		if (v < 0) return -1;
+		p = p * 16 + v;
+	}
+	return p;
+}
+
+function checkProcNet(path, targetPort, onlyLocalhost) {
+	let content = readfile(path);
+	if (content == null || length(content) == 0) return false;
+
+	let lines = split(content, '\n');
+	for (let i = 1; i < length(lines); i++) {
+		let line = trim(lines[i]);
+		if (length(line) == 0) continue;
+
+		let normalized = replace(line, /\t/g, ' ');
+		while (index(normalized, '  ') >= 0)
+			normalized = replace(normalized, /  /g, ' ');
+
+		let parts = split(normalized, ' ');
+		if (length(parts) < 4) continue;
+
+		let localAddr = parts[1];
+		let st = parts[3];
+
+		if (lc(st) != '0a') continue;
+
+		let colon = index(localAddr, ':');
+		if (colon < 0) continue;
+
+		let hexAddr = substr(localAddr, 0, colon);
+		let hexPort = substr(localAddr, colon + 1);
+
+		let port = parseHexPort(hexPort);
+		if (port != targetPort) continue;
+
+		if (onlyLocalhost) {
+			if (hexAddr != '0100007F' && hexAddr != '00000000000000000000000001000000')
+				continue;
+		}
+
+		return true;
+	}
+	return false;
+}
+
+function runLocalPort(fields) {
+	try {
+		let port = +fields.port;
+		if (!isSafePort(port)) {
+			return { ok: false, error: 'invalid port', details: '' + fields.port };
+		}
+
+		let proto = trimSafe(fields.proto) || 'tcp';
+		if (proto != 'tcp' && proto != 'udp') {
+			return { ok: false, error: 'invalid proto', details: proto };
+		}
+
+		let addr = trimSafe(fields.addr) || 'any';
+		if (addr != 'any' && addr != 'localhost') {
+			return { ok: false, error: 'invalid addr', details: addr };
+		}
+
+		if (proto == 'udp') {
+			return { ok: false, error: 'not implemented', details: 'udp check not implemented yet' };
+		}
+
+		let onlyLocalhost = (addr == 'localhost');
+
+		if (checkProcNet('/proc/net/tcp', port, onlyLocalhost)) {
+			return { ok: true, details: port + '/' + proto + ' listening on ' + addr };
+		}
+		if (checkProcNet('/proc/net/tcp6', port, onlyLocalhost)) {
+			return { ok: true, details: port + '/' + proto + ' listening on ' + addr };
+		}
+
+		return {
+			ok: false,
+			error: 'port not listening',
+			details: port + '/' + proto + ' not found in /proc/net/tcp'
+		};
+	} catch (e) {
+		return { ok: false, error: 'local_port exception', details: (e?.message ?? '' + e) };
+	}
+}
+
+// --- Runner: Proxy SOCKS5 / HTTP --------------------------------------------
+//
+// Только если установлен curl.
+
+function runProxy(fields, timeout, scheme) {
+	let url = trimSafe(fields.url);
+	let proxyPort = +fields.proxy_port;
+	let expected = +fields.expected_code;
+	if (!isSafeExpectedCode(expected)) expected = 200;
+
+	if (!isSafeUrl(url)) {
+		return { ok: false, error: 'invalid url', details: url };
+	}
+	if (!isSafePort(proxyPort)) {
+		return { ok: false, error: 'invalid proxy port', details: '' + fields.proxy_port };
+	}
+	if (!isSafeTimeout(timeout)) {
+		return { ok: false, error: 'invalid timeout', details: '' };
+	}
+
+	let proxyUrl = scheme + '://127.0.0.1:' + proxyPort;
+	let cmd = 'curl -s -o /dev/null -w "%{http_code}" -x ' + proxyUrl + ' --max-time ' + timeout + ' ' + url + ' 2>/dev/null';
+
+	let h = popen(cmd, 'r');
+	if (!h) {
+		return { ok: false, error: 'popen failed', details: '' };
+	}
+
+	let out = trim(h.read('all') ?? '');
+	let exitCode = h.close();
+
+	let code = +out;
+	if (code != code || code == 0) {
+		return { ok: false, error: 'proxy request failed', details: 'exit ' + exitCode };
+	}
+
+	if (code != expected) {
+		return { ok: false, error: 'unexpected http code via proxy', details: 'got ' + code + ', expected ' + expected };
+	}
+
+	return { ok: true, details: scheme + ' ' + code };
+}
+
+// --- Runner: WireGuard ------------------------------------------------------
+//
+// wg show <iface> latest-handshakes
+// Формат: <peer-pubkey>\t<unix-timestamp>
+
+function runWireguard(fields) {
+	let iface = trimSafe(fields.iface);
+	let maxAge = +fields.max_age_sec;
+	if (!isSafeMaxAge(maxAge)) maxAge = 180;
+
+	if (!isSafeIface(iface)) {
+		return { ok: false, error: 'invalid iface', details: iface };
+	}
+
+	let cmd = 'wg show ' + iface + ' latest-handshakes 2>&1';
+	let h = popen(cmd, 'r');
+	if (!h) {
+		return { ok: false, error: 'popen failed', details: '' };
+	}
+
+	let out = h.read('all') ?? '';
+	let exitCode = h.close();
+
+	if (exitCode != 0) {
+		let oneLine = replace(trim(out), /\s+/g, ' ');
+		if (length(oneLine) > 160) oneLine = substr(oneLine, 0, 157) + '...';
+		return { ok: false, error: 'wg show failed', details: oneLine || ('exit ' + exitCode) };
+	}
+
+	let now = time();
+	let maxTs = 0;
+	for (let line in split(out, '\n')) {
+		let t = trim(line);
+		if (!length(t)) continue;
+		let parts = split(t, /[ \t]+/);
+		if (length(parts) < 2) continue;
+		let ts = +parts[1];
+		if (ts != ts) continue;
+		if (ts > maxTs) maxTs = ts;
+	}
+
+	if (maxTs == 0) {
+		return { ok: false, error: 'no handshakes', details: 'no peers with handshakes on ' + iface };
+	}
+
+	let age = now - maxTs;
+	if (age > maxAge) {
+		return { ok: false, error: 'stale handshake', details: 'last handshake ' + age + 's ago (max ' + maxAge + 's)' };
+	}
+
+	return { ok: true, details: 'handshake ' + age + 's ago on ' + iface };
+}
+
+// --- Runner: Tunnel ping ----------------------------------------------------
+
+function runTunnelPing(fields, timeout) {
+	let iface = trimSafe(fields.iface);
+	let host = trimSafe(fields.host);
+
+	if (!isSafeIface(iface)) {
+		return { ok: false, error: 'invalid iface', details: iface };
+	}
+	if (!isSafeHost(host)) {
+		return { ok: false, error: 'invalid host', details: host };
+	}
+	if (!isSafeTimeout(timeout)) {
+		return { ok: false, error: 'invalid timeout', details: '' };
+	}
+
+	let cmd = 'ping -c 1 -W ' + timeout + ' -I ' + iface + ' ' + host + ' 2>&1';
+	let h = popen(cmd, 'r');
+	if (!h) {
+		return { ok: false, error: 'popen failed', details: '' };
+	}
+
+	let out = h.read('all') ?? '';
+	let exitCode = h.close();
+
+	if (exitCode == 0) {
+		return { ok: true, details: 'ping via ' + iface + ' ok' };
+	}
+
+	let oneLine = replace(trim(out), /\s+/g, ' ');
+	if (length(oneLine) > 160) oneLine = substr(oneLine, 0, 157) + '...';
+	return { ok: false, error: 'ping failed', details: oneLine || ('exit ' + exitCode) };
+}
+
+// --- Runner: Custom ---------------------------------------------------------
+//
+// Реализуем таймаут вручную через фоновой watcher + kill.
+// busybox `timeout` в базовой сборке отсутствует.
+//
+// Логика:
+//   1. Запускаем CMD в фоне, получаем PID.
+//   2. Запускаем watcher: спит N секунд, потом kill -9 PID. Watcher
+//      перенаправлен в /dev/null, чтобы не держать родительские fd
+//      и не задерживать завершение sh.
+//   3. wait PID — ждём завершения CMD (либо оно само, либо его убил watcher).
+//   4. kill WATCHER — если CMD завершился раньше, watcher уже не нужен.
+//   5. exit RC — пробрасываем код возврата CMD.
+
+function runCustom(fields, timeout) {
+	let command = trimSafe(fields.command);
+	if (!isSafeCustomCommand(command)) {
+		return { ok: false, error: 'invalid command', details: '' };
+	}
+	if (!isSafeTimeout(timeout)) {
+		return { ok: false, error: 'invalid timeout', details: '' };
+	}
+
+	// Экранируем одинарные кавычки для вставки в sh -c '...'.
+	let escaped = replace(command, /'/g, "'\\''");
+
+	let inner = "( " + escaped + " ) 2>&1 & PID=$!; ( sleep " + timeout + "; kill -9 $PID ) >/dev/null 2>&1 & WATCHER=$!; wait $PID; RC=$?; kill $WATCHER >/dev/null 2>&1; exit $RC";
+	let cmd = "sh -c '" + replace(inner, /'/g, "'\\''") + "' 2>&1";
+
+	let h = popen(cmd, 'r');
+	if (!h) {
+		return { ok: false, error: 'popen failed', details: '' };
+	}
+
+	let out = h.read('all') ?? '';
+	let exitCode = h.close();
+
+	if (exitCode == 0) {
+		return { ok: true, details: 'custom ok' };
+	}
+
+	let oneLine = replace(trim(out), /\s+/g, ' ');
+	if (length(oneLine) > 160) oneLine = substr(oneLine, 0, 157) + '...';
+	return { ok: false, error: 'custom failed', details: oneLine || ('exit ' + exitCode) };
+}
+
+// --- Диспетчер методов ------------------------------------------------------
+
+function dispatchMethod(method, fields, timeout) {
+	try {
+		let cap = probeCapabilities();
+
+		if (method == 'dns') {
+			if (!cap.dns) return { ok: false, error: 'unavailable', details: 'nslookup not found' };
+			return runDns(fields, timeout);
+		}
+		if (method == 'http') {
+			if (!cap.http) return { ok: false, error: 'unavailable', details: 'curl not installed' };
+			return runHttp(fields, timeout);
+		}
+		if (method == 'local_port') {
+			return runLocalPort(fields);
+		}
+		if (method == 'proxy_socks5') {
+			if (!cap.proxy_socks5) return { ok: false, error: 'unavailable', details: 'curl not installed' };
+			return runProxy(fields, timeout, 'socks5');
+		}
+		if (method == 'proxy_http') {
+			if (!cap.proxy_http) return { ok: false, error: 'unavailable', details: 'curl not installed' };
+			return runProxy(fields, timeout, 'http');
+		}
+		if (method == 'wireguard') {
+			if (!cap.wireguard) return { ok: false, error: 'unavailable', details: 'wg not found' };
+			return runWireguard(fields);
+		}
+		if (method == 'tunnel_ping') {
+			if (!cap.tunnel_ping) return { ok: false, error: 'unavailable', details: 'ping not found' };
+			return runTunnelPing(fields, timeout);
+		}
+		if (method == 'custom') {
+			return runCustom(fields, timeout);
+		}
+
+		return { ok: false, error: 'unknown method', details: method };
+	} catch (e) {
+		return { ok: false, error: 'dispatch exception', details: (e?.message ?? '' + e) };
+	}
+}
+
+// --- Logger -----------------------------------------------------------------
+
+function logHealthCheck(service, message) {
+	let safe = replace(message, /['\\]/g, '');
+	let cmd = 'logger -t ' + LOGGER_TAG + " '" + service + ': ' + safe + "' 2>/dev/null";
+	let h = popen(cmd, 'r');
+	if (h) h.close();
+}
+
+// --- Валидация входных данных setService -----------------------------------
+
+function validateServiceFields(method, input) {
+	if (index(VALID_METHODS, method) < 0) {
+		return { ok: false, error: 'invalid method: ' + method };
+	}
+
+	let allowed = METHOD_FIELDS[method] || [];
+	let defaults = METHOD_DEFAULTS[method] || {};
+	let fields = {};
+
+	for (let key in allowed) {
+		let v = input[key];
+		if (v == null || v == '') v = defaults[key];
+		if (v == null) v = '';
+		fields[key] = '' + v;
+	}
+
+	if (method == 'dns') {
+		if (!isSafeHost(fields.host)) return { ok: false, error: 'invalid host' };
+		if (!isSafeHost(fields.server)) return { ok: false, error: 'invalid server' };
+		if (!isSafeTimeout(fields.timeout)) return { ok: false, error: 'invalid timeout' };
+	} else if (method == 'http') {
+		if (!isSafeUrl(fields.url)) return { ok: false, error: 'invalid url' };
+		if (!isSafeExpectedCode(fields.expected_code)) return { ok: false, error: 'invalid expected_code' };
+		if (!isSafeTimeout(fields.timeout)) return { ok: false, error: 'invalid timeout' };
+	} else if (method == 'local_port') {
+		if (!isSafePort(fields.port)) return { ok: false, error: 'invalid port' };
+		if (fields.proto != 'tcp' && fields.proto != 'udp') return { ok: false, error: 'invalid proto' };
+		if (fields.addr != 'any' && fields.addr != 'localhost') return { ok: false, error: 'invalid addr' };
+	} else if (method == 'proxy_socks5' || method == 'proxy_http') {
+		if (!isSafeUrl(fields.url)) return { ok: false, error: 'invalid url' };
+		if (!isSafePort(fields.proxy_port)) return { ok: false, error: 'invalid proxy_port' };
+		if (!isSafeExpectedCode(fields.expected_code)) return { ok: false, error: 'invalid expected_code' };
+		if (!isSafeTimeout(fields.timeout)) return { ok: false, error: 'invalid timeout' };
+	} else if (method == 'wireguard') {
+		if (!isSafeIface(fields.iface)) return { ok: false, error: 'invalid iface' };
+		if (!isSafeMaxAge(fields.max_age_sec)) return { ok: false, error: 'invalid max_age_sec' };
+	} else if (method == 'tunnel_ping') {
+		if (!isSafeIface(fields.iface)) return { ok: false, error: 'invalid iface' };
+		if (!isSafeHost(fields.host)) return { ok: false, error: 'invalid host' };
+		if (!isSafeTimeout(fields.timeout)) return { ok: false, error: 'invalid timeout' };
+	} else if (method == 'custom') {
+		if (!isSafeCustomCommand(fields.command)) return { ok: false, error: 'invalid command' };
+		if (!isSafeTimeout(fields.timeout)) return { ok: false, error: 'invalid timeout' };
+	}
+
+	return { ok: true, fields: fields };
+}
+
+// --- Public RPC -------------------------------------------------------------
+
+function rpcGetMethods() {
+	let cap = probeCapabilities();
+	return {
+		success: true,
+		methods: [
+			{ id: 'dns',          available: cap.dns },
+			{ id: 'http',         available: cap.http },
+			{ id: 'local_port',   available: cap.local_port },
+			{ id: 'proxy_socks5', available: cap.proxy_socks5 },
+			{ id: 'proxy_http',   available: cap.proxy_http },
+			{ id: 'wireguard',    available: cap.wireguard },
+			{ id: 'tunnel_ping',  available: cap.tunnel_ping },
+			{ id: 'custom',       available: true }
+		]
+	};
+}
+
+function rpcGetConfig() {
+	let global = getGlobalConfig();
+	let sections = readHealthCheckSections();
+
+	let services = [];
+	for (let s in sections) {
+		let v = validateServiceFields(s.method, s.fields);
+		push(services, {
+			name: s.name,
+			enabled: s.enabled,
+			method: s.method,
+			fields: v.ok ? v.fields : {}
+		});
+	}
+
+	return {
+		success: true,
+		global: global,
+		services: services
+	};
+}
+
+function rpcSetGlobal(input) {
+	let uci = cursor();
+	uci.load(UCI_CONFIG);
+
+	if (!uci.get(UCI_CONFIG, UCI_SECTION_SETTINGS))
+		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'theme');
+
+	if (input.enabled != null) {
+		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_enabled',
+			input.enabled === true || input.enabled == '1' ? '1' : '0');
+	}
+	if (input.interval != null) {
+		let v = +input.interval;
+		if (v != v || v < 30 || v > 300) return { success: false, error: 'invalid interval' };
+		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_interval', '' + v);
+	}
+	if (input.timeout != null) {
+		let v = +input.timeout;
+		if (v != v || v < 2 || v > 10) return { success: false, error: 'invalid timeout' };
+		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_timeout', '' + v);
+	}
+	if (input.failures_threshold != null) {
+		let v = +input.failures_threshold;
+		if (v != v || v < 1 || v > 3) return { success: false, error: 'invalid failures_threshold' };
+		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_failures_threshold', '' + v);
+	}
+	if (input.log_to_syslog != null) {
+		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_log_to_syslog',
+			input.log_to_syslog === true || input.log_to_syslog == '1' ? '1' : '0');
+	}
+
+	uci.commit(UCI_CONFIG);
+	return { success: true, global: getGlobalConfig() };
+}
+
+function rpcSetService(input) {
+	try {
+		let name = trimSafe(input.name);
+		if (match(name, SERVICE_NAME_RE) == null) {
+			return { success: false, error: 'invalid service name' };
+		}
+
+		// config — JSON-строка со всеми остальными полями.
+		let config = input.config;
+		if (config == null || type(config) != 'string' || length(config) == 0) {
+			return { success: false, error: 'missing config' };
+		}
+
+		let parsed = null;
+		try {
+			parsed = json(config);
+		} catch (e) {
+			return { success: false, error: 'invalid config json' };
+		}
+		if (parsed == null || type(parsed) != 'object') {
+			return { success: false, error: 'config must be a json object' };
+		}
+
+		let method = trimSafe(parsed.method);
+		if (index(VALID_METHODS, method) < 0) {
+			return { success: false, error: 'invalid method: ' + method };
+		}
+
+		let enabled = input.enabled;
+		if (enabled == null && parsed.enabled != null) enabled = parsed.enabled;
+		let enabledBool = (enabled === true || enabled == '1' || enabled == 1 || enabled == 'true');
+
+		let v = validateServiceFields(method, parsed);
+		if (!v.ok) {
+			return { success: false, error: v.error };
+		}
+
+		let uci = cursor();
+		uci.load(UCI_CONFIG);
+
+		if (uci.get(UCI_CONFIG, name)) {
+			uci.delete(UCI_CONFIG, name);
+		}
+
+		uci.set(UCI_CONFIG, name, UCI_SECTION_HC);
+		uci.set(UCI_CONFIG, name, 'enabled', enabledBool ? '1' : '0');
+		uci.set(UCI_CONFIG, name, 'method', method);
+
+		for (let key, val in v.fields) {
+			if (length('' + val) == 0) continue;
+			uci.set(UCI_CONFIG, name, key, '' + val);
+		}
+
+		uci.commit(UCI_CONFIG);
+		return {
+			success: true,
+			service: {
+				name: name,
+				enabled: enabledBool,
+				method: method,
+				fields: v.fields
+			}
+		};
+	} catch (e) {
+		return { success: false, error: 'exception: ' + (e?.message ?? '' + e) };
+	}
+}
+
+function rpcClearService(name) {
+	try {
+		name = trimSafe(name);
+		if (match(name, SERVICE_NAME_RE) == null) {
+			return { success: false, error: 'invalid service name' };
+		}
+
+		let uci = cursor();
+		uci.load(UCI_CONFIG);
+
+		if (uci.get(UCI_CONFIG, name)) {
+			uci.delete(UCI_CONFIG, name);
+			uci.commit(UCI_CONFIG);
+		}
+
+		return { success: true };
+	} catch (e) {
+		return { success: false, error: 'exception: ' + (e?.message ?? '' + e) };
+	}
+}
+
+function rpcRunCheck(req) {
+	try {
+		let name = trimSafe(req.args?.name);
+		if (match(name, SERVICE_NAME_RE) == null) {
+			return { success: false, error: 'invalid service name' };
+		}
+
+		let cfg = getServiceConfig(name);
+		if (!cfg) {
+			return { success: false, error: 'no config for service ' + name };
+		}
+		if (!cfg.enabled) {
+			return { success: false, error: 'health check disabled for ' + name };
+		}
+		if (!cfg.method) {
+			return { success: false, error: 'no method configured' };
+		}
+
+		let global = getGlobalConfig();
+
+		let timeout = +cfg.fields.timeout;
+		if (timeout != timeout || timeout < 1 || timeout > MAX_TIMEOUT) timeout = global.timeout;
+
+		let startMs = time() * 1000;
+		let result = dispatchMethod(cfg.method, cfg.fields, timeout);
+		let elapsedMs = time() * 1000 - startMs;
+
+		let logged = false;
+		if (!result.ok && global.log_to_syslog) {
+			let msg = result.error || 'check failed';
+			if (result.details) msg += ' (' + result.details + ')';
+			logHealthCheck(name, msg);
+			logged = true;
+		}
+
+		return {
+			success: true,
+			ok: !!result.ok,
+			method: cfg.method,
+			details: result.details ?? '',
+			error: result.ok ? null : (result.error ?? 'unknown'),
+			elapsed_ms: elapsedMs,
+			logged: logged
+		};
+	} catch (e) {
+		return { success: false, error: 'exception: ' + (e?.message ?? '' + e) };
+	}
+}
+
+// --- RPC export -------------------------------------------------------------
+
+const methods = {
+	getMethods: {
+		call: function() { return rpcGetMethods(); }
+	},
+	getConfig: {
+		call: function() { return rpcGetConfig(); }
+	},
+	setGlobal: {
+		args: { enabled: '', interval: '', timeout: '', failures_threshold: '', log_to_syslog: '' },
+		call: function(req) { return rpcSetGlobal(req.args ?? {}); }
+	},
+	setService: {
+		args: { name: '', enabled: '', config: '' },
+		call: function(req) { return rpcSetService(req.args ?? {}); }
+	},
+	clearService: {
+		args: { name: '' },
+		call: function(req) { return rpcClearService(req.args?.name ?? ''); }
+	},
+	runCheck: {
+		args: { name: '' },
+		call: function(req) { return rpcRunCheck(req); }
+	}
+};
+
+return { 'luci.proton-healthcheck': methods };

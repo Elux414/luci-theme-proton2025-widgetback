@@ -26,6 +26,11 @@
                     "getVersion",
                     "checkUpdate"
                 ],
+				"luci.proton-healthcheck": [
+					"getMethods",
+					"getConfig",
+					"runCheck"
+				],
                 "system": [
                     "board",
                     "info"
@@ -103,6 +108,11 @@
                     "saveCache",
                     "clearCache"
                 ],
+				"luci.proton-healthcheck": [
+					"setGlobal",
+					"setService",
+					"clearService"
+				],
                 "rc": [
                     "init"
                 ],
