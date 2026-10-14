@@ -677,6 +677,8 @@ window.ProtonTranslations = {
   "Silent death": "Stiller Ausfall",
   "Unknown": "Unbekannt",
   "Restart": "Neustart",
+  "Health restored": "Healthcheck wiederhergestellt",
   "User stopped": "Vom Benutzer gestoppt",
   "Clean exit": "Sauberes Beenden",
+  "Recoveries": "Wiederherstellungen",
 };

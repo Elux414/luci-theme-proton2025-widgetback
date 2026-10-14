@@ -129,12 +129,29 @@
       this._rcListAll = null;
 	  this._rpcAnalyzeStopReason = null;
 	  this._rpcAppendEvent = null;
-      // Для истории: предыдущий PID каждого сервиса (для детекта рестарта)
+            // Для истории: предыдущий PID каждого сервиса (для детекта рестарта)
       this._prevPid = new Map();
       // Флаг, что история инициализирована
       this._historyReady = false;
       this._historyPollTimer = null;
       this._historySampleInterval = 10;
+
+      // === L7 Health Check ===
+      // Конфиг из luci.proton-healthcheck: { global, services: {name: {...}} }
+      this._l7Config = { global: null, services: new Map() };
+      this._l7ConfigReady = false;
+      // RPC-декларация для runCheck
+      this._rpcHealthCheck = null;
+            // Счётчик провалов подряд: service -> number
+      this._l7Failures = new Map();
+      // L7-статус: service -> 'ok' | 'fail' | undefined
+      this._l7StatusCache = new Map();
+      // Timestamp последнего L7-запуска: service -> ms
+      this._l7LastRun = new Map();
+      // Какие сервисы сейчас в работе (семафор внутри сервиса): Set
+      this._l7InFlight = new Set();
+      // Флаг, что цикл _runL7Cycle уже запущен — защита от наложения
+      this._l7CycleRunning = false;
 
       // Маппинг имён init-скриптов на имена процессов (для pidof fallback)
       this._processNameMap = {
@@ -265,6 +282,304 @@
         this._logInfo("History init failed", e);
         this._historyReady = false;
       }
+    }
+	
+	    // ==================== L7 Health Check ====================
+
+    _ensureHealthCheckRpc() {
+      if (!window.L || !L.rpc || typeof L.rpc.declare !== "function") return false;
+      if (this._rpcHealthCheck) return true;
+
+      try {
+        this._rpcHealthCheck = {
+          getConfig: L.rpc.declare({
+            object: "luci.proton-healthcheck",
+            method: "getConfig",
+            expect: { "": {} },
+          }),
+          runCheck: L.rpc.declare({
+            object: "luci.proton-healthcheck",
+            method: "runCheck",
+            params: ["name"],
+            expect: { "": {} },
+          }),
+        };
+        return true;
+      } catch (e) {
+        this._logDebug("Failed to declare healthcheck RPC", e);
+        return false;
+      }
+    }
+
+    async _initHealthCheck() {
+      if (!this._ensureHealthCheckRpc()) {
+        this._logDebug("HealthCheck RPC not available");
+        return;
+      }
+
+      try {
+        // Ждём синхронизации настроек (как в _initHistory), но с меньшим таймаутом.
+        await new Promise((resolve) => {
+          let done = false;
+          const finish = () => {
+            if (done) return;
+            done = true;
+            window.removeEventListener("proton-settings-synced", finish);
+            resolve();
+          };
+          window.addEventListener("proton-settings-synced", finish);
+          setTimeout(finish, 1000);
+        });
+
+        const res = await L.resolveDefault(this._rpcHealthCheck.getConfig(), null);
+        if (!res || !res.success) {
+          this._logInfo("HealthCheck getConfig failed", res);
+          return;
+        }
+
+        this._l7Config.global = res.global || null;
+        this._l7Config.services.clear();
+
+        const services = Array.isArray(res.services) ? res.services : [];
+        for (const svc of services) {
+          if (!svc || !svc.name) continue;
+          if (!this._isValidServiceName(svc.name)) continue;
+          this._l7Config.services.set(svc.name, {
+            enabled: svc.enabled === true,
+            method: svc.method || "",
+            fields: svc.fields || {},
+          });
+        }
+
+        this._l7ConfigReady = true;
+
+        this._logInfo("HealthCheck config loaded", {
+          globalEnabled: !!(this._l7Config.global && this._l7Config.global.enabled),
+          servicesCount: this._l7Config.services.size,
+        });
+
+        // Пересобираем UI-статус: если сервис уже health-failed в кэше — сбрасываем.
+        for (const [svcName, cfg] of this._l7Config.services) {
+          if (!cfg.enabled) {
+            this._l7Failures.delete(svcName);
+            this._l7LastRun.delete(svcName);
+          }
+        }
+      } catch (e) {
+        this._logInfo("HealthCheck init failed", e);
+        this._l7ConfigReady = false;
+      }
+    }
+
+    _isL7EnabledFor(serviceName) {
+      if (!this._l7ConfigReady) return false;
+      const g = this._l7Config.global;
+      if (!g || !g.enabled) return false;
+      const svc = this._l7Config.services.get(serviceName);
+      if (!svc || !svc.enabled) return false;
+      if (!svc.method) return false;
+      return true;
+    }
+
+    _l7IntervalMs() {
+      const g = this._l7Config.global;
+      const sec = g && Number.isFinite(g.interval) ? g.interval : 60;
+      return Math.max(30, sec) * 1000;
+    }
+
+    _l7Threshold() {
+      const g = this._l7Config.global;
+      const n = g && Number.isFinite(g.failures_threshold) ? g.failures_threshold : 2;
+      return Math.max(1, n);
+    }
+	
+	// Композитный статус: L1 + L7.
+    //   L1 !== 'running' → возвращаем L1 как есть.
+    //   L1 === 'running' и L7 = 'fail' → 'health-failed'.
+    //   Иначе → 'running'.
+    _composeStatus(serviceName) {
+      const l1 = this._statusCache.get(serviceName);
+      if (l1 !== "running") return l1;
+      const l7 = this._l7StatusCache.get(serviceName);
+      if (l7 === "fail") return "health-failed";
+      return "running";
+    }
+
+    // Fire-and-forget цикл: пробегаем по всем сервисам, у которых истёк
+    // интервал, и запускаем L7. Не более 2 параллельных проверок.
+    async _runL7Cycle() {
+      if (this._l7CycleRunning) return;
+      if (!this._l7ConfigReady) return;
+      if (!this._l7Config.global || !this._l7Config.global.enabled) return;
+      if (document.hidden) return;
+
+      this._l7CycleRunning = true;
+
+      try {
+        const now = Date.now();
+        const interval = this._l7IntervalMs();
+        const MAX_CONCURRENT = 2;
+
+        // Собираем очередь: сервисы, у которых истёк интервал,
+        // L7 включён, и которые сейчас не в работе.
+        const queue = [];
+        for (const serviceName of this.services) {
+          if (!this._isL7EnabledFor(serviceName)) continue;
+          if (this._l7InFlight.has(serviceName)) continue;
+
+          const lastRun = this._l7LastRun.get(serviceName) || 0;
+          if (now - lastRun < interval) continue;
+
+          // Проверяем, что сервис сейчас running (по кэшу).
+          // L7 работает только для running — см. ТЗ §6.4.
+          const status = this._statusCache.get(serviceName);
+          if (status !== "running" && status !== "health-failed") continue;
+
+          queue.push(serviceName);
+        }
+
+        if (queue.length === 0) return;
+
+        this._logDebug("L7 cycle: queue size", queue.length);
+
+        // Семафор: не более MAX_CONCURRENT параллельно.
+        const pending = [];
+        let active = 0;
+        let qi = 0;
+
+        await new Promise((resolveAll) => {
+          const next = () => {
+            while (active < MAX_CONCURRENT && qi < queue.length) {
+              const svc = queue[qi++];
+              active++;
+              const p = this._runL7ForService(svc)
+                .catch((e) => this._logDebug("L7 runner failed", svc, e))
+                .finally(() => {
+                  active--;
+                  if (qi >= queue.length && active === 0) {
+                    resolveAll();
+                  } else {
+                    next();
+                  }
+                });
+              pending.push(p);
+            }
+            if (queue.length === 0) resolveAll();
+          };
+          next();
+        });
+      } catch (e) {
+        this._logDebug("L7 cycle failed", e);
+      } finally {
+        this._l7CycleRunning = false;
+      }
+    }
+
+    // Одна L7-проверка. Обновляет счётчик провалов и, при превышении порога,
+    // переводит сервис в health-failed.
+    async _runL7ForService(serviceName) {
+      if (this._l7InFlight.has(serviceName)) return;
+      if (!this._ensureHealthCheckRpc()) return;
+      if (!this._isValidServiceName(serviceName)) return;
+
+      this._l7InFlight.add(serviceName);
+      this._l7LastRun.set(serviceName, Date.now());
+
+      try {
+        // L7 запускается только когда L1 = running.
+        const l1 = this._statusCache.get(serviceName);
+        if (l1 !== "running") {
+          return;
+        }
+
+        const res = await L.resolveDefault(
+          this._rpcHealthCheck.runCheck(serviceName),
+          null,
+        );
+
+        if (!res || !res.success) {
+          // RPC не смог отработать (нет конфига, отключено и т.п.).
+          this._logDebug("L7 runCheck error", serviceName, res);
+          return;
+        }
+
+        if (res.ok) {
+          // Успех.
+          const wasFail = this._l7StatusCache.get(serviceName) === "fail";
+          const prevFailures = this._l7Failures.get(serviceName) || 0;
+          this._l7Failures.set(serviceName, 0);
+          this._l7StatusCache.set(serviceName, "ok");
+
+          // Если сервис был health-failed и восстановился —
+          // обновляем UI, пишем точку running и событие health-recovery.
+          if (wasFail) {
+            const composite = this._composeStatus(serviceName);
+            this.updateServiceCard(serviceName, composite);
+            if (window.ProtonServicesHistory) {
+              const ts = Math.floor(Date.now() / 1000);
+              window.ProtonServicesHistory.appendServicePoint(serviceName, [ts, 1, 0, 0]);
+            }
+
+            // Собираем details по формату Q1 (A3): "<details> (after N failures)".
+            const resDet = (res && typeof res.details === "string") ? res.details.trim() : "";
+            let recDetails = resDet || "ok";
+            if (prevFailures > 0) {
+              recDetails += " (after " + prevFailures + " failures)";
+            }
+
+            await this._appendEvent(serviceName, "health-recovery", 0, recDetails);
+            this._logInfo("L7 recovery", serviceName, recDetails);
+          }
+          return;
+        }
+
+        // Провал L7.
+        const failures = (this._l7Failures.get(serviceName) || 0) + 1;
+        this._l7Failures.set(serviceName, failures);
+        const threshold = this._l7Threshold();
+
+        this._logDebug("L7 fail", serviceName, { failures, threshold, error: res.error });
+
+        if (failures < threshold) {
+          // Ещё не превысили порог — не меняем статус.
+          return;
+        }
+
+        // Порог превышен. Если L7 ещё не помечен как fail — фиксируем переход.
+        const wasAlreadyFailed = this._l7StatusCache.get(serviceName) === "fail";
+
+        this._l7StatusCache.set(serviceName, "fail");
+
+        if (wasAlreadyFailed) {
+          // Уже в health-failed — просто пишем новую точку.
+          this._appendHistoryPoint(serviceName, "health-failed", 0, res.error || "");
+          return;
+        }
+
+        // Переход running → health-failed.
+        this.updateServiceCard(serviceName, "health-failed");
+        this._appendHistoryPoint(serviceName, "health-failed", 0, res.error || "");
+
+        const details = this._formatL7Details(res);
+        await this._appendEvent(serviceName, "health-fail", 0, details);
+
+        this._logInfo("L7 → health-failed", serviceName, details);
+      } catch (e) {
+        this._logDebug("L7 runCheck exception", serviceName, e);
+      } finally {
+        this._l7InFlight.delete(serviceName);
+      }
+    }
+
+    _formatL7Details(res) {
+      // Формат: "error (details)" с fallback-цепочкой.
+      const err = (res && typeof res.error === "string") ? res.error.trim() : "";
+      const det = (res && typeof res.details === "string") ? res.details.trim() : "";
+
+      if (err && det) return err + " (" + det + ")";
+      if (err) return err;
+      if (det) return det;
+      return "health check failed";
     }
 
     escapeHtml(value) {
@@ -465,6 +780,9 @@
       // Сначала завершаем инициализацию истории, чтобы _historyReady
       // был установлен ДО того, как startStatusMonitoring проверит его.
       await this._initHistory();
+	  
+	  // L7-конфиг. Ошибки не критичны — L7 может быть выключен.
+      await this._initHealthCheck().catch(() => {});
 
       this.refreshAvailableServices()
       .then(() => {
@@ -1194,9 +1512,12 @@
       // (иначе на старте пишем running: 0, что портит график)
       if (this._statusCache.size === 0) return;
 
+      // Считаем running по композитному статусу.
+      // health-failed НЕ считается running (процесс жив, но не отвечает —
+      // это осознанно портит линию здоровья, чтобы пользователь заметил).
       let running = 0;
-      for (const st of this._statusCache.values()) {
-        if (st === "running") running++;
+      for (const serviceName of this.services) {
+        if (this._composeStatus(serviceName) === "running") running++;
       }
 
       // Если running = 0, а статусы ещё не все — тоже пропускаем
@@ -1529,16 +1850,20 @@
         let runCount = 0;
         let stopCount = 0;
         let missingCount = 0;
+        let healthFailCount = 0;
         let errCount = 0;
-        for (const st of this._statusCache.values()) {
+        for (const serviceName of this.services) {
+          const st = this._composeStatus(serviceName);
           if (st === "running") runCount++;
           else if (st === "stopped") stopCount++;
           else if (st === "not-installed") missingCount++;
+          else if (st === "health-failed") healthFailCount++;
           else errCount++;
         }
 
         let statsStr = `${runCount} up, ${stopCount} down`;
         if (missingCount > 0) statsStr += `, ${missingCount} n/a`;
+        if (healthFailCount > 0) statsStr += `, ${healthFailCount} h/f`;
         if (errCount > 0) statsStr += `, ${errCount} err`;
 
         this._appendUiLogLine(
@@ -1546,6 +1871,10 @@
         );
 
         this._appendHealthPoint();
+		
+		// L7 — fire-and-forget. Не ждём, потому что проверки могут
+        // занять до 5 сек × N. Семафор 2 внутри _runL7Cycle.
+        void this._runL7Cycle();
       }
     }
 
@@ -1569,60 +1898,75 @@
 
     async updateServiceStatus(serviceName) {
     try {
-        const prevStatus = this._statusCache.get(serviceName);
-        const newStatus = await this.checkServiceStatus(serviceName);
+        // prevComposite — это то, что видел UI в прошлый раз
+        // (учитывая уже известный L7-статус).
+        const prevComposite = this._composeStatus(serviceName);
 
-        const isTransition = prevStatus !== newStatus;
+        // Опрашиваем L1 (процесс жив/мёртв).
+        const newL1Status = await this.checkServiceStatus(serviceName);
+        const prevL1Status = this._statusCache.get(serviceName);
+
+        // Обновляем L1-кэш.
+        if (prevL1Status !== newL1Status) {
+            this._statusCache.set(serviceName, newL1Status);
+        }
+
+        // Пересчитываем композитный статус ПОСЛЕ обновления L1.
+        // Если L1 ушёл с 'running' — L7-статус больше не влияет
+        // (health-failed возможен только при L1 = running).
+        const newComposite = this._composeStatus(serviceName);
+
+        const isTransition = prevComposite !== newComposite;
 
         let hint = null;
         let details = "";
         let pidFromAnalysis = null;
 
-        if (isTransition && prevStatus === "running" && newStatus !== "running") {
-            // Реальный переход running → не-running.
-            const analysis = await this._analyzeTransition(serviceName);
-            hint = analysis.hint;
-            details = analysis.details;
-            pidFromAnalysis = analysis.pid;
+        if (isTransition) {
+            // Разбираем вид перехода.
 
-            if (analysis.type && analysis.type !== "running") {
-                await this._appendEvent(
-                    serviceName,
-                    analysis.type,
-                    hint,
-                    details
-                );
-            }
-        } else if (
-            isTransition &&
-            newStatus === "running" &&
-            prevStatus &&
-            prevStatus !== "running"
-        ) {
-            // Сервис вернулся в running.
-            if (window.ProtonServicesHistory) {
-                const action =
-                    window.ProtonServicesHistory.getUserAction(serviceName);
-                if (action) {
-                    window.ProtonServicesHistory.setUserAction(
-                        serviceName,
-                        null
-                    );
+            // Случай 1: реальное падение процесса (L1 был running, стал не-running).
+            if (prevComposite === "running" && newComposite !== "running"
+                && newComposite !== "health-failed") {
+                const analysis = await this._analyzeTransition(serviceName);
+                hint = analysis.hint;
+                details = analysis.details;
+                pidFromAnalysis = analysis.pid;
+
+                if (analysis.type && analysis.type !== "running") {
+                    await this._appendEvent(serviceName, analysis.type, hint, details);
                 }
             }
+            // Случай 2: реальное восстановление процесса (L1 был не-running, стал running).
+            // Сбрасываем user action, пишем событие restart.
+            else if (newComposite === "running" && prevL1Status && prevL1Status !== "running") {
+                if (window.ProtonServicesHistory) {
+                    const action = window.ProtonServicesHistory.getUserAction(serviceName);
+                    if (action) {
+                        window.ProtonServicesHistory.setUserAction(serviceName, null);
+                    }
+                }
+                hint = 1;
+                details = "service returned to running";
+                await this._appendEvent(serviceName, "restart", hint, details);
 
-            hint = 1;
-            details = "service returned to running";
-            await this._appendEvent(serviceName, "restart", hint, details);
+                // Новый процесс — сбрасываем L7-статус: пусть следующий
+                // цикл L7 заново определит здоровье.
+                this._l7StatusCache.delete(serviceName);
+                this._l7Failures.delete(serviceName);
+            }
+            // Случай 3: переход health-failed → running (L7 восстановился).
+            // Или running → health-failed (L7 провалился). Оба перехода
+            // уже обработаны в _runL7ForService — здесь просто фиксируем.
+            // Ничего не делаем.
         }
 
-        if (isTransition) {
-            this._statusCache.set(serviceName, newStatus);
-        }
-
+        // Определяем, что писать в историю.
+        // Если произошёл переход — пишем финальный статус с hint.
+        // Если перехода нет — пишем текущий композитный статус.
         this._appendHistoryPoint(
             serviceName,
-            newStatus,
+            newComposite,
             hint,
             details,
             pidFromAnalysis
@@ -1718,6 +2062,7 @@ async _appendEvent(serviceName, type, hint, details) {
     let statusCode = 2;
     if (status === "running") statusCode = 1;
     else if (status === "stopped" || status === "not-installed") statusCode = 0;
+    else if (status === "health-failed") statusCode = 3;
     else if (status === "error") statusCode = 2;
 
     if (hint == null) {
@@ -2007,6 +2352,7 @@ async _appendEvent(serviceName, type, hint, details) {
         running: this._t("Running"),
         stopped: this._t("Stopped"),
         "not-installed": this._t("Not installed"),
+        "health-failed": this._t("Health check failed"),
         error: this._t("Error"),
         unknown: this._t("Unknown"),
       };
@@ -2138,6 +2484,16 @@ async _appendEvent(serviceName, type, hint, details) {
       this._initActionCache.clear();
       this._updateQueue = [];
       this._isUpdating = false;
+
+      // L7-состояние
+      this._l7Config.services.clear();
+      this._l7Config.global = null;
+      this._l7ConfigReady = false;
+      this._l7Failures.clear();
+      this._l7LastRun.clear();
+      this._l7InFlight.clear();
+      this._l7CycleRunning = false;
+      this._l7StatusCache.clear();
     }
   }
 
@@ -2982,6 +3338,23 @@ async _appendEvent(serviceName, type, hint, details) {
         return widget.checkServiceStatus(name);
       }
       return "unknown";
+    },
+	
+	async runHealthCheck(name) {
+      const widget = window.protonServicesWidget;
+      if (widget && typeof widget._runL7ForService === "function") {
+        return widget._runL7ForService(name);
+      }
+      return null;
+    },
+
+    async reloadHealthCheckConfig() {
+      const widget = window.protonServicesWidget;
+      if (widget && typeof widget._initHealthCheck === "function") {
+        await widget._initHealthCheck();
+        return true;
+      }
+      return false;
     },
 
     getServiceInfo(name) {

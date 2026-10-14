@@ -653,6 +653,8 @@ window.ProtonTranslations = {
   "Silent death": "静默退出",
   "Unknown": "未知",
   "Restart": "重启",
+  "Health restored": "健康检查已恢复",
   "User stopped": "用户停止",
   "Clean exit": "正常退出",
+  "Recoveries": "已恢复",
 };

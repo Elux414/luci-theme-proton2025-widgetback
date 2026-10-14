@@ -1566,6 +1566,7 @@ function escapeHtml(str) {
     let userStops = 0;
     let cleanExits = 0;
     let restarts = 0;
+    let recoveries = 0;
 
     const INCIDENT_PRIORITY = {
       crash: 1,
@@ -1592,6 +1593,8 @@ function escapeHtml(str) {
           cleanExits++;
         } else if (type === "restart") {
           restarts++;
+        } else if (type === "health-recovery") {
+          recoveries++;
         }
       }
     }
@@ -1659,6 +1662,15 @@ function escapeHtml(str) {
       '<span class="proton-apps-summary-symbol proton-apps-summary-restart">⟳</span> ' +
       '<span class="proton-apps-summary-num">' +
       restarts +
+      "</span>" +
+      "</span>"
+    );
+
+    parts.push(
+      '<span class="proton-apps-summary-part' + zeroClass(recoveries) + '">' +
+      '<span class="proton-apps-summary-symbol proton-apps-summary-recovery">✓</span> ' +
+      '<span class="proton-apps-summary-num">' +
+      recoveries +
       "</span>" +
       "</span>"
     );

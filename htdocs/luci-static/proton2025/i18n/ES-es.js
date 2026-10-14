@@ -687,6 +687,8 @@ window.ProtonTranslations = {
   "Silent death": "Muerte silenciosa",
   "Unknown": "Desconocido",
   "Restart": "Reinicio",
+  "Health restored": "Verificación restablecida",
   "User stopped": "Detenido por el usuario",
   "Clean exit": "Salida limpia",
+  "Recoveries": "Restablecimientos",
 };

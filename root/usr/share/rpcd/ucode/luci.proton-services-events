@@ -22,6 +22,7 @@ const VALID_TYPES = [
 	'restart',
 	'user-stop',
 	'health-fail',
+	'health-recovery',
 	'silent-death'
 ];
 const MAX_DETAILS_LEN = 200;

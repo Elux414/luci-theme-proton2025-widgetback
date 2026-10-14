@@ -778,8 +778,9 @@ function rpcSetGlobal(input) {
 		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'theme');
 
 	if (input.enabled != null) {
-		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_enabled',
-			input.enabled === true || input.enabled == '1' ? '1' : '0');
+		let v = input.enabled;
+		let enabledBool = (v === true || v == '1' || v == 1 || v == 'true');
+		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_enabled', enabledBool ? '1' : '0');
 	}
 	if (input.interval != null) {
 		let v = +input.interval;
@@ -797,8 +798,9 @@ function rpcSetGlobal(input) {
 		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_failures_threshold', '' + v);
 	}
 	if (input.log_to_syslog != null) {
-		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_log_to_syslog',
-			input.log_to_syslog === true || input.log_to_syslog == '1' ? '1' : '0');
+		let v = input.log_to_syslog;
+		let logBool = (v === true || v == '1' || v == 1 || v == 'true');
+		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_log_to_syslog', logBool ? '1' : '0');
 	}
 
 	uci.commit(UCI_CONFIG);

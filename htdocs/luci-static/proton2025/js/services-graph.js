@@ -637,9 +637,10 @@
     "health-fail": "#f97316",
     "silent-death": "#fbbf24",
     unknown: "#fbbf24",
+    restart: "#34d399",
+    "health-recovery": "#5eead4",
     "user-stop": "#6b7280",
     "clean-exit": "#9ca3af",
-    restart: "#34d399",
   };
 
   const EVENT_HEIGHT_RATIO = {
@@ -647,9 +648,10 @@
     "health-fail": 1.0,
     "silent-death": 0.6,
     unknown: 0.6,
+    restart: 0.35,
+    "health-recovery": 0.35,
     "user-stop": 0.35,
     "clean-exit": 0.35,
-    restart: 0.35,
   };
 
   // Типы, которые считаются «реально проблемными» — они включают
@@ -661,15 +663,16 @@
     unknown: true,
   };
 
-    // Порядок полос в стеке — сверху вниз по критичности.
+  // Порядок полос в стеке — сверху вниз по критичности.
   const EVENT_STACK_RANK = {
     crash: 0,
     "health-fail": 1,
     "silent-death": 2,
     unknown: 3,
     restart: 4,
-    "user-stop": 5,
-    "clean-exit": 6,
+    "health-recovery": 5,
+    "user-stop": 6,
+    "clean-exit": 7,
   };
 
   function renderEventTimeline(container, events, options) {
@@ -903,6 +906,7 @@
     "silent-death": "S/D",
     unknown: "UNKNOWN",
     restart: "R",
+    "health-recovery": "H/R",
     "user-stop": "U/S",
     "clean-exit": "C/E",
   };
@@ -914,6 +918,7 @@
     "silent-death": "Silent death",
     unknown: "Unknown",
     restart: "Restart",
+    "health-recovery": "Health restored",
     "user-stop": "User stopped",
     "clean-exit": "Clean exit",
   };
@@ -951,6 +956,7 @@
       "silent-death",
       "unknown",
       "restart",
+      "health-recovery",
       "user-stop",
       "clean-exit",
     ];
@@ -984,6 +990,7 @@
         { symbol: "⏸", cls: "proton-events-legend-symbol-userstop", label: t("Stopped by user") },
         { symbol: "⏹", cls: "proton-events-legend-symbol-cleanexit",label: t("Clean exits") },
         { symbol: "⟳", cls: "proton-events-legend-symbol-restart",  label: t("Restarts") },
+        { symbol: "✓", cls: "proton-events-legend-symbol-recovery", label: t("Recoveries") },
     ];
 
     for (const row of summaryRows) {

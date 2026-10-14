@@ -15233,6 +15233,10 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
     color: #5e9eff;
 }
 
+.proton-events-legend-symbol-recovery {
+    color: #5eead4;
+}
+
 .proton-events-legend-desc-summary {
     /* вторая колонка — на всю ширину, без обрезки */
     color: var(--proton-text-secondary);
@@ -15338,6 +15342,11 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 .proton-apps-event-type[data-type="restart"] {
     color: #111827;
     background: #34d399;
+}
+
+.proton-apps-event-type[data-type="health-recovery"] {
+    color: #111827;
+    background: #5eead4;
 }
 
 .proton-apps-event-type[data-type="user-stop"] {
@@ -15485,6 +15494,10 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 /* Restart — голубой акцент */
 .proton-apps-summary-restart {
     color: #5e9eff;
+}
+
+.proton-apps-summary-recovery {
+    color: #5eead4;
 }
 
 /* Light theme */
