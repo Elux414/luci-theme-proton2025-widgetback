@@ -29,6 +29,7 @@
 				"luci.proton-healthcheck": [
 					"getMethods",
 					"getConfig",
+					"getSchema",
 					"runCheck"
 				],
                 "system": [

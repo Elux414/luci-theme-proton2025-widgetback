@@ -331,28 +331,68 @@
     }
   }
 
-  /**
-   * Прочитать настройки истории из localStorage.
-   * Fallback на дефолты.
-   */
-  function readSettings() {
-    let sampleInterval = 10;
-    let maxAgeHours = 24;
+  // Кэш настроек истории. Заполняется из UCI один раз при init(),
+  // обновляется по событию proton-settings-synced.
+  // readSettings() остаётся синхронным — это важно для flush(),
+  // который не может ждать сетевого запроса.
+  const _settingsCache = {
+    sampleInterval: 10,
+    maxAgeHours: 24,
+    ready: false,
+  };
+
+  function _applySettingsFromUci(settings) {
+    if (!settings) return;
+
+    const si = +settings.history_sample_interval;
+    if (si == si && si >= 5 && si <= 60) {
+      _settingsCache.sampleInterval = si;
+    }
+
+    const mah = +settings.history_max_age_hours;
+    if (mah == mah && mah >= 1 && mah <= 24) {
+      _settingsCache.maxAgeHours = mah;
+    }
+
+    _settingsCache.ready = true;
+  }
+
+  async function loadSettingsFromUci() {
+    if (!window.L || !L.rpc || typeof L.rpc.declare !== "function") {
+      return false;
+    }
 
     try {
-      const si = localStorage.getItem("proton-history-sample-interval");
-      if (si) {
-        const parsed = parseInt(si, 10);
-        if (parsed > 0) sampleInterval = parsed;
+      if (!loadSettingsFromUci._rpc) {
+        loadSettingsFromUci._rpc = L.rpc.declare({
+          object: "luci.proton-settings",
+          method: "getSettings",
+          expect: { "": {} },
+        });
       }
-      const mah = localStorage.getItem("proton-history-max-age-hours");
-      if (mah) {
-        const parsed = parseInt(mah, 10);
-        if (parsed > 0) maxAgeHours = parsed;
-      }
-    } catch (e) {}
 
-    return { sampleInterval, maxAgeHours };
+      const res = await L.resolveDefault(loadSettingsFromUci._rpc(), null);
+      if (res && res.settings) {
+        _applySettingsFromUci(res.settings);
+        return true;
+      }
+    } catch (e) {
+      console.warn("[ProtonServicesHistory] loadSettingsFromUci failed:", e);
+    }
+
+    return false;
+  }
+
+  /**
+   * Прочитать настройки истории (синхронно, из кэша).
+   * Кэш заполняется loadSettingsFromUci() при init().
+   * Если UCI ещё не ответил — отдаём дефолты 10 / 24.
+   */
+  function readSettings() {
+    return {
+      sampleInterval: _settingsCache.sampleInterval,
+      maxAgeHours: _settingsCache.maxAgeHours,
+    };
   }
 
   /**
@@ -382,7 +422,11 @@
     if (initialized) return;
     initialized = true;
 
-    await Promise.all([loadUserActions()]);
+    // Порядок: сначала настройки (нужны для flush), потом user actions.
+    await Promise.all([
+      loadSettingsFromUci(),
+      loadUserActions(),
+    ]);
     startAutoFlush();
   }
 
@@ -881,6 +925,8 @@
 
   window.ProtonServicesHistory = {
     init,
+	readSettings,
+    loadSettingsFromUci,
     loadService,
     loadHealth,
     loadUserActions,
@@ -928,6 +974,16 @@
       }
     },
   };
+
+  // Если пользователь меняет настройки истории через модалку Мониторинга,
+  // UCI обновится. Ловим это событие и перечитываем кэш.
+  // Также ловим proton-setting-changed (общее событие от settings-sync.js).
+  window.addEventListener("proton-settings-synced", function () {
+    loadSettingsFromUci().catch(() => {});
+  });
+  window.addEventListener("proton-setting-changed", function () {
+    loadSettingsFromUci().catch(() => {});
+  });
 
   window.addEventListener("pagehide", flushOnPageHide);
 })();

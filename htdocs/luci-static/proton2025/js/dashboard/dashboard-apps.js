@@ -22,6 +22,18 @@
   const SERVICES_STORAGE_KEY = "proton-services-widget";
   const LOG_LINES_DEFAULT = 20;
 
+  // Значения для селектов в табе «Мониторинг».
+  // Совпадают с VALID_OPTIONS в luci.proton-settings.ut:
+  //   history_sample_interval: 5..60
+  //   history_max_age_hours:   1..24
+  // Плюс периоды графика — они же значения для max_age_hours.
+  const HISTORY_SAMPLE_INTERVALS = [5, 10, 30, 60];
+  const HISTORY_MAX_AGE_HOURS = [1, 6, 24];
+
+  const L7_INTERVALS = [30, 60, 300];
+  const L7_TIMEOUTS = [2, 5, 10];
+  const L7_FAILURE_THRESHOLDS = [1, 2, 3];
+
   const CRITICAL_SERVICES = new Set([
     "network",
     "firewall",
@@ -41,6 +53,14 @@
   let rcInitRpc = null;
   let callGetServiceInfo = null;
   let callGetServiceLog = null;
+  let callProtonGetSettings = null;
+  let callHealthGetConfig = null;
+  let callHealthGetMethods = null;
+  let callHealthGetSchema = null;
+  let callProtonSetSettings = null;
+  let callHealthSetGlobal = null;
+  let callHealthSetService = null;
+  let callHealthClearService = null;
   let busyServices = new Set();
   let selectedService = null;
   let summaryEventsTimer = null;
@@ -89,6 +109,76 @@
         object: "luci.proton-system",
         method: "getServiceLog",
         params: ["name", "lines"],
+        expect: { "": {} },
+      });
+    }
+
+    // --- Monitoring (таб «Мониторинг») ---
+    if (!callProtonGetSettings) {
+      callProtonGetSettings = L.rpc.declare({
+        object: "luci.proton-settings",
+        method: "getSettings",
+        expect: { "": {} },
+      });
+    }
+
+    if (!callHealthGetConfig) {
+      callHealthGetConfig = L.rpc.declare({
+        object: "luci.proton-healthcheck",
+        method: "getConfig",
+        expect: { "": {} },
+      });
+    }
+
+    if (!callHealthGetMethods) {
+      callHealthGetMethods = L.rpc.declare({
+        object: "luci.proton-healthcheck",
+        method: "getMethods",
+        expect: { "": {} },
+      });
+    }
+
+    if (!callHealthGetSchema) {
+      callHealthGetSchema = L.rpc.declare({
+        object: "luci.proton-healthcheck",
+        method: "getSchema",
+        expect: { "": {} },
+      });
+    }
+
+    // --- Write-методы (шаг 6.5) ---
+    if (!callProtonSetSettings) {
+      callProtonSetSettings = L.rpc.declare({
+        object: "luci.proton-settings",
+        method: "setSettings",
+        params: ["settings"],
+        expect: { "": {} },
+      });
+    }
+
+    if (!callHealthSetGlobal) {
+      callHealthSetGlobal = L.rpc.declare({
+        object: "luci.proton-healthcheck",
+        method: "setGlobal",
+        params: ["enabled", "interval", "timeout", "failures_threshold", "log_to_syslog"],
+        expect: { "": {} },
+      });
+    }
+
+    if (!callHealthSetService) {
+      callHealthSetService = L.rpc.declare({
+        object: "luci.proton-healthcheck",
+        method: "setService",
+        params: ["name", "enabled", "config"],
+        expect: { "": {} },
+      });
+    }
+
+    if (!callHealthClearService) {
+      callHealthClearService = L.rpc.declare({
+        object: "luci.proton-healthcheck",
+        method: "clearService",
+        params: ["name"],
         expect: { "": {} },
       });
     }
@@ -992,6 +1082,10 @@ function renderDetailGraph(box, serviceName, container) {
     const available = await api.listAvailableServices();
     const current = new Set(readAppsList());
 
+    // Загружаем настройки мониторинга параллельно.
+    // Пока идёт запрос — рендерим скелет модалки.
+    const monitoringPromise = loadMonitoringSettings();
+
     const overlay = document.createElement("div");
     overlay.className = "proton-confirm-modal-overlay";
 
@@ -1003,8 +1097,33 @@ function renderDetailGraph(box, serviceName, container) {
     const heading = document.createElement("h3");
     heading.textContent = t("Applications settings");
 
-    const body = document.createElement("div");
-    body.className = "proton-apps-settings-body";
+    // --- Табы ---
+    const tabsNav = document.createElement("ul");
+    tabsNav.className = "proton-tabs-navigation";
+
+    const tabServicesBtn = document.createElement("button");
+    tabServicesBtn.type = "button";
+    tabServicesBtn.className = "proton-tab-button active";
+    tabServicesBtn.dataset.tab = "services";
+    tabServicesBtn.textContent = t("Services");
+
+    const tabMonitoringBtn = document.createElement("button");
+    tabMonitoringBtn.type = "button";
+    tabMonitoringBtn.className = "proton-tab-button";
+    tabMonitoringBtn.dataset.tab = "monitoring";
+    tabMonitoringBtn.textContent = t("Monitoring");
+
+    const tabServicesLi = document.createElement("li");
+    tabServicesLi.appendChild(tabServicesBtn);
+    const tabMonitoringLi = document.createElement("li");
+    tabMonitoringLi.appendChild(tabMonitoringBtn);
+    tabsNav.appendChild(tabServicesLi);
+    tabsNav.appendChild(tabMonitoringLi);
+
+    // --- Контент: таб «Сервисы» ---
+    const contentServices = document.createElement("div");
+    contentServices.className = "proton-tab-content active";
+    contentServices.dataset.tabContent = "services";
 
     const searchWrap = document.createElement("div");
     searchWrap.className = "proton-apps-settings-search";
@@ -1017,6 +1136,16 @@ function renderDetailGraph(box, serviceName, container) {
     const listContainer = document.createElement("div");
     listContainer.className = "proton-apps-settings-list";
 
+    contentServices.appendChild(searchWrap);
+    contentServices.appendChild(listContainer);
+
+    // --- Контент: таб «Мониторинг» ---
+    const contentMonitoring = document.createElement("div");
+    contentMonitoring.className = "proton-tab-content";
+    contentMonitoring.dataset.tabContent = "monitoring";
+    contentMonitoring.innerHTML = `<div class="proton-apps-settings-loading">${t("Loading...")}</div>`;
+
+    // --- Действия ---
     const actions = document.createElement("div");
     actions.className = "proton-confirm-modal-actions";
 
@@ -1161,6 +1290,24 @@ function renderDetailGraph(box, serviceName, container) {
       searchTimeout = setTimeout(() => render(searchInput.value), 120);
     });
 
+    // --- Переключение табов ---
+    function activateTab(tabName) {
+      const tabs = [tabServicesBtn, tabMonitoringBtn];
+      const contents = [contentServices, contentMonitoring];
+
+      tabs.forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.tab === tabName);
+      });
+
+      contents.forEach((el) => {
+        el.classList.toggle("active", el.dataset.tabContent === tabName);
+      });
+    }
+
+    tabServicesBtn.addEventListener("click", () => activateTab("services"));
+    tabMonitoringBtn.addEventListener("click", () => activateTab("monitoring"));
+
+    // --- Закрытие ---
     function close() {
       modalOpen = false;
       document.removeEventListener("keydown", escHandler);
@@ -1176,16 +1323,27 @@ function renderDetailGraph(box, serviceName, container) {
     document.addEventListener("keydown", escHandler);
 
     cancelBtn.addEventListener("click", close);
-    saveBtn.addEventListener("click", function () {
+
+    // Кнопка [Сохранить] — батч: список сервисов + history_* + health_check_*.
+    saveBtn.addEventListener("click", async function () {
       const newList = Array.from(current).filter((n) => api.isValidServiceName(n));
-      writeAppsList(newList);
-      close();
-      const card = document.getElementById("proton-dashboard-apps");
-      if (card) {
-        closeServiceDetail();
-        renderChips(card, newList, {});
-        pollStatuses();
-      }
+
+      // Показать подтверждение
+      showConfirmDialog(
+        t("Apply changes?"),
+        t("Save monitoring and services settings?"),
+        t("Apply"),
+        async function () {
+          await applySettings(newList);
+          close();
+          const card = document.getElementById("proton-dashboard-apps");
+          if (card) {
+            closeServiceDetail();
+            renderChips(card, newList, {});
+            pollStatuses();
+          }
+        },
+      );
     });
 
     overlay.addEventListener("click", function (e) {
@@ -1196,14 +1354,1000 @@ function renderDetailGraph(box, serviceName, container) {
     actions.appendChild(saveBtn);
 
     modal.appendChild(heading);
-    modal.appendChild(body);
-    body.appendChild(searchWrap);
-    body.appendChild(listContainer);
+    modal.appendChild(tabsNav);
+    modal.appendChild(contentServices);
+    modal.appendChild(contentMonitoring);
     modal.appendChild(actions);
     overlay.appendChild(modal);
 
     document.body.appendChild(overlay);
     setTimeout(() => searchInput.focus(), 80);
+
+    // Наполняем таб «Мониторинг» после загрузки настроек.
+    monitoringPromise.then(function (settings) {
+      renderMonitoringTab(contentMonitoring, settings);
+    }).catch(function (err) {
+      console.warn("[Proton2025] Failed to load monitoring settings:", err);
+      contentMonitoring.innerHTML = `<div class="proton-apps-settings-empty">${t("Unable to load settings")}</div>`;
+    });
+  }
+  
+  // =========================================================================
+  //  Батч-сохранение (шаг 6.5)
+  // =========================================================================
+
+  /**
+   * Применяет все изменения из обоих табов модалки:
+   *   1. Сохраняет список сервисов в localStorage + UCI (services_selected).
+   *   2. Сохраняет history_* в UCI (luci.proton-settings.setSettings).
+   *   3. Сохраняет health_check_* global в UCI (luci.proton-healthcheck.setGlobal).
+   *   4. Сохраняет / очищает per-service health_check (setService / clearService).
+   *   5. Обновляет кэш services-history.js.
+   *
+   * @param {string[]} newServicesList — итоговый список сервисов из таба «Сервисы».
+   */
+  async function applySettings(newServicesList) {
+    if (!ensureRpc()) {
+      showToast(t("Services API not ready"), "warning");
+      return;
+    }
+
+    // Список сервисов — в localStorage + UCI через settings-sync.
+    writeAppsList(newServicesList);
+
+    // Достаём state мониторинга (создан в renderMonitoringTab).
+    const modalOverlay = document.querySelector(".proton-apps-settings-modal");
+    const monitoringContent = modalOverlay
+      ? modalOverlay.querySelector('[data-tab-content="monitoring"]')
+      : null;
+    const mState = monitoringContent ? monitoringContent._monitoringState : null;
+
+    if (!mState) {
+      // Если таб «Мониторинг» ещё не открывался — нечего сохранять.
+      showToast(t("Settings saved"), "success");
+      return;
+    }
+
+    const errors = [];
+
+    // --- 1. History settings ---
+    try {
+      const res = await L.resolveDefault(
+        callProtonSetSettings({
+          history_sample_interval: String(mState.history.sampleInterval),
+          history_max_age_hours: String(mState.history.maxAgeHours),
+        }),
+        null,
+      );
+      if (!res || !res.success) {
+        errors.push("history: " + (res && res.error ? res.error : "unknown"));
+      }
+    } catch (e) {
+      errors.push("history: " + (e && e.message ? e.message : e));
+    }
+
+    // --- 2. L7 global ---
+    const hGlobal = mState.health.global;
+    try {
+      const res = await L.resolveDefault(
+        callHealthSetGlobal(
+          hGlobal.enabled ? "1" : "0",
+          String(hGlobal.interval),
+          String(hGlobal.timeout),
+          String(hGlobal.failures_threshold),
+          hGlobal.log_to_syslog ? "1" : "0",
+        ),
+        null,
+      );
+      if (!res || !res.success) {
+        errors.push("health global: " + (res && res.error ? res.error : "unknown"));
+      }
+    } catch (e) {
+      errors.push("health global: " + (e && e.message ? e.message : e));
+    }
+
+    // --- 3. L7 per-service ---
+    // Список сервисов для обработки: только те, что в newServicesList.
+    // Всё, что было настроено, но выпало из списка — очищаем.
+    const configByName = new Map();
+    (mState.health.services || []).forEach(function (s) {
+      if (s && s.name) configByName.set(s.name, s);
+    });
+
+    // Для каждого сервиса из нового списка:
+    //   - если есть method → setService(name, enabled, config)
+    //   - если method пустой → clearService(name)
+    const toSave = [];
+    const toClear = [];
+
+    newServicesList.forEach(function (name) {
+      const cfg = configByName.get(name);
+      if (cfg && cfg.method) {
+        toSave.push({
+          name: name,
+          enabled: cfg.enabled === true,
+          config: {
+            method: cfg.method,
+            // Доп. поля — плоским объектом. Backend сам выберет по методу.
+            ...cfg.fields,
+          },
+        });
+      } else if (cfg) {
+        // cfg есть, но method пустой → пользователь снял метод.
+        toClear.push(name);
+      }
+      // Если cfg нет вообще — сервис никогда не настраивался, пропускаем.
+    });
+
+    // Сервисы, которые были в UCI, но выпали из списка — тоже очищаем.
+    configByName.forEach(function (cfg, name) {
+      if (newServicesList.indexOf(name) === -1) {
+        toClear.push(name);
+      }
+    });
+
+    // Выполняем setService последовательно (чтобы избежать гонки в UCI).
+    for (const item of toSave) {
+      try {
+        const configJson = JSON.stringify(item.config);
+        const res = await L.resolveDefault(
+          callHealthSetService(item.name, item.enabled ? "1" : "0", configJson),
+          null,
+        );
+        if (!res || !res.success) {
+          errors.push(item.name + ": " + (res && res.error ? res.error : "unknown"));
+        }
+      } catch (e) {
+        errors.push(item.name + ": " + (e && e.message ? e.message : e));
+      }
+    }
+
+    // Очистка
+    for (const name of toClear) {
+      try {
+        const res = await L.resolveDefault(callHealthClearService(name), null);
+        if (!res || !res.success) {
+          errors.push(name + " (clear): " + (res && res.error ? res.error : "unknown"));
+        }
+      } catch (e) {
+        errors.push(name + " (clear): " + (e && e.message ? e.message : e));
+      }
+    }
+
+    // --- 4. Обновляем кэш services-history.js ---
+    if (window.ProtonServicesHistory
+        && typeof window.ProtonServicesHistory.loadSettingsFromUci === "function") {
+      try {
+        await window.ProtonServicesHistory.loadSettingsFromUci();
+      } catch (e) {
+        // Не критично — кэш обновится по событию proton-settings-synced.
+      }
+    }
+
+    // --- 5. Результат ---
+    if (errors.length === 0) {
+      showToast(t("Settings saved"), "success");
+    } else {
+      console.warn("[Proton2025] Apply settings errors:", errors);
+      showToast(
+        t("Some settings were not saved") + ": " + errors.length,
+        "warning",
+      );
+    }
+  }
+
+    // =========================================================================
+  //  Таб «Мониторинг»
+  // =========================================================================
+
+  /**
+   * Загружает все данные для таба «Мониторинг»:
+   *   - history_* из luci.proton-settings.getSettings
+   *   - health_check_* из luci.proton-healthcheck.getConfig
+   *   - доступность утилит из luci.proton-healthcheck.getMethods
+   *   - схему полей методов из luci.proton-healthcheck.getSchema
+   *
+   * Возвращает объект:
+   *   {
+   *     history: { sampleInterval, maxAgeHours },
+   *     health: {
+   *       global: { enabled, interval, timeout, failures_threshold, log_to_syslog },
+   *       services: [{ name, enabled, method, fields }, ...]
+   *     },
+   *     methods: [{ id, available }, ...],
+   *     schema: { methods, fields, defaults, limits }
+   *   }
+   * При ошибке любое поле может быть null.
+   */
+  async function loadMonitoringSettings() {
+    if (!ensureRpc()) {
+      return null;
+    }
+
+    const [settingsRes, healthRes, methodsRes, schemaRes] = await Promise.all([
+      L.resolveDefault(callProtonGetSettings(), null),
+      L.resolveDefault(callHealthGetConfig(), null),
+      L.resolveDefault(callHealthGetMethods(), null),
+      L.resolveDefault(callHealthGetSchema(), null),
+    ]);
+
+    // --- История ---
+    const rawSettings = (settingsRes && settingsRes.settings) ? settingsRes.settings : {};
+    const sampleInterval = clampInt(rawSettings.history_sample_interval, HISTORY_SAMPLE_INTERVALS, 10);
+    const maxAgeHours = clampInt(rawSettings.history_max_age_hours, HISTORY_MAX_AGE_HOURS, 24);
+
+    // --- L7 global ---
+    const rawGlobal = (healthRes && healthRes.global) ? healthRes.global : {};
+    const healthGlobal = {
+      enabled: rawGlobal.enabled === true,
+      interval: clampInt(rawGlobal.interval, L7_INTERVALS, 60),
+      timeout: clampInt(rawGlobal.timeout, L7_TIMEOUTS, 5),
+      failures_threshold: clampInt(rawGlobal.failures_threshold, L7_FAILURE_THRESHOLDS, 2),
+      log_to_syslog: rawGlobal.log_to_syslog !== false,
+    };
+
+    // --- L7 per-service ---
+    const healthServices = (healthRes && Array.isArray(healthRes.services))
+      ? healthRes.services.map((s) => ({
+          name: String(s.name || ""),
+          enabled: s.enabled === true,
+          method: String(s.method || ""),
+          fields: (s.fields && typeof s.fields === "object") ? s.fields : {},
+        }))
+      : [];
+
+    // --- Доступность методов ---
+    const methods = (methodsRes && Array.isArray(methodsRes.methods))
+      ? methodsRes.methods.map((m) => ({
+          id: String(m.id || ""),
+          available: m.available === true,
+        }))
+      : [];
+
+    // --- Схема полей ---
+    const schema = (schemaRes && schemaRes.success)
+      ? {
+          methods: Array.isArray(schemaRes.methods) ? schemaRes.methods.slice() : [],
+          fields: (schemaRes.fields && typeof schemaRes.fields === "object") ? schemaRes.fields : {},
+          defaults: (schemaRes.defaults && typeof schemaRes.defaults === "object") ? schemaRes.defaults : {},
+          limits: (schemaRes.limits && typeof schemaRes.limits === "object") ? schemaRes.limits : {},
+        }
+      : null;
+
+    return {
+      history: { sampleInterval, maxAgeHours },
+      health: { global: healthGlobal, services: healthServices },
+      methods,
+      schema,
+    };
+  }
+
+  /**
+   * Приводит значение к одному из разрешённых. Если не совпадает —
+   * возвращает дефолт. Защита от битого UCI.
+   */
+  function clampInt(value, allowed, fallback) {
+    const n = +value;
+    if (n != n) return fallback;
+    return allowed.indexOf(n) >= 0 ? n : fallback;
+  }
+
+  /**
+   * Отрисовывает таб «Мониторинг».
+   *   - Секция «История»: интервал опроса + период хранения.
+   *   - Секция «Проверка отклика (L7)»: заглушка (шаг 6.3).
+   *
+   * `settings` — объект из loadMonitoringSettings(), может быть null.
+   */
+  function renderMonitoringTab(container, settings) {
+    container.innerHTML = "";
+
+    if (!settings) {
+      const err = document.createElement("div");
+      err.className = "proton-apps-settings-empty";
+      err.textContent = t("Unable to load settings");
+      container.appendChild(err);
+      return;
+    }
+
+    // === Секция «История» ===
+    const historySection = document.createElement("section");
+    historySection.className = "proton-monitoring-section";
+
+    const historyTitle = document.createElement("h4");
+    historyTitle.className = "proton-monitoring-section-title";
+    historyTitle.textContent = t("History");
+    historySection.appendChild(historyTitle);
+
+    // Селект «Интервал опроса»
+    const intervalRow = document.createElement("div");
+    intervalRow.className = "proton-monitoring-row";
+
+    const intervalLabel = document.createElement("label");
+    intervalLabel.className = "proton-monitoring-label";
+    intervalLabel.textContent = t("Polling interval");
+    intervalLabel.setAttribute("for", "proton-monitoring-interval");
+
+    const intervalSelect = document.createElement("select");
+    intervalSelect.id = "proton-monitoring-interval";
+    intervalSelect.className = "cbi-input-select proton-monitoring-select";
+
+    HISTORY_SAMPLE_INTERVALS.forEach((sec) => {
+      const opt = document.createElement("option");
+      opt.value = String(sec);
+      opt.textContent = sec + " " + t("seconds");
+      if (sec === settings.history.sampleInterval) opt.selected = true;
+      intervalSelect.appendChild(opt);
+    });
+
+    intervalRow.appendChild(intervalLabel);
+    intervalRow.appendChild(intervalSelect);
+    historySection.appendChild(intervalRow);
+
+    // Селект «Период хранения»
+    const retentionRow = document.createElement("div");
+    retentionRow.className = "proton-monitoring-row";
+
+    const retentionLabel = document.createElement("label");
+    retentionLabel.className = "proton-monitoring-label";
+    retentionLabel.textContent = t("Retention period");
+    retentionLabel.setAttribute("for", "proton-monitoring-retention");
+
+    const retentionSelect = document.createElement("select");
+    retentionSelect.id = "proton-monitoring-retention";
+    retentionSelect.className = "cbi-input-select proton-monitoring-select";
+
+    HISTORY_MAX_AGE_HOURS.forEach((hours) => {
+      const opt = document.createElement("option");
+      opt.value = String(hours);
+      opt.textContent = hours + " " + (hours === 1 ? t("hour") : t("hours"));
+      if (hours === settings.history.maxAgeHours) opt.selected = true;
+      retentionSelect.appendChild(opt);
+    });
+
+    retentionRow.appendChild(retentionLabel);
+    retentionRow.appendChild(retentionSelect);
+    historySection.appendChild(retentionRow);
+
+    // Инфо-строка: сколько сервисов отслеживается
+    const infoLine = document.createElement("div");
+    infoLine.className = "proton-monitoring-info";
+
+    const servicesCount = readAppsList().length;
+    infoLine.textContent = t("Services monitored") + ": " + servicesCount;
+    historySection.appendChild(infoLine);
+
+    container.appendChild(historySection);
+
+    // === Секция «L7» ===
+    const l7Section = document.createElement("section");
+    l7Section.className = "proton-monitoring-section";
+    l7Section.dataset.role = "l7-section";
+
+    const l7Title = document.createElement("h4");
+    l7Title.className = "proton-monitoring-section-title";
+    l7Title.textContent = t("Health check");
+    l7Section.appendChild(l7Title);
+
+    // ВАЖНО: _monitoringState инициализируется ДО renderL7Section, потому
+    // что renderL7Section читает rootContainer._monitoringState в самом начале.
+    container.dataset.role = "monitoring-content";
+    container._monitoringState = {
+      history: {
+        sampleInterval: settings.history.sampleInterval,
+        maxAgeHours: settings.history.maxAgeHours,
+      },
+      health: JSON.parse(JSON.stringify(settings.health)),
+      methods: settings.methods.slice(),
+      schema: settings.schema,
+    };
+
+    // Слушаем изменения селектов истории — обновляем state контейнера.
+    intervalSelect.addEventListener("change", function () {
+      const v = parseInt(intervalSelect.value, 10);
+      if (v == v) container._monitoringState.history.sampleInterval = v;
+    });
+
+    retentionSelect.addEventListener("change", function () {
+      const v = parseInt(retentionSelect.value, 10);
+      if (v == v) container._monitoringState.history.maxAgeHours = v;
+    });
+
+    // Теперь можно рендерить L7 — state готов.
+    renderL7Section(l7Section, settings, container);
+
+    container.appendChild(l7Section);
+  }
+
+  // =========================================================================
+  //  Секция «L7» — глобальные настройки + список сервисов
+  // =========================================================================
+
+  /**
+   * Рисует секцию «Health check»:
+   *   - 4 глобальных настройки (чекбокс + 3 селекта + чекбокс)
+   *   - список сервисов (по readAppsList())
+   *
+   * @param {HTMLElement} section  — контейнер секции
+   * @param {object}      settings — из loadMonitoringSettings()
+   * @param {HTMLElement} rootContainer — контейнер таба «Мониторинг»
+   */
+  function renderL7Section(section, settings, rootContainer) {
+    const state = rootContainer._monitoringState;
+    if (!state || !state.health) return;
+
+    const hGlobal = state.health.global;
+
+    // --- Чекбокс «Включить проверку отклика» ---
+    const enabledRow = document.createElement("label");
+    enabledRow.className = "proton-monitoring-toggle";
+
+    const enabledCheck = document.createElement("input");
+    enabledCheck.type = "checkbox";
+    enabledCheck.id = "proton-l7-enabled";
+    enabledCheck.checked = hGlobal.enabled === true;
+
+    const enabledSlider = document.createElement("span");
+    enabledSlider.className = "proton-monitoring-toggle-slider";
+
+    const enabledText = document.createElement("span");
+    enabledText.className = "proton-monitoring-toggle-text";
+    enabledText.textContent = t("Enable health check");
+
+    enabledRow.appendChild(enabledCheck);
+    enabledRow.appendChild(enabledSlider);
+    enabledRow.appendChild(enabledText);
+    section.appendChild(enabledRow);
+
+    enabledCheck.addEventListener("change", function () {
+      hGlobal.enabled = enabledCheck.checked;
+      // При отключении — гасим всю секцию ниже
+      updateL7SectionDisabledState(section, !enabledCheck.checked);
+    });
+
+    // --- Сетка селектов ---
+    const grid = document.createElement("div");
+    grid.className = "proton-monitoring-grid proton-l7-collapsible";
+
+    grid.appendChild(buildL7Select({
+      id: "proton-l7-interval",
+      label: t("Interval"),
+      values: L7_INTERVALS,
+      unit: t("seconds"),
+      current: hGlobal.interval,
+      onChange: function (v) { hGlobal.interval = v; },
+    }));
+
+    grid.appendChild(buildL7Select({
+      id: "proton-l7-timeout",
+      label: t("Timeout"),
+      values: L7_TIMEOUTS,
+      unit: t("seconds"),
+      current: hGlobal.timeout,
+      onChange: function (v) { hGlobal.timeout = v; },
+    }));
+
+    grid.appendChild(buildL7Select({
+      id: "proton-l7-threshold",
+      label: t("Failures until failed"),
+      values: L7_FAILURE_THRESHOLDS,
+      unit: "",
+      current: hGlobal.failures_threshold,
+      onChange: function (v) { hGlobal.failures_threshold = v; },
+    }));
+
+    section.appendChild(grid);
+
+    // --- Чекбокс «Логировать в syslog» ---
+    const logRow = document.createElement("label");
+    logRow.className = "proton-monitoring-check-row proton-l7-collapsible";
+
+    const logCheck = document.createElement("input");
+    logCheck.type = "checkbox";
+    logCheck.id = "proton-l7-log";
+    logCheck.checked = hGlobal.log_to_syslog !== false;
+
+    const logText = document.createElement("span");
+    logText.textContent = t("Log to syslog");
+
+    logRow.appendChild(logCheck);
+    logRow.appendChild(logText);
+    section.appendChild(logRow);
+
+    logCheck.addEventListener("change", function () {
+      hGlobal.log_to_syslog = logCheck.checked;
+    });
+
+    // --- Список сервисов ---
+    const listTitle = document.createElement("div");
+    listTitle.className = "proton-monitoring-subtitle proton-l7-collapsible";
+    listTitle.textContent = t("Services to monitor");
+    section.appendChild(listTitle);
+
+    const list = document.createElement("div");
+    list.className = "proton-l7-services proton-l7-collapsible";
+    list.dataset.role = "l7-services";
+    section.appendChild(list);
+
+    // Если L7 выключен — сразу гасим всё после чекбокса
+    updateL7SectionDisabledState(section, !enabledCheck.checked);
+
+    // Отрисовываем список сервисов
+    renderL7ServiceList(list, state, rootContainer);
+  }
+
+  /**
+   * Строит строку с лейблом и селектом для одной L7-настройки.
+   */
+  function buildL7Select(opts) {
+    const row = document.createElement("div");
+    row.className = "proton-monitoring-row";
+
+    const label = document.createElement("label");
+    label.className = "proton-monitoring-label";
+    label.textContent = opts.label;
+    label.setAttribute("for", opts.id);
+
+    const select = document.createElement("select");
+    select.id = opts.id;
+    select.className = "cbi-input-select proton-monitoring-select";
+
+    opts.values.forEach(function (v) {
+      const opt = document.createElement("option");
+      opt.value = String(v);
+      opt.textContent = opts.unit ? (v + " " + opts.unit) : String(v);
+      if (v === opts.current) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    select.addEventListener("change", function () {
+      const v = parseInt(select.value, 10);
+      if (v == v) opts.onChange(v);
+    });
+
+    row.appendChild(label);
+    row.appendChild(select);
+    return row;
+  }
+
+  /**
+   * Гасит/включает часть L7-секции после чекбокса «Включить».
+   * Первый child (enabledRow) — всегда активен.
+   */
+   function updateL7SectionDisabledState(section, disabled) {
+    section.querySelectorAll(".proton-l7-collapsible").forEach((el) => {
+      el.classList.toggle("is-disabled", disabled);
+    });
+  }
+
+  /**
+   * Рисует список сервисов из readAppsList().
+   * Для каждого — чекбокс enabled + превью метода + цели.
+   */
+  function renderL7ServiceList(listEl, state, rootContainer) {
+    listEl.replaceChildren();
+
+    const selected = readAppsList();
+    if (!selected.length) {
+      const empty = document.createElement("div");
+      empty.className = "proton-apps-settings-empty";
+      empty.textContent = t("No services selected");
+      listEl.appendChild(empty);
+      return;
+    }
+
+    // Карта per-service настроек из UCI: name -> { enabled, method, fields }
+    const configByName = new Map();
+    (state.health.services || []).forEach(function (s) {
+      if (s && s.name) configByName.set(s.name, s);
+    });
+
+    // Список доступных утилит: id -> available
+    const methodAvailability = new Map();
+    (state.methods || []).forEach(function (m) {
+      if (m && m.id) methodAvailability.set(m.id, m.available === true);
+    });
+
+    selected.forEach(function (serviceName) {
+      const row = createL7ServiceRow(
+        serviceName,
+        configByName.get(serviceName) || null,
+        state,
+        methodAvailability,
+        rootContainer,
+      );
+      listEl.appendChild(row);
+    });
+  }
+
+  /**
+   * Одна строка сервиса в списке L7:
+   *   [checkbox] Icon  DisplayName       Метод: <превью>   [▼]
+   */
+  function createL7ServiceRow(serviceName, config, state, methodAvailability, rootContainer) {
+    const api = getStatusFromApi();
+    const info = api ? api.getServiceInfo(serviceName) : {
+      name: serviceName,
+      displayName: serviceName,
+      icon: "📦",
+    };
+
+    const row = document.createElement("div");
+    row.className = "proton-l7-service-row";
+    row.dataset.service = serviceName;
+
+    // Чекбокс enabled
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.className = "proton-l7-service-check";
+    check.checked = !!(config && config.enabled === true);
+
+    // Иконка
+    const icon = document.createElement("span");
+    icon.className = "proton-l7-service-icon";
+    icon.textContent = info.icon || "📦";
+
+    // Имя + превью
+    const text = document.createElement("div");
+    text.className = "proton-l7-service-text";
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "proton-l7-service-name";
+    nameEl.textContent = info.displayName || serviceName;
+
+    const metaEl = document.createElement("div");
+    metaEl.className = "proton-l7-service-meta";
+    metaEl.textContent = buildL7ServicePreview(config, state, methodAvailability);
+
+    text.appendChild(nameEl);
+    text.appendChild(metaEl);
+
+    // Кнопка раскрытия
+    const expand = document.createElement("button");
+    expand.type = "button";
+    expand.className = "proton-l7-service-expand";
+    expand.setAttribute("aria-label", t("Edit"));
+    expand.setAttribute("aria-expanded", "false");
+    expand.textContent = "▾";
+
+    row.appendChild(check);
+    row.appendChild(icon);
+    row.appendChild(text);
+    row.appendChild(expand);
+
+    // Чекбокс enabled — обновляет state, при включении с пустым методом
+    // не даём сохранить (в шаге 6.4 добавим валидацию).
+    check.addEventListener("change", function () {
+      const cfg = ensureServiceConfig(state, serviceName);
+      cfg.enabled = check.checked;
+    });
+
+    // Клик по строке (кроме чекбокса) — раскрытие редактора.
+    // Пока — заглушка: в шаге 6.4 заменим на реальный renderL7Editor.
+    row.addEventListener("click", function (ev) {
+      if (ev.target === check) return;
+      if (ev.target.closest(".proton-l7-editor")) return;
+      toggleL7ServiceEditor(row, serviceName, state, methodAvailability, rootContainer);
+    });
+
+    return row;
+  }
+
+  /**
+   * Возвращает существующий конфиг сервиса из state или создаёт пустой.
+   */
+  function ensureServiceConfig(state, serviceName) {
+    if (!state.health.services) state.health.services = [];
+    let cfg = state.health.services.find(function (s) { return s.name === serviceName; });
+    if (!cfg) {
+      cfg = { name: serviceName, enabled: false, method: "", fields: {} };
+      state.health.services.push(cfg);
+    }
+    return cfg;
+  }
+
+  /**
+   * Превью: «dns · google.com @ 127.0.0.1» или «not configured».
+   */
+  function buildL7ServicePreview(config, state, methodAvailability) {
+    if (!config || !config.method) {
+      return t("Not configured");
+    }
+
+    const avail = methodAvailability.get(config.method);
+    const label = config.method + (avail === false ? " (" + t("Unavailable") + ")" : "");
+
+    const fields = config.fields || {};
+
+    // Компактное превью цели по методу
+    let target = "";
+    if (config.method === "dns") {
+      target = [fields.host, fields.server].filter(Boolean).join(" @ ");
+    } else if (config.method === "http" || config.method === "proxy_socks5" || config.method === "proxy_http") {
+      target = fields.url || "";
+    } else if (config.method === "local_port") {
+      target = [fields.proto, fields.port].filter(Boolean).join(":");
+    } else if (config.method === "wireguard") {
+      target = fields.iface || "";
+    } else if (config.method === "tunnel_ping") {
+      target = [fields.iface, fields.host].filter(Boolean).join(" → ");
+    } else if (config.method === "custom") {
+      target = (fields.command || "").slice(0, 40);
+    }
+
+    return target ? (label + " · " + target) : label;
+  }
+
+  /**
+   * Раскрывает/скрывает inline-редактор под строкой сервиса.
+   * В шаге 6.3 — только заглушка (создаёт пустой div).
+   * В шаге 6.4 — здесь будет реальный вызов renderL7Editor.
+   */
+  function toggleL7ServiceEditor(row, serviceName, state, methodAvailability, rootContainer) {
+    const next = row.nextElementSibling;
+    const isEditorOpen = next && next.classList && next.classList.contains("proton-l7-editor");
+
+    if (isEditorOpen) {
+      // Свернуть
+      next.remove();
+      row.querySelector(".proton-l7-service-expand").setAttribute("aria-expanded", "false");
+      row.querySelector(".proton-l7-service-expand").textContent = "▾";
+      return;
+    }
+
+        // Развернуть: рендерим редактор.
+    const editor = document.createElement("div");
+    editor.className = "proton-l7-editor";
+    editor.dataset.service = serviceName;
+
+    renderL7Editor(editor, serviceName, state, methodAvailability, rootContainer, function onClose() {
+      editor.remove();
+      row.querySelector(".proton-l7-service-expand").setAttribute("aria-expanded", "false");
+      row.querySelector(".proton-l7-service-expand").textContent = "▾";
+    });
+
+    row.parentNode.insertBefore(editor, row.nextSibling);
+    row.querySelector(".proton-l7-service-expand").setAttribute("aria-expanded", "true");
+    row.querySelector(".proton-l7-service-expand").textContent = "▴";
+  }
+
+  // =========================================================================
+  //  Inline-редактор L7 для одного сервиса
+  // =========================================================================
+
+  /**
+   * Рисует редактор для одного сервиса.
+   *
+   * @param {HTMLElement} editor          — контейнер редактора
+   * @param {string}      serviceName     — имя сервиса
+   * @param {object}      state           — monitoring state
+   * @param {Map}         methodAvailability — id → available
+   * @param {HTMLElement} rootContainer   — контейнер таба «Мониторинг»
+   * @param {function}    onClose         — колбэк закрытия (сворачивания)
+   */
+  function renderL7Editor(editor, serviceName, state, methodAvailability, rootContainer, onClose) {
+    const schema = state.schema;
+    if (!schema || !schema.methods || !schema.fields || !schema.defaults) {
+      editor.innerHTML = `<div class="proton-apps-settings-empty">${t("Unable to load schema")}</div>`;
+      return;
+    }
+
+    // Текущий конфиг сервиса (или пустой)
+    const cfg = ensureServiceConfig(state, serviceName);
+
+    // Локальная копия — на случай [Отмена]. Не трогаем оригинал до Save.
+    const draft = {
+      method: cfg.method || "",
+      fields: Object.assign({}, cfg.fields || {}),
+    };
+
+    editor.innerHTML = "";
+
+    // === Селект метода ===
+    const methodRow = document.createElement("div");
+    methodRow.className = "proton-l7-editor-row";
+
+    const methodLabel = document.createElement("label");
+    methodLabel.className = "proton-l7-editor-label";
+    methodLabel.textContent = t("Method");
+    methodLabel.setAttribute("for", "proton-l7-editor-method-" + slug(serviceName));
+
+    const methodSelect = document.createElement("select");
+    methodSelect.id = "proton-l7-editor-method-" + slug(serviceName);
+    methodSelect.className = "cbi-input-select proton-l7-editor-select";
+
+    // Опция «не выбрано»
+    const emptyOpt = document.createElement("option");
+    emptyOpt.value = "";
+    emptyOpt.textContent = "— " + t("Not configured") + " —";
+    if (!draft.method) emptyOpt.selected = true;
+    methodSelect.appendChild(emptyOpt);
+
+    schema.methods.forEach(function (mid) {
+      const opt = document.createElement("option");
+      opt.value = mid;
+
+      const available = methodAvailability.get(mid) !== false;
+      opt.textContent = mid + (available ? "" : " (" + t("Unavailable") + ")");
+      if (mid === draft.method) opt.selected = true;
+      methodSelect.appendChild(opt);
+    });
+
+    methodRow.appendChild(methodLabel);
+    methodRow.appendChild(methodSelect);
+    editor.appendChild(methodRow);
+
+    // === Контейнер для полей ===
+    const fieldsBox = document.createElement("div");
+    fieldsBox.className = "proton-l7-editor-fields";
+    editor.appendChild(fieldsBox);
+
+    // Рендер полей по выбранному методу
+    function renderFields() {
+      fieldsBox.replaceChildren();
+
+      if (!draft.method) {
+        const hint = document.createElement("div");
+        hint.className = "proton-l7-editor-hint";
+        hint.textContent = t("Select a method to configure");
+        fieldsBox.appendChild(hint);
+        return;
+      }
+
+      const fieldNames = schema.fields[draft.method] || [];
+      const defaults = schema.defaults[draft.method] || {};
+
+      fieldNames.forEach(function (fieldName) {
+        const row = document.createElement("div");
+        row.className = "proton-l7-editor-row";
+
+        const label = document.createElement("label");
+        label.className = "proton-l7-editor-label";
+        const fieldId = "proton-l7-field-" + slug(serviceName) + "-" + fieldName;
+        label.textContent = humanizeField(fieldName);
+        label.setAttribute("for", fieldId);
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.id = fieldId;
+        input.className = "cbi-input-text proton-l7-editor-input";
+
+        // Приоритет: сохранённое значение → дефолт по схеме → пусто
+        let value = draft.fields[fieldName];
+        if (value == null || value === "") {
+          value = defaults[fieldName] != null ? String(defaults[fieldName]) : "";
+        }
+        input.value = String(value);
+
+        input.addEventListener("input", function () {
+          draft.fields[fieldName] = input.value;
+        });
+
+        row.appendChild(label);
+        row.appendChild(input);
+        fieldsBox.appendChild(row);
+      });
+    }
+
+    renderFields();
+
+    methodSelect.addEventListener("change", function () {
+      const newMethod = methodSelect.value;
+      if (newMethod === draft.method) return;
+
+      // Смена метода — сбрасываем fields, но сохраняем общие поля
+      // (timeout), если они есть в новом методе.
+      const oldFields = draft.fields;
+      const newFieldNames = schema.fields[newMethod] || [];
+      const newFields = {};
+
+      // Если timeout общий для старого и нового — переносим значение.
+      if (oldFields.timeout != null && newFieldNames.indexOf("timeout") >= 0) {
+        newFields.timeout = oldFields.timeout;
+      }
+
+      draft.method = newMethod;
+      draft.fields = newFields;
+      renderFields();
+    });
+
+    // === Кнопки действий ===
+    const actionsRow = document.createElement("div");
+    actionsRow.className = "proton-l7-editor-actions";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "cbi-button cbi-button-neutral";
+    cancelBtn.textContent = t("Cancel");
+    cancelBtn.addEventListener("click", function () {
+      if (typeof onClose === "function") onClose();
+    });
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "cbi-button cbi-button-positive";
+    saveBtn.textContent = t("Save");
+    saveBtn.addEventListener("click", function () {
+      // Валидация: метод выбран
+      if (!draft.method) {
+        showToast(t("Select a method first"), "warning");
+        return;
+      }
+
+      // Обязательные поля по методу: должен быть хоть один заполненный
+      // (кроме timeout). Это мягкая проверка.
+      const fields = schema.fields[draft.method] || [];
+      const required = fields.filter(function (f) { return f !== "timeout"; });
+      const hasAny = required.some(function (f) {
+        return String(draft.fields[f] || "").trim() !== "";
+      });
+
+      if (required.length > 0 && !hasAny) {
+        showToast(t("Fill in at least one target field"), "warning");
+        return;
+      }
+
+      // Пишем в state.
+      cfg.method = draft.method;
+      cfg.fields = Object.assign({}, draft.fields);
+
+      // Автовключение: если метод настроен и сервис ещё не включён — включим.
+      // Так пользователь получает рабочий L7 сразу после настройки.
+      if (!cfg.enabled) {
+        cfg.enabled = true;
+        // Обновим чекбокс в строке списка.
+        const row = editor.previousElementSibling;
+        if (row) {
+          const check = row.querySelector(".proton-l7-service-check");
+          if (check) check.checked = true;
+        }
+      }
+
+      // Обновим превью в строке.
+      const row = editor.previousElementSibling;
+      if (row) {
+        const meta = row.querySelector(".proton-l7-service-meta");
+        if (meta) {
+          meta.textContent = buildL7ServicePreview(cfg, state, methodAvailability);
+        }
+      }
+
+      showToast(t("Service configuration saved"), "success");
+      if (typeof onClose === "function") onClose();
+    });
+
+    actionsRow.appendChild(cancelBtn);
+    actionsRow.appendChild(saveBtn);
+    editor.appendChild(actionsRow);
+  }
+
+  /**
+   * Преобразует имя сервиса в безопасный для id суффикс.
+   */
+  function slug(s) {
+    return String(s || "").replace(/[^a-zA-Z0-9_-]+/g, "-");
+  }
+
+  /**
+   * Человекочитаемое имя поля: expected_code → "Expected code".
+   */
+  function humanizeField(name) {
+    // Уже переведённые в i18n — берём напрямую.
+    const map = {
+      "host":         "Host",
+      "server":       "Server",
+      "timeout":      "Timeout",
+      "url":          "URL",
+      "expected_code": "Expected code",
+      "port":         "Port",
+      "proto":        "Protocol",
+      "addr":         "Address",
+      "proxy_port":   "Proxy port",
+      "iface":        "Interface",
+      "max_age_sec":  "Max age (sec)",
+      "command":      "Command",
+    };
+    return t(map[name] || name);
   }
 
   // ---------------------------------------------------------------------------
@@ -1543,7 +2687,7 @@ function escapeHtml(str) {
 
     /**
    * Обновляет подпись под health-графиком.
-   * Формат: ● 8/9 · ⚠ 2 · ⏸ 1 · ⏹ 2 · ⟳ 3
+   * Формат: ● 8/9 · ⚠ 2 · ⏸ 1 · ⏹ 2 · ⟳ 3 · ✓ 4
    * Нулевые счётчики не показываются.
    */
   function updateSummaryGraphFooter(footer, events) {

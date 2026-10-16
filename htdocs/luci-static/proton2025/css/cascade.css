@@ -13112,6 +13112,411 @@ body.login-page .login-password-toggle:focus-visible {
     font-size: 0.85rem;
 }
 
+/* =====================================================
+   Applications settings modal — tabs + Monitoring tab
+   ===================================================== */
+
+/* Модалка: ограничиваем высоту, контент таба скроллится */
+.proton-apps-settings-modal {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 80px);
+    padding: 22px 24px;
+}
+
+/* Заголовок — фиксированной высоты, не скроллится */
+.proton-apps-settings-modal > h3 {
+    flex: 0 0 auto;
+    margin: 0 0 14px 0;
+    padding: 0;
+}
+
+/* Табы — фиксированы */
+.proton-apps-settings-modal > .proton-tabs-navigation {
+    flex: 0 0 auto;
+    margin: 0 0 14px 0;
+}
+
+/* Контент таба — растягивается и скроллится */
+.proton-apps-settings-modal > .proton-tab-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;      /* место под скролл-бар */
+    margin-right: -4px;      /* компенсируем padding */
+    overscroll-behavior: contain;
+}
+
+/* Скролл-бар в контенте таба */
+.proton-apps-settings-modal > .proton-tab-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.proton-apps-settings-modal > .proton-tab-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.proton-apps-settings-modal > .proton-tab-content::-webkit-scrollbar-thumb {
+    background: var(--proton-scrollbar-thumb);
+    border-radius: 4px;
+}
+
+.proton-apps-settings-modal > .proton-tab-content::-webkit-scrollbar-thumb:hover {
+    background: var(--proton-scrollbar-thumb-hover);
+}
+
+/* Кнопки действий — фиксированы внизу */
+.proton-apps-settings-modal > .proton-confirm-modal-actions {
+    flex: 0 0 auto;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--proton-border);
+}
+
+/* ---------- Таб «Мониторинг»: секции ---------- */
+
+.proton-monitoring-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 22px;
+}
+
+.proton-monitoring-section:last-child {
+    margin-bottom: 0;
+}
+
+.proton-monitoring-section-title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--proton-accent);
+    letter-spacing: -0.01em;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--proton-border);
+}
+
+.proton-monitoring-subtitle {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--proton-fg-secondary);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.proton-monitoring-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 32px;
+}
+
+.proton-monitoring-label {
+    flex: 0 0 140px;
+    font-size: 0.85rem;
+    color: var(--proton-fg-secondary);
+    font-weight: 500;
+}
+
+.proton-monitoring-select {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.proton-monitoring-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.proton-monitoring-info {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: var(--proton-muted);
+    opacity: 0.85;
+}
+
+/* ---------- Toggle-чекбокс (как в виджетах) ---------- */
+
+.proton-monitoring-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+    padding: 6px 0;
+}
+
+.proton-monitoring-toggle input[type="checkbox"] {
+    display: none;
+}
+
+.proton-monitoring-toggle-slider {
+    position: relative;
+    flex: 0 0 auto;
+    width: 40px;
+    height: 22px;
+    background: var(--proton-muted);
+    border-radius: 11px;
+    transition: background 0.2s ease;
+}
+
+.proton-monitoring-toggle-slider::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.proton-monitoring-toggle input[type="checkbox"]:checked + .proton-monitoring-toggle-slider {
+    background: var(--proton-accent);
+}
+
+.proton-monitoring-toggle input[type="checkbox"]:checked + .proton-monitoring-toggle-slider::after {
+    transform: translateX(18px);
+}
+
+.proton-monitoring-toggle-text {
+    font-size: 0.9rem;
+    color: var(--proton-fg);
+    font-weight: 500;
+}
+
+.proton-monitoring-check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 0.85rem;
+    color: var(--proton-fg-secondary);
+}
+
+.proton-monitoring-check-row input[type="checkbox"] {
+    accent-color: var(--proton-accent);
+}
+
+/* ---------- Disabled-состояние секции ---------- */
+
+.proton-monitoring-section .is-disabled {
+    opacity: 0.45;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+/* ---------- L7: список сервисов ---------- */
+
+.proton-l7-services {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.proton-l7-service-row {
+    display: grid;
+    grid-template-columns: 32px 24px 1fr 32px;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--proton-bg-tertiary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    cursor: pointer;
+    transition: var(--proton-transition);
+    min-width: 0;
+}
+
+.proton-l7-service-row:hover {
+    background: var(--proton-bg-hover);
+    border-color: rgba(var(--proton-accent-rgb), 0.25);
+}
+
+.proton-l7-service-check {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--proton-accent);
+}
+
+.proton-l7-service-icon {
+    font-size: 16px;
+    line-height: 1;
+    text-align: center;
+}
+
+.proton-l7-service-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.proton-l7-service-name {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--proton-fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.proton-l7-service-meta {
+    font-size: 0.75rem;
+    color: var(--proton-fg-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.proton-l7-service-expand {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--proton-fg-secondary);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.proton-l7-service-expand:hover {
+    background: var(--proton-bg-hover);
+    color: var(--proton-accent);
+}
+
+/* ---------- L7: inline-редактор ---------- */
+
+.proton-l7-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    margin: 2px 0 6px 0;
+    background: rgba(var(--proton-accent-rgb), 0.04);
+    border: 1px solid var(--proton-border);
+    border-left: 3px solid var(--proton-accent);
+    border-radius: var(--proton-radius-sm);
+    animation: fadeIn 0.2s ease;
+}
+
+.proton-l7-editor-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 32px;
+}
+
+.proton-l7-editor-label {
+    flex: 0 0 130px;
+    font-size: 0.82rem;
+    color: var(--proton-fg-secondary);
+    font-weight: 500;
+}
+
+.proton-l7-editor-select,
+.proton-l7-editor-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    font-size: 0.85rem;
+}
+
+.proton-l7-editor-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.proton-l7-editor-hint {
+    font-size: 0.8rem;
+    color: var(--proton-muted);
+    font-style: italic;
+    padding: 4px 0;
+}
+
+.proton-l7-editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+    padding-top: 10px;
+    border-top: 1px solid var(--proton-border-light);
+}
+
+.proton-l7-editor-actions .cbi-button {
+    min-width: 90px;
+    padding: 8px 16px;
+    font-size: 0.85rem;
+}
+
+/* ---------- Loading / Empty внутри таба ---------- */
+
+.proton-apps-settings-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    color: var(--proton-muted);
+    font-size: 0.85rem;
+    opacity: 0.7;
+}
+
+/* ---------- Мобильная адаптация ---------- */
+
+@media (max-width: 600px) {
+    .proton-apps-settings-modal {
+        max-height: calc(100vh - 40px);
+        padding: 18px 16px;
+    }
+
+    .proton-monitoring-label,
+    .proton-l7-editor-label {
+        flex-basis: 110px;
+        font-size: 0.8rem;
+    }
+
+    .proton-l7-service-row {
+        grid-template-columns: 28px 20px 1fr 28px;
+        gap: 8px;
+        padding: 8px;
+    }
+
+    .proton-l7-service-name {
+        font-size: 0.82rem;
+    }
+
+    .proton-l7-service-meta {
+        font-size: 0.72rem;
+    }
+
+    .proton-l7-editor {
+        padding: 10px 12px;
+    }
+
+    .proton-l7-editor-actions {
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .proton-l7-editor-actions .cbi-button {
+        width: 100%;
+    }
+}
+
 :root[data-theme="light"] .proton-apps-settings-row {
     background: rgba(0, 0, 0, 0.015);
     border-color: rgba(0, 0, 0, 0.08);

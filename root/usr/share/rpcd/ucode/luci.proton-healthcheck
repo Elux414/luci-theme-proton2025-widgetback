@@ -748,6 +748,21 @@ function rpcGetMethods() {
 	};
 }
 
+function rpcGetSchema() {
+	return {
+		success: true,
+		methods: VALID_METHODS,
+		fields: METHOD_FIELDS,
+		defaults: METHOD_DEFAULTS,
+		limits: {
+			max_timeout: MAX_TIMEOUT,
+			max_max_age_sec: MAX_MAX_AGE_SEC,
+			max_code: MAX_CODE,
+			max_str_len: MAX_STR_LEN
+		}
+	};
+}
+
 function rpcGetConfig() {
 	let global = getGlobalConfig();
 	let sections = readHealthCheckSections();
@@ -953,6 +968,9 @@ const methods = {
 	},
 	getConfig: {
 		call: function() { return rpcGetConfig(); }
+	},
+	getSchema: {
+		call: function() { return rpcGetSchema(); }
 	},
 	setGlobal: {
 		args: { enabled: '', interval: '', timeout: '', failures_threshold: '', log_to_syslog: '' },
