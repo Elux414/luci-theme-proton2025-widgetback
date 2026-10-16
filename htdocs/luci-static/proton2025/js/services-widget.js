@@ -146,6 +146,10 @@
       this._l7Failures = new Map();
       // L7-статус: service -> 'ok' | 'fail' | undefined
       this._l7StatusCache = new Map();
+      // Последняя точка истории для каждого сервиса (для восстановления
+      // L7-статуса после перезагрузки страницы).
+      // service -> [t, status, pid, hint]
+      this._lastHistoryPoint = new Map();
       // Timestamp последнего L7-запуска: service -> ms
       this._l7LastRun = new Map();
       // Какие сервисы сейчас в работе (семафор внутри сервиса): Set
@@ -267,6 +271,15 @@
             this._logInfo("History loaded for " + serviceName, {
               points: entry ? entry.points.length : 0,
             });
+
+            // Запоминаем последнюю точку — она нужна для восстановления
+            // L7-статуса после _initHealthCheck.
+            if (entry && Array.isArray(entry.points) && entry.points.length) {
+              this._lastHistoryPoint.set(
+                serviceName,
+                entry.points[entry.points.length - 1],
+              );
+            }
           } catch (e) {
             this._logInfo("History load failed for " + serviceName, e);
           }
@@ -365,6 +378,12 @@
             this._l7LastRun.delete(svcName);
           }
         }
+
+        // Восстанавливаем L7-статус из последней точки истории.
+        // Это нужно, чтобы после перезагрузки страницы сервис, который был
+        // в health-failed, не показывался ложно «зелёным» на 30-60 секунд,
+        // пока не сработает следующий цикл L7.
+        this._restoreL7StatusFromHistory();
       } catch (e) {
         this._logInfo("HealthCheck init failed", e);
         this._l7ConfigReady = false;
@@ -379,6 +398,57 @@
       if (!svc || !svc.enabled) return false;
       if (!svc.method) return false;
       return true;
+    }
+
+    /**
+     * Восстанавливает L7-статус из последней точки истории.
+     *
+     * Сценарий: пользователь открыл Overview, L7 отметил сервис как
+     * health-failed. Затем ушёл на другую страницу LuCI, вернулся —
+     * widget пересоздался, _l7StatusCache пуст. Без восстановления
+     * первый цикл L7 начнёт с нуля и запишет ложную зелёную точку
+     * в историю.
+     *
+     * Логика:
+     *   - если последняя точка в истории = 3 (health-failed) →
+     *     восстанавливаем _l7StatusCache = 'fail' и заполняем счётчик
+     *     _l7Failures до порога, чтобы следующий провал не сбрасывал
+     *     статус, а продолжал его.
+     *   - если последняя точка = 1 (running) — ничего не делаем,
+     *     L7 определит здоровье заново.
+     *   - если последняя точка = 0 (stopped) — ничего не делаем,
+     *     L1 сам разберётся при следующем опросе.
+     *   - если последняя точка = 2 (unknown) — ничего не делаем.
+     */
+    _restoreL7StatusFromHistory() {
+      if (!this._l7ConfigReady) return;
+      if (!this._l7Config.global || !this._l7Config.global.enabled) return;
+
+      const threshold = this._l7Threshold();
+      let restored = 0;
+
+      for (const [serviceName, point] of this._lastHistoryPoint) {
+        if (!Array.isArray(point) || point.length < 2) continue;
+
+        const status = Number(point[1]);
+        if (status !== 3) continue;
+
+        // Проверяем, что L7 сейчас реально включён для сервиса.
+        // Если метод не задан или per-service enabled выключен —
+        // восстанавливать нечего.
+        if (!this._isL7EnabledFor(serviceName)) continue;
+
+        this._l7StatusCache.set(serviceName, "fail");
+        // Заполняем счётчик до порога: следующая проверка (провал)
+        // не должна сбрасывать статус. Но если следующая проверка
+        // успешна — счётчик обнулится, статус переключится в 'ok'.
+        this._l7Failures.set(serviceName, threshold);
+        restored++;
+      }
+
+      if (restored > 0) {
+        this._logInfo("L7 status restored from history", { count: restored });
+      }
     }
 
     _l7IntervalMs() {

@@ -108,7 +108,7 @@
       callGetServiceLog = L.rpc.declare({
         object: "luci.proton-system",
         method: "getServiceLog",
-        params: ["name", "lines"],
+        params: ["name", "lines", "include_health_check"],
         expect: { "": {} },
       });
     }
@@ -196,9 +196,16 @@
     return L.resolveDefault(callGetServiceInfo(name), null);
   }
 
-  async function fetchServiceLog(name, lines) {
+  async function fetchServiceLog(name, lines, includeHealthCheck) {
     if (!ensureRpc()) return null;
-    return L.resolveDefault(callGetServiceLog(name, lines || LOG_LINES_DEFAULT), null);
+    return L.resolveDefault(
+      callGetServiceLog(
+        name,
+        lines || LOG_LINES_DEFAULT,
+        includeHealthCheck ? "1" : "0",
+      ),
+      null,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -288,16 +295,24 @@ function renderLogLine(rawLine) {
   const line = String(rawLine || "");
   if (!line) return "";
 
-  // Паттерн logread (busybox) с опциональной датой в начале:
+  // Health-check строки помечены префиксом "[HC] " (см. backend getServiceLog).
+  const isHealthCheck = line.startsWith("[HC] ");
+  const body = isHealthCheck ? line.slice(5) : line;
+  const hcClass = isHealthCheck ? " proton-log-hc" : "";
+
+  // Паттерн logread (busybox):
   // "Wed Oct  7 09:18:31 2026 authpriv.info dropbear[1854]: message"
   // либо "Jan  1 00:00:00 hostname daemon.warn proc[123]: message"
-  const m = line.match(
+  const m = body.match(
     /^(\S{3}\s+\S{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}(?:\s+\d{4})?)\s+([a-z][a-z0-9]+\.(?:emerg|alert|crit|err|warn|warning|notice|info|debug))\s+([^\s:]+(?:\[\d+\])?):\s*(.*)$/i
   );
 
   if (!m) {
-    // Не разобрали — вернём как есть
-    return '<span class="proton-log-msg">' + escapeHtml(line) + "</span>\n";
+    return (
+      '<span class="proton-log-msg' + hcClass + '">' +
+      escapeHtml(body) +
+      "</span>\n"
+    );
   }
 
   const ts = m[1];
@@ -316,10 +331,10 @@ function renderLogLine(rawLine) {
   );
 
   return (
-    '<span class="proton-log-ts">' + escapeHtml(ts) + "</span> " +
-    '<span class="proton-log-lvl ' + lvlClass + '">' + escapeHtml(lvl) + "</span> " +
-    '<span class="proton-log-proc">' + escapeHtml(proc) + ":</span> " +
-    '<span class="proton-log-msg">' + escapeHtml(msg) + "</span>\n"
+    '<span class="proton-log-ts' + hcClass + '">' + escapeHtml(ts) + "</span> " +
+    '<span class="proton-log-lvl ' + lvlClass + hcClass + '">' + escapeHtml(lvl) + "</span> " +
+    '<span class="proton-log-proc' + hcClass + '">' + escapeHtml(proc) + ":</span> " +
+    '<span class="proton-log-msg' + hcClass + '">' + escapeHtml(msg) + "</span>\n"
   );
 }
 
@@ -838,7 +853,7 @@ function renderDetailGraph(box, serviceName, container) {
         logLoaded = true;
         logBox.textContent = t("Loading...");
         try {
-          const res = await fetchServiceLog(name, LOG_LINES_DEFAULT);
+          const res = await fetchServiceLog(name, LOG_LINES_DEFAULT, true);
           const lines = (res && Array.isArray(res.lines)) ? res.lines : [];
           if (!lines.length) {
             logBox.innerHTML = `<div class="proton-apps-detail-logs-empty">${t("Logs unavailable")}</div>`;

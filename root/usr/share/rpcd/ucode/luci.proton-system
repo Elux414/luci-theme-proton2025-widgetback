@@ -520,10 +520,21 @@ function getServiceInfo(req) {
 //
 // Используем `logread -l 200 -e <name>` — 200 строк с запасом,
 // затем фильтруем по имени процесса в квадратных скобках через regexp().
+//
+// При include_health_check='1' дополнительно включаем строки, которые пишет
+// luci.proton-healthcheck через `logger -t proton-healthcheck "<service>: ..."`.
+// Такие строки помечаются префиксом "[HC] ", чтобы UI мог их подсветить.
+//
+// Формат logread -l <N>:
+//   Mon Oct 12 09:36:47 2026 daemon.info dnsmasq[1854]: message
+//   Mon Oct 12 09:37:12 2026 user.notice proton-healthcheck: dnsmasq: ...
 
 function getServiceLog(req) {
 	let name = req.args?.name;
 	let lines = +(req.args?.lines ?? 20);
+	let includeHealthCheck = req.args?.include_health_check === '1'
+		|| req.args?.include_health_check === 1
+		|| req.args?.include_health_check === true;
 
 	if (!name || type(name) != 'string') {
 		return { success: false, error: 'Missing service name', lines: [] };
@@ -543,15 +554,37 @@ function getServiceLog(req) {
 
 	if (!output) return { success: true, lines: [] };
 
-	let pattern = name + "\\[\\d+\\]:";
-	let re = regexp(pattern);
+	let serviceRe = regexp(name + "\\[\\d+\\]:");
 	let result = [];
 
+	// Первый проход: строки самого сервиса.
 	for (let line in split(output, '\n')) {
 		let trimmed = trim(line);
 		if (!trimmed) continue;
-		if (match(trimmed, re) == null) continue;
+		if (match(trimmed, serviceRe) == null) continue;
 		push(result, trimmed);
+	}
+
+	// Второй проход: строки health check для этого сервиса.
+	if (includeHealthCheck) {
+		let hcProc = popen('/sbin/logread -l 200 -e proton-healthcheck', 'r');
+		if (hcProc) {
+			let hcOutput = hcProc.read('all') ?? '';
+			hcProc.close();
+
+			if (hcOutput) {
+				// Строки health check имеют вид:
+				//   Mon Oct 12 09:36:47 2026 user.notice proton-healthcheck: dnsmasq: ...
+				// Фильтруем по "<service>:" после "proton-healthcheck: ".
+				let hcPrefix = "proton-healthcheck: " + name + ":";
+				for (let line in split(hcOutput, '\n')) {
+					let trimmed = trim(line);
+					if (!trimmed) continue;
+					if (index(trimmed, hcPrefix) < 0) continue;
+					push(result, "[HC] " + trimmed);
+				}
+			}
+		}
 	}
 
 	let count = length(result);
@@ -1136,7 +1169,7 @@ const methods = {
 		}
 	},
 	getServiceLog: {
-		args: { name: 'name', lines: 0 },
+		args: { name: 'name', lines: 0, include_health_check: '0' },
 		call: function(req) {
 			return getServiceLog(req);
 		}

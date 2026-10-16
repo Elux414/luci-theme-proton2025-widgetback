@@ -14929,6 +14929,23 @@ body[data-page="admin-status-overview"] .cbi-section .cbi-title h3 {
     overflow-wrap: anywhere;
 }
 
+/* Health-check строки в логах сервиса (маркер [HC] из backend) */
+.proton-apps-detail-logs .proton-log-hc {
+    color: #f97316;
+}
+
+.proton-apps-detail-logs .proton-log-hc.proton-log-msg {
+    color: #fb923c;
+}
+
+:root[data-theme="light"] .proton-apps-detail-logs .proton-log-hc {
+    color: #c2410c;
+}
+
+:root[data-theme="light"] .proton-apps-detail-logs .proton-log-hc.proton-log-msg {
+    color: #ea580c;
+}
+
 :root[data-theme="light"] .proton-apps-detail-logs {
     background: rgba(0, 0, 0, 0.03);
 }
