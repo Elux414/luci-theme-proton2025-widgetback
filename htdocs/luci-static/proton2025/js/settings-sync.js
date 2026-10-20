@@ -45,7 +45,7 @@
     "proton-login-logo": "login_logo",
     "proton-login-logo-only": "login_logo_only",
 	// --- Applications widget ---
-    "proton-apps-widget": "apps_widget",
+    "proton-apps-widget": "services_selected",
     // --- Services widget ---
     "proton-services-widget": "services_selected",
     "proton-services-deep-check": "services_deep_check",
@@ -265,6 +265,40 @@
       const settings = result?.result?.[1]?.settings;
       if (!settings) {
         return;
+      }
+
+      // Одноразовая миграция apps_widget → services_selected.
+      // apps_widget был отдельным ключом; теперь единый источник —
+      // services_selected (его читает демон и dashboard-apps.js).
+      try {
+        if (localStorage.getItem("proton-migration-apps-v1") !== "done") {
+          const appsWidget = settings.apps_widget;
+          const servicesSelected = settings.services_selected;
+          const defaultServices = '["dnsmasq","dropbear"]';
+          const appsHasData = appsWidget && appsWidget !== "[]" && appsWidget !== "";
+          const servicesIsDefault = !servicesSelected || servicesSelected === defaultServices;
+
+          if (appsHasData && servicesIsDefault) {
+            console.info("[Proton2025] Migrating apps_widget → services_selected:", appsWidget);
+            fetch(getRpcPath(), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: Date.now(),
+                method: "call",
+                params: [getRpcSessionId(), "luci.proton-settings", "setSettings",
+                  { settings: { services_selected: appsWidget, apps_widget: "[]" } }],
+              }),
+            }).catch(() => {});
+            originalSetItem("proton-apps-widget", appsWidget);
+            settings.services_selected = appsWidget;
+            settings.apps_widget = "[]";
+          }
+          localStorage.setItem("proton-migration-apps-v1", "done");
+        }
+      } catch (e) {
+        console.warn("[Proton2025] migration failed:", e);
       }
 
       let updated = false;

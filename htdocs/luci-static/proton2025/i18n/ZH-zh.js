@@ -703,4 +703,5 @@ window.ProtonTranslations = {
   "Max age (sec)": "最大时长（秒）",
   "Command": "命令",
   "Edit": "编辑",
+  "These services are tracked in history and health checks": "这些服务会在历史和健康检查中被追踪",
 };

@@ -176,4 +176,5 @@ window.ProtonTranslations = {
   "Max age (sec)": "Max age (sec)",
   "Command": "Command",
   "Edit": "Edit",
+  "These services are tracked in history and health checks": "These services are tracked in history and health checks",
 };

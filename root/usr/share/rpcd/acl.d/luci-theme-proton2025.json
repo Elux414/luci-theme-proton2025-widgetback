@@ -77,22 +77,25 @@
 				"system"
             ],
             "file": {
-                "/etc/init.d/*": [
-                    "exec"
-                ],
-                "/bin/pidof": [
-                    "exec"
-                ],
-                "/proc/cpuinfo": [
-                    "read"
-                ],
-                "/proc/stat": [
-                    "read"
-                ],
-                "/tmp/sysinfo/model": [
-                    "read"
-                ]
-            }
+				"/etc/init.d/*": [
+					"exec"
+			],
+				"/bin/pidof": [
+					"exec"
+			],
+				"/proc/cpuinfo": [
+					"read"
+			],
+				"/proc/stat": [
+					"read"
+			],
+				"/tmp/proton2025-daemon.heartbeat": [
+					"read"
+			],
+				"/tmp/sysinfo/model": [
+					"read"
+			]
+		  }
         },
         "write": {
             "ubus": {

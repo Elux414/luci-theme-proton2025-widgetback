@@ -65,6 +65,7 @@
   let selectedService = null;
   let summaryEventsTimer = null;
   let summarySelectedEventGroup = null;
+  let callWriteUserAction = null;
 
   // ---------------------------------------------------------------------------
   // i18n
@@ -179,6 +180,16 @@
         object: "luci.proton-healthcheck",
         method: "clearService",
         params: ["name"],
+        expect: { "": {} },
+      });
+    }
+	
+	// --- user-action flags (writeUserAction) ---
+    if (!callWriteUserAction) {
+      callWriteUserAction = L.rpc.declare({
+        object: "luci.proton-services-history",
+        method: "writeUserAction",
+        params: ["service", "action"],
         expect: { "": {} },
       });
     }
@@ -927,6 +938,19 @@ function renderDetailGraph(box, serviceName, container) {
     if (busyServices.has(name)) return;
     busyServices.add(name);
 
+    // --- Установить/снять user-action флаг ДО init.d ---
+    try {
+        if (ensureRpc()) {
+            if (action === "stop") {
+                await L.resolveDefault(callWriteUserAction(name, "stop"), null);
+            } else if (action === "start") {
+                await L.resolveDefault(callWriteUserAction(name, ""), null);
+            }
+        }
+    } catch (e) {
+        console.warn("[Proton2025] writeUserAction failed:", name, action, e);
+    }
+
     const origToggle = toggleBtn.textContent;
     const origRestart = restartBtn.textContent;
     toggleBtn.disabled = true;
@@ -935,38 +959,37 @@ function renderDetailGraph(box, serviceName, container) {
     restartBtn.textContent = t("Please wait...");
 
     try {
-      await callRcInit(name, action);
-      const ok = await waitForStatus(name, action === "stop" ? "stopped" : "running", TOGGLE_TIMEOUT_MS);
+        await callRcInit(name, action);
+        const ok = await waitForStatus(name, action === "stop" ? "stopped" : "running", TOGGLE_TIMEOUT_MS);
 
-      if (ok) {
-        showToast(t("Action applied"), "success");
-        // Перерисуем панель
-        if (selectedService === name) {
-          const slot = box.parentElement;
-          if (slot) {
-            slot.replaceChildren();
-            const detail = await buildServiceDetail(name);
-            if (detail) slot.appendChild(detail);
-          }
+        if (ok) {
+            showToast(t("Action applied"), "success");
+            if (selectedService === name) {
+                const slot = box.parentElement;
+                if (slot) {
+                    slot.replaceChildren();
+                    const detail = await buildServiceDetail(name);
+                    if (detail) slot.appendChild(detail);
+                }
+            }
+        } else {
+            showToast(t("Action failed"), "error");
+            toggleBtn.disabled = false;
+            restartBtn.disabled = false;
+            toggleBtn.textContent = origToggle;
+            restartBtn.textContent = origRestart;
         }
-      } else {
+    } catch (e) {
+        console.warn("[Proton2025] service action failed:", name, action, e);
         showToast(t("Action failed"), "error");
         toggleBtn.disabled = false;
         restartBtn.disabled = false;
         toggleBtn.textContent = origToggle;
         restartBtn.textContent = origRestart;
-      }
-    } catch (e) {
-      console.warn("[Proton2025] service action failed:", name, action, e);
-      showToast(t("Action failed"), "error");
-      toggleBtn.disabled = false;
-      restartBtn.disabled = false;
-      toggleBtn.textContent = origToggle;
-      restartBtn.textContent = origRestart;
     } finally {
-      busyServices.delete(name);
+        busyServices.delete(name);
     }
-  }
+}
 
   async function waitForStatus(name, expected, timeoutMs) {
     const api = getStatusFromApi();
@@ -1076,6 +1099,32 @@ function renderDetailGraph(box, serviceName, container) {
     // Обновляем health-график
     if (!selectedService) {
       renderSummaryGraph(card);
+    } else {
+      // Detail-график: перечитываем историю выбранного сервиса
+      // и перерисовываем, чтобы новые точки от демона появлялись.
+      try {
+        const h = window.ProtonServicesHistory;
+        if (h && typeof h.loadService === "function") {
+          await h.loadService(selectedService, { force: true }).catch(function () {
+            return null;
+          });
+        }
+        const slot = card.querySelector('[data-role="detail-slot"]');
+        if (slot) {
+          const graphContainer = slot.querySelector(
+            '[data-role="service-graph-container"]'
+          );
+          if (graphContainer) {
+            renderDetailGraph(
+              slot.querySelector(".proton-apps-detail"),
+              selectedService,
+              graphContainer
+            );
+          }
+        }
+      } catch (e) {
+        // игнорируем
+      }
     }
 }
 
@@ -1150,6 +1199,12 @@ function renderDetailGraph(box, serviceName, container) {
 
     const listContainer = document.createElement("div");
     listContainer.className = "proton-apps-settings-list";
+
+    const servicesHint = document.createElement("div");
+    servicesHint.className = "proton-apps-settings-hint";
+    servicesHint.textContent = t("These services are tracked in history and health checks");
+    servicesHint.style.cssText = "font-size:0.8rem;color:var(--proton-muted);margin-bottom:8px;";
+    contentServices.appendChild(servicesHint);
 
     contentServices.appendChild(searchWrap);
     contentServices.appendChild(listContainer);
@@ -2401,6 +2456,48 @@ function renderDetailGraph(box, serviceName, container) {
     pollStatuses();
     pollTimer = setInterval(pollStatuses, POLL_INTERVAL);
 
+    // Перерисовываем графики, если история догрузилась позже
+    // (демон мог ещё не записать файлы на момент первого чтения).
+    window.addEventListener("proton-services-history-updated", function () {
+      const c = document.getElementById("proton-dashboard-apps");
+      if (!c) return;
+      if (selectedService) return;
+      renderSummaryGraph(c);
+    });
+
+    // Периодически (раз в 30 сек) перечитываем историю из RPC,
+    // чтобы на графике появлялись новые точки от демона.
+    // Без этого memory.services содержит только снимок на момент
+    // _initHistory, и график "застывает".
+    if (!window.__protonAppsHistoryRefreshTimer) {
+      window.__protonAppsHistoryRefreshTimer = setInterval(async function () {
+        const c = document.getElementById("proton-dashboard-apps");
+        if (!c) return;
+        if (document.hidden) return;
+
+        const h = window.ProtonServicesHistory;
+        if (!h || typeof h.loadService !== "function") return;
+
+        const services = readAppsList();
+        if (!services.length) return;
+
+        try {
+          // force: true — перечитать, даже если в кэше уже что-то есть.
+          // Иначе новые точки от демона не подтянутся.
+          await Promise.all(
+            services.map(function (name) {
+              return h.loadService(name, { force: true }).catch(function () {
+                return null;
+              });
+            })
+          );
+          if (!selectedService) renderSummaryGraph(c);
+        } catch (e) {
+          // игнорируем — следующая попытка через 30 сек
+        }
+      }, 30000);
+    }
+
     visibilityHandler = function () {
       if (!document.hidden) pollStatuses();
     };
@@ -2713,10 +2810,25 @@ function escapeHtml(str) {
     let total = 0;
     const widget = window.protonServicesWidget;
     if (widget && widget._statusCache) {
-      for (const [, status] of widget._statusCache) {
-        total++;
-        if (status === "running") running++;
-      }
+        for (const [, status] of widget._statusCache) {
+            total++;
+            if (status === "running") running++;
+        }
+    }
+
+    // Fallback: если _statusCache пуст (например, демон жив и
+    // updateAllStatuses не вызывается), берём список сервисов из
+    // proton-apps-widget и статусы из чипов.
+    if (total === 0) {
+        const services = readAppsList();
+        total = services.length;
+        const card = document.getElementById("proton-dashboard-apps");
+        if (card) {
+            const chips = card.querySelectorAll(".proton-apps-chip");
+            chips.forEach(function (chip) {
+                if (chip.dataset.status === "running") running++;
+            });
+        }
     }
 
     // === 2. Счётчики из событий за окно ===

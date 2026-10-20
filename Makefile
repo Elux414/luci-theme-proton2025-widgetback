@@ -12,7 +12,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-theme-proton2025-expanded
 # Дефолт для локальной сборки без тега; в CI перекрывается тегом релиза.
-PROTON_VERSION?=1.0.4p
+PROTON_VERSION?=1.0.5p
 PROTON_RELEASE?=1
 
 PKG_VERSION:=$(PROTON_VERSION)
