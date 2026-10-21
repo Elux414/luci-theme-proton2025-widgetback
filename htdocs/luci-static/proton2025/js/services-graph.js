@@ -40,6 +40,37 @@
   const PADDING_BOTTOM = 4;
   const PADDING_LEFT = 0;
   const PADDING_RIGHT = 0;
+  
+  // === Crossfade helpers ===
+  function captureFade(container) {
+    if (!container) return null;
+    var reduce = window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var old = container.firstElementChild;
+    container.replaceChildren();
+    if (reduce || !old) return null;
+    var clone = old.cloneNode(true);
+    clone.style.position = "absolute";
+    clone.style.inset = "0";
+    clone.style.pointerEvents = "none";
+    clone.style.opacity = "1";
+    clone.style.transition = "opacity 300ms ease";
+    return clone;
+  }
+
+  function playFade(container, clone) {
+    if (!container || !clone) return;
+    if (getComputedStyle(container).position === "static") {
+      container.style.position = "relative";
+    }
+    container.appendChild(clone);
+    requestAnimationFrame(function () {
+      clone.style.opacity = "0";
+    });
+    setTimeout(function () {
+      if (clone.parentNode) clone.parentNode.removeChild(clone);
+    }, 320);
+  }
 
   // --- Утилиты ---
 
@@ -164,35 +195,74 @@
       const width = opts.width || container.clientWidth || 400;
       const height = opts.height || SERVICE_GRAPH_HEIGHT;
 
-      container.innerHTML = "";
+      var fadeClone = captureFade(container);
 
       if (!Array.isArray(points) || points.length === 0) {
+          var fadeCloneEmpty = captureFade(container);
           const empty = document.createElement("div");
           empty.className = "proton-graph-empty";
           empty.textContent = "No data";
           container.appendChild(empty);
+          playFade(container, fadeCloneEmpty);
           return null;
+      }
+
+      const requestedWindowSec = Number(opts.windowMs) ? Number(opts.windowMs) / 1000 : 0;
+
+      // Если запрошено окно (windowMs), "дотягиваем" последнюю точку до текущего момента,
+      // чтобы график не заканчивался раньше времени.
+      if (requestedWindowSec > 0) {
+          const nowSec = Math.floor(Date.now() / 1000);
+          const lastT = Number(points[points.length - 1][0]);
+          if (nowSec - lastT > 1 && nowSec - lastT < requestedWindowSec) {
+              const lastStatus = Number(points[points.length - 1][1]);
+              const lastPid = points[points.length - 1][2] || 0;
+              const lastHint = points[points.length - 1][3] || 0;
+              points = points.slice();
+              points.push([nowSec, lastStatus, lastPid, lastHint]);
+          }
+          
+          // Компенсируем погрешность тика демона (до 15 секунд).
+          // Если первая точка отстает от края окна не больше чем на 15 секунд,
+          // значит, история есть, но тик демона произошел чуть позже.
+          // Если больше — значит, истории реально нет, и мы оставляем пустоту.
+          const axisStartSec = nowSec - requestedWindowSec;
+          const firstT = Number(points[0][0]);
+          const gapLeft = firstT - axisStartSec;
+          
+          if (gapLeft > 1 && gapLeft <= 15) {
+              const firstStatus = Number(points[0][1]);
+              const firstPid = points[0][2] || 0;
+              const firstHint = points[0][3] || 0;
+              points = points.slice();
+              points.unshift([axisStartSec, firstStatus, firstPid, firstHint]);
+          }
       }
 
       const { startTime, endTime, durationSec } = getTimeRange(points);
       const innerWidth = width - PADDING_LEFT - PADDING_RIGHT;
       const innerHeight = height - PADDING_TOP - PADDING_BOTTOM;
 
-      const requestedWindowSec = Number(opts.windowMs) ? Number(opts.windowMs) / 1000 : 0;
-      const actualDurationSec = durationSec;
-      let dataWidthRatio = 1;
+      // Привязываем ось X к окну (right = now, left = now - windowSec),
+      // а не к min/max точек. Иначе при добавлении новых точек график
+      // масштабируется по X и «растягивается/сжимается».
+      let axisStartTime = startTime;
+      let axisDurationSec = durationSec;
 
-      if (requestedWindowSec > 0 && actualDurationSec < requestedWindowSec) {
-          dataWidthRatio = actualDurationSec / requestedWindowSec;
-          if (dataWidthRatio < 0.02) dataWidthRatio = 0.02;
+      if (requestedWindowSec > 0) {
+          const nowSec = Math.floor(Date.now() / 1000);
+          axisStartTime = nowSec - requestedWindowSec;
+          axisDurationSec = requestedWindowSec;
       }
 
-      const dataWidth = innerWidth * dataWidthRatio;
-      const dataLeftX = PADDING_LEFT + (innerWidth - dataWidth);
+      const dataWidth = innerWidth;
+      const dataLeftX = PADDING_LEFT;
 
       const timeToX = (t) => {
-          if (durationSec === 0) return dataLeftX + dataWidth / 2;
-          const ratio = (t - startTime) / durationSec;
+          if (axisDurationSec === 0) return dataLeftX + dataWidth / 2;
+          let ratio = (t - axisStartTime) / axisDurationSec;
+          if (ratio < 0) ratio = 0;
+          if (ratio > 1) ratio = 1;
           return dataLeftX + ratio * dataWidth;
       };
 
@@ -280,6 +350,7 @@
       svg.appendChild(border);
 
       container.appendChild(svg);
+      playFade(container, fadeClone);
       return svg;
   }
 
@@ -319,21 +390,39 @@
    * @param {object} options — { width, height }
    * @returns {SVGElement|null}
    */
-  function renderHealthGraph(container, points, options) {
+    function renderHealthGraph(container, points, options) {
       if (!container) return null;
 
       const opts = options || {};
       const width = opts.width || container.clientWidth || 400;
       const height = opts.height || HEALTH_GRAPH_HEIGHT;
 
-      container.innerHTML = "";
+      var fadeClone = captureFade(container);
 
       if (!Array.isArray(points) || points.length === 0) {
+          var fadeCloneEmpty = captureFade(container);
           const empty = document.createElement("div");
           empty.className = "proton-graph-empty";
           empty.textContent = "No data";
           container.appendChild(empty);
+          playFade(container, fadeCloneEmpty);
           return null;
+      }
+
+      const requestedWindowSec = Number(opts.windowMs) ? Number(opts.windowMs) / 1000 : 0;
+
+      // Если запрошено окно (windowMs), "дотягиваем" последнюю точку до текущего момента,
+      // чтобы график не заканчивался раньше времени.
+      if (requestedWindowSec > 0) {
+          const nowSec = Math.floor(Date.now() / 1000);
+          const lastT = Number(points[points.length - 1][0]);
+          if (nowSec - lastT > 1 && nowSec - lastT < requestedWindowSec) {
+              const lastRunning = Number(points[points.length - 1][1]);
+              const lastTotal = Number(points[points.length - 1][2]);
+              const lastIncidents = Number(points[points.length - 1][3]);
+              points = points.slice();
+              points.push([nowSec, lastRunning, lastTotal, lastIncidents]);
+          }
       }
 
       const { startTime, endTime, durationSec } = getTimeRange(points);
@@ -346,71 +435,19 @@
           if (total > maxTotal) maxTotal = total;
       }
 
-      // === Привязка к правому краю (см. renderServiceGraph) ===
-      const requestedWindowSec = Number(opts.windowMs) ? Number(opts.windowMs) / 1000 : 0;
-      const actualDurationSec = durationSec;
-      let dataWidthRatio = 1;
+      // Привязываем ось X к окну (right = now, left = now - windowSec),
+      // а не к min/max точек. См. renderServiceGraph.
+      let axisStartTime = startTime;
+      let axisDurationSec = durationSec;
 
-      if (requestedWindowSec > 0 && actualDurationSec < requestedWindowSec) {
-          dataWidthRatio = actualDurationSec / requestedWindowSec;
-          if (dataWidthRatio < 0.02) dataWidthRatio = 0.02;
+      if (requestedWindowSec > 0) {
+          const nowSec = Math.floor(Date.now() / 1000);
+          axisStartTime = nowSec - requestedWindowSec;
+          axisDurationSec = requestedWindowSec;
       }
 
-      const dataWidth = innerWidth * dataWidthRatio;
-      const dataLeftX = PADDING_LEFT + (innerWidth - dataWidth);
-
-      const svgNS = "http://www.w3.org/2000/svg";
-      const svg = document.createElementNS(svgNS, "svg");
-      svg.setAttribute("class", "proton-health-graph-svg");
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-      svg.setAttribute("preserveAspectRatio", "none");
-      svg.setAttribute("aria-hidden", "true");
-
-      const bg = document.createElementNS(svgNS, "rect");
-      bg.setAttribute("x", PADDING_LEFT);
-      bg.setAttribute("y", PADDING_TOP);
-      bg.setAttribute("width", innerWidth);
-      bg.setAttribute("height", innerHeight);
-      bg.setAttribute("class", "proton-service-graph-bg");
-      svg.appendChild(bg);
-
-      // === Пустая область слева (нет данных) ===
-      if (dataWidthRatio < 1) {
-          const emptyRect = document.createElementNS(svgNS, "rect");
-          emptyRect.setAttribute("x", PADDING_LEFT);
-          emptyRect.setAttribute("y", PADDING_TOP);
-          emptyRect.setAttribute("width", dataLeftX - PADDING_LEFT);
-          emptyRect.setAttribute("height", innerHeight);
-          emptyRect.setAttribute("class", "proton-health-graph-empty-area");
-          emptyRect.setAttribute("fill", "rgba(148, 163, 184, 0.04)");
-          emptyRect.setAttribute("stroke", "rgba(148, 163, 184, 0.08)");
-          emptyRect.setAttribute("stroke-dasharray", "3 3");
-          svg.appendChild(emptyRect);
-      }
-
-      // === Пустая область слева (нет данных) ===
-      // Если данных меньше, чем запрошенное окно, рисуем явно "empty" зону.
-      if (dataWidthRatio < 1) {
-          const emptyRect = document.createElementNS(svgNS, "rect");
-          emptyRect.setAttribute("x", PADDING_LEFT);
-          emptyRect.setAttribute("y", PADDING_TOP);
-          emptyRect.setAttribute("width", dataLeftX - PADDING_LEFT);
-          emptyRect.setAttribute("height", innerHeight);
-          emptyRect.setAttribute("class", "proton-service-graph-empty-area");
-          emptyRect.setAttribute("fill", "rgba(148, 163, 184, 0.04)");
-          emptyRect.setAttribute("stroke", "rgba(148, 163, 184, 0.08)");
-          emptyRect.setAttribute("stroke-dasharray", "3 3");
-          svg.appendChild(emptyRect);
-      }
-
-      bg.setAttribute("class", "proton-health-graph-bg");
-      svg.appendChild(bg);
-
-      const timeToX = (t) => {
-          if (durationSec === 0) return dataLeftX + dataWidth / 2;
-          const ratio = (t - startTime) / durationSec;
-          return dataLeftX + ratio * dataWidth;
-      };
+      const dataWidth = innerWidth;
+      const dataLeftX = PADDING_LEFT;
 
       const valueToY = (value) => {
           const ratio = value / maxTotal;
@@ -497,24 +534,51 @@
       svg.appendChild(border);
 
       container.appendChild(svg);
+      playFade(container, fadeClone);
       return svg;
   }
   
-  function renderWorstStatusGraph(container, points, options) {
+    function renderWorstStatusGraph(container, points, options) {
     if (!container) return null;
 
     const opts = options || {};
     const width = opts.width || container.clientWidth || 400;
     const height = opts.height || HEALTH_GRAPH_HEIGHT;
 
-    container.innerHTML = "";
+    var fadeClone = captureFade(container);
 
     if (!Array.isArray(points) || points.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "proton-graph-empty";
-        empty.textContent = "No data";
-        container.appendChild(empty);
-        return null;
+          var fadeCloneEmpty = captureFade(container);
+          const empty = document.createElement("div");
+          empty.className = "proton-graph-empty";
+          empty.textContent = "No data";
+          container.appendChild(empty);
+          playFade(container, fadeCloneEmpty);
+          return null;
+      }
+
+    const requestedWindowSec = Number(opts.windowMs) ? Number(opts.windowMs) / 1000 : 0;
+
+    // Если запрошено окно (windowMs), "дотягиваем" последнюю точку до текущего момента,
+    // чтобы график не заканчивался раньше времени.
+    if (requestedWindowSec > 0) {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const lastT = Number(points[points.length - 1][0]);
+        if (nowSec - lastT > 1 && nowSec - lastT < requestedWindowSec) {
+            const lastStatus = Number(points[points.length - 1][1]);
+            points = points.slice();
+            points.push([nowSec, lastStatus]);
+        }
+        
+        // Компенсируем погрешность тика демона (до 15 секунд) для левого края.
+        const axisStartSec = nowSec - requestedWindowSec;
+        const firstT = Number(points[0][0]);
+        const gapLeft = firstT - axisStartSec;
+        if (gapLeft > 1 && gapLeft <= 15) {
+            const firstStatus = Number(points[0][1]);
+            points = points.slice();
+            points.unshift([axisStartSec, firstStatus]);
+        }
     }
 
     const { startTime, endTime, durationSec } = getTimeRange(points);
@@ -528,22 +592,25 @@
     svg.setAttribute("preserveAspectRatio", "none");
     svg.setAttribute("aria-hidden", "true");
 
-    // Привязка к правому краю (как в renderServiceGraph)
-    const requestedWindowSec = Number(opts.windowMs) ? Number(opts.windowMs) / 1000 : 0;
-    const actualDurationSec = durationSec;
-    let dataWidthRatio = 1;
+    // Привязка оси X к окну (right = now, left = now - windowSec),
+    // а не к min/max точек. См. renderServiceGraph.
+    let axisStartTime = startTime;
+    let axisDurationSec = durationSec;
 
-    if (requestedWindowSec > 0 && actualDurationSec < requestedWindowSec) {
-        dataWidthRatio = actualDurationSec / requestedWindowSec;
-        if (dataWidthRatio < 0.02) dataWidthRatio = 0.02;
+    if (requestedWindowSec > 0) {
+        const nowSec = Math.floor(Date.now() / 1000);
+        axisStartTime = nowSec - requestedWindowSec;
+        axisDurationSec = requestedWindowSec;
     }
 
-    const dataWidth = innerWidth * dataWidthRatio;
-    const dataLeftX = PADDING_LEFT + (innerWidth - dataWidth);
+    const dataWidth = innerWidth;
+    const dataLeftX = PADDING_LEFT;
 
     const timeToX = (t) => {
-        if (durationSec === 0) return dataLeftX + dataWidth / 2;
-        const ratio = (t - startTime) / durationSec;
+        if (axisDurationSec === 0) return dataLeftX + dataWidth / 2;
+        let ratio = (t - axisStartTime) / axisDurationSec;
+        if (ratio < 0) ratio = 0;
+        if (ratio > 1) ratio = 1;
         return dataLeftX + ratio * dataWidth;
     };
 
@@ -614,8 +681,9 @@
         svg.appendChild(rect);
     }
 
-    container.appendChild(svg);
-    return svg;
+      container.appendChild(svg);
+      playFade(container, fadeClone);
+      return svg;
 }
 
   // --- Timeline событий (Этап 6.7) ----------------------------------------
@@ -688,7 +756,25 @@
 
     container.style.height = height + "px";
     container.style.minHeight = height + "px";
-    container.innerHTML = "";
+    
+    // --- Capture old state for crossfade ---
+    var fadeClone = null;
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var oldSvg = container.querySelector(".proton-events-timeline-svg");
+    
+    if (oldSvg && !reduce) {
+      fadeClone = oldSvg.cloneNode(true);
+      fadeClone.style.position = "absolute";
+      fadeClone.style.inset = "0";
+      fadeClone.style.pointerEvents = "none";
+      fadeClone.style.opacity = "1";
+      fadeClone.style.transition = "opacity 300ms ease";
+    }
+    
+    // Удаляем только старый SVG, оставляя кнопку легенды
+    if (oldSvg) oldSvg.remove();
+    var oldEmpty = container.querySelector(".proton-events-timeline-empty");
+    if (oldEmpty) oldEmpty.remove();
 
     // Пустой набор событий — показываем placeholder.
     if (!Array.isArray(events) || events.length === 0) {
@@ -699,9 +785,19 @@
           ? window.protonT("No incidents")
           : "No incidents";
       container.appendChild(empty);
+      
+      if (fadeClone) {
+          if (getComputedStyle(container).position === "static") {
+              container.style.position = "relative";
+          }
+          container.appendChild(fadeClone);
+          requestAnimationFrame(function () { fadeClone.style.opacity = "0"; });
+          setTimeout(function () { if (fadeClone.parentNode) fadeClone.parentNode.removeChild(fadeClone); }, 320);
+      }
       return null;
     }
 
+    // --- Фикс оси X (синхронизация с now) ---
     const nowSec = Math.floor(Date.now() / 1000);
     const windowMs = Number(opts.windowMs) || 0;
     let startSec, endSec;
@@ -728,8 +824,9 @@
         container.appendChild(empty);
         return null;
       }
-      startSec = minT;
-      endSec = Math.max(maxT, startSec + 1);
+      // Если окно не задано, тоже привязываем к "сейчас", чтобы не дёргалось.
+      endSec = nowSec;
+      startSec = Math.min(minT, nowSec);
     }
 
     const durationSec = Math.max(1, endSec - startSec);
@@ -739,22 +836,23 @@
       return Math.max(0, Math.min(width, ratio * width));
     };
 
-    const COLUMN_WIDTH = 4;
     const groups = new Map();
 
+    // Группируем события по временным бакетам (например, 5 секунд),
+    // чтобы схлопнуть близкие события в один стек. Это не зависит от ширины в пикселях,
+    // поэтому при сдвиге окна (now) стек не будет прыгать по экрану.
+    const BUCKET_SEC = 5;
     for (const e of events) {
       if (!Array.isArray(e) || e.length < 3) continue;
       const t = Number(e[0]);
       if (!Number.isFinite(t)) continue;
       if (t < startSec || t > endSec) continue;
 
-      const x = timeToX(t);
-      const columnIndex = Math.floor(x / COLUMN_WIDTH);
-
-      if (!groups.has(columnIndex)) {
-        groups.set(columnIndex, []);
+      const bucketTs = Math.floor(t / BUCKET_SEC) * BUCKET_SEC;
+      if (!groups.has(bucketTs)) {
+        groups.set(bucketTs, []);
       }
-      groups.get(columnIndex).push(e);
+      groups.get(bucketTs).push(e);
     }
 
     const svgNS = "http://www.w3.org/2000/svg";
@@ -766,18 +864,19 @@
 
     const baselineY = height;
 
-    for (const [columnIndex, groupEvents] of groups) {
+    for (const [bucketTs, groupEvents] of groups) {
       const sorted = groupEvents.slice().sort((a, b) => {
         const ra = EVENT_STACK_RANK[String(a[2])] ?? 99;
         const rb = EVENT_STACK_RANK[String(b[2])] ?? 99;
         return ra - rb;
       });
 
-      const x = columnIndex * COLUMN_WIDTH + COLUMN_WIDTH / 2;
+      // Рисуем стек в центре временного бакета
+      const x = timeToX(bucketTs + BUCKET_SEC / 2);
       const strokeWidth = 3;
       const stackHeight = height;
 
-      const groupKey = String(columnIndex);
+      const groupKey = String(bucketTs);
       const isSelected = selectedGroupKey === groupKey;
 
       const hasProblem = sorted.some(
@@ -873,12 +972,10 @@
         hitArea.setAttribute("class", "proton-events-timeline-hitarea");
         hitArea.setAttribute("cursor", "pointer");
 
-        // Передаём в обработчик сам columnIndex и копию событий группы.
         const capturedGroup = sorted.slice();
-        const capturedColumnIndex = columnIndex;
         hitArea.addEventListener("click", function (ev) {
           ev.stopPropagation();
-          onEventClick(capturedColumnIndex, capturedGroup);
+          onEventClick(bucketTs, capturedGroup);
         });
 
         svg.appendChild(hitArea);
@@ -886,6 +983,16 @@
     }
 
 		container.appendChild(svg);
+    
+    // --- Play crossfade for timeline ---
+    if (fadeClone) {
+        if (getComputedStyle(container).position === "static") {
+            container.style.position = "relative";
+        }
+        container.appendChild(fadeClone);
+        requestAnimationFrame(function () { fadeClone.style.opacity = "0"; });
+        setTimeout(function () { if (fadeClone.parentNode) fadeClone.parentNode.removeChild(fadeClone); }, 320);
+    }
 
     // === Кнопка легенды в левом нижнем углу ===
     // position: absolute — задаётся через CSS (.proton-events-legend-btn).

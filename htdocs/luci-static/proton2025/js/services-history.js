@@ -953,8 +953,12 @@
     const result = [];
     const tolerance = Math.ceil(step / 2);
 
-    for (let bucketStart = cutoff; bucketStart <= now; bucketStart += step) {
-      const bucketCenter = bucketStart + Math.floor(step / 2);
+	// Привязываем сетку бакетов к фиксированной эпохе (кратно step),
+	// чтобы границы не сдвигались при каждом рендере из-за Δnow.
+	const alignedStart = Math.floor(cutoff / step) * step;
+
+	for (let bucketStart = alignedStart; bucketStart <= now; bucketStart += step) {
+		const bucketCenter = bucketStart + Math.floor(step / 2);
 
       let worstPriority = 0;
 
