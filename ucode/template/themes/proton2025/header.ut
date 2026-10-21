@@ -384,6 +384,10 @@ body {
 <script src="{{ media }}/js/translations-search.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/search-proton2025-data.js?v={{ __pv }}" defer></script>
 <script src="{{ media }}/js/search-proton2025.js?v={{ __pv }}" defer></script>
+{# Диагностика производительности — no-op при выключенном флаге.
+   Включается через localStorage.setItem('proton-perf-debug','1').
+   Подключается последним, чтобы видеть все остальные скрипты. #}
+{# <script src="{{ media }}/js/perf-debug.js?v={{ __pv }}" defer></script> #}
 {# 18.6 КБ + опрос setInterval 20×300мс + MutationObserver ради блока
    #proton-theme-settings, который существует только на Система → Управление.
    На остальных страницах inject() сразу выходит — запрос был впустую.

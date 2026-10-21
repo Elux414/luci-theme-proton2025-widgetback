@@ -9,6 +9,10 @@
 (function () {
   "use strict";
 
+  const DAEMON_CHECK_THROTTLE_MS = 30000;   // BUG-2
+  const HEARTBEAT_PATH = '/tmp/proton2025-daemon.heartbeat';
+  const HEARTBEAT_MAX_AGE = 30; // сек
+
   // =====================================================
   // Утилита: управление видимостью секции виджетов
   // =====================================================
@@ -33,7 +37,6 @@
     // Проверяем видимость виджетов
     const servicesVisible = isVisible(servicesWidget);
     const tempVisible = isVisible(tempWidget);
-
     // Скрываем секцию если все виджеты скрыты
     section.style.display = servicesVisible || tempVisible ? "" : "none";
   }
@@ -118,7 +121,12 @@
         bootcount: { category: "system", icon: "🔢", daemon: false },
         packet_steering: { category: "network", icon: "📡", daemon: false },
       };
-
+	  
+	  this._daemonAlive = false;
+	  this._daemonCheckInFlight = false;
+	  this._lastDaemonCheck = 0;
+	  this._rpcFileRead = null;
+	  this._historySource = null;  // 'daemon' | 'browser' | null (ещё не определён)
       this.availableServices = [];
       this.checkInterval = null;
       this.pollIntervalMs = 10000;
@@ -242,6 +250,77 @@
     return true;
 }
 
+async _checkDaemonAlive() {
+    if (this._daemonCheckInFlight) return this._daemonAlive;
+    this._daemonCheckInFlight = true;
+
+    try {
+        if (!this._rpcFileRead && window.L && L.rpc) {
+            try {
+                this._rpcFileRead = L.rpc.declare({
+                    object: 'file',
+                    method: 'read',
+                    params: ['path'],
+                    expect: { data: '' },
+                });
+            } catch (e) {
+                this._rpcFileRead = null;
+            }
+        }
+        if (!this._rpcFileRead) {
+            this._daemonAlive = false;
+            this._updateHistorySource();
+            return false;
+        }
+
+        let res = await L.resolveDefault(
+            this._rpcFileRead(HEARTBEAT_PATH),
+            null
+        );
+        // RPC file.read в LuCI возвращает payload напрямую:
+        //   - number (для числового файла, как heartbeat)
+        //   - string (для текстового)
+        //   - { data: "..." } (если expect сработал)
+        // Обрабатываем все варианты.
+        let raw = '';
+        if (res && typeof res.data === 'string') raw = res.data;
+        else if (res && typeof res.data === 'number') raw = String(res.data);
+        else if (typeof res === 'string') raw = res;
+        else if (typeof res === 'number') raw = String(res);
+
+        let n = parseInt(String(raw).trim(), 10);
+        if (isNaN(n) || n <= 0) {
+            this._daemonAlive = false;
+            this._updateHistorySource();
+            return false;
+        }
+        // ВАЖНО: n — unixtime по часам РОУТЕРА, Date.now() — по часам БРАУЗЕРА.
+        // На VM / при NTP-коррекции они могут расходиться на секунды/минуты.
+        // Поэтому age берём по модулю: демон жив, если |now - n| < 30 сек.
+        let age = Math.abs(Math.floor(Date.now() / 1000) - n);
+        this._daemonAlive = age < HEARTBEAT_MAX_AGE;
+        this._updateHistorySource();
+        return this._daemonAlive;
+    } catch (e) {
+        try { console.warn('[ProtonServicesWidget] _checkDaemonAlive failed:', e && e.message ? e.message : e); } catch (_) {}
+        this._daemonAlive = false;
+        this._updateHistorySource();
+        return false;
+    } finally {
+        this._daemonCheckInFlight = false;
+    }
+}
+
+_updateHistorySource() {
+    let next = this._daemonAlive ? 'daemon' : 'browser';
+    if (this._historySource !== next) {
+        this._historySource = next;
+        try {
+            console.info('[ProtonServicesWidget] history source: ' + next);
+        } catch (e) {}
+    }
+}
+
     async _initHistory() {
       if (!window.ProtonServicesHistory) return;
 
@@ -250,46 +329,82 @@
         this._historyReady = true;
         this._logInfo("History module initialized");
 
-        // Ждём либо события sync, либо таймаута 1500 мс
-        await new Promise((resolve) => {
-          let done = false;
-          const finish = () => {
-            if (done) return;
-            done = true;
-            window.removeEventListener("proton-settings-synced", finish);
-            resolve();
-          };
-          window.addEventListener("proton-settings-synced", finish);
-          setTimeout(finish, 1500);
+        // Никакого ожидания proton-settings-synced: init() уже дождался
+        // loadSettingsFromUci() внутри себя. Событие эмитится ТОЛЬКО при
+        // изменении настроек — на стабильной системе его не будет никогда.
+        // Единый источник истины: proton-apps-widget. После миграции
+        // он синхронизирован с UCI services_selected. Fallback — this.services.
+        let historyServices = this.services;
+        try {
+          const raw = localStorage.getItem("proton-apps-widget");
+          if (raw !== null) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              historyServices = this._normalizeServiceList(parsed);
+            }
+          }
+        } catch (e) {}
+
+        this._logInfo("Loading history for services", { services: historyServices.slice() });
+
+        // Параллельная загрузка истории всех сервисов + health
+        const loadTasks = historyServices.map((serviceName) =>
+          window.ProtonServicesHistory.loadService(serviceName).catch((e) => {
+            this._logInfo("History load failed for " + serviceName, e);
+            return null;
+          })
+        );
+        const healthTask = window.ProtonServicesHistory.loadHealth().catch((e) => {
+          this._logInfo("Health load failed", e);
+          return null;
         });
 
-        this._logInfo("Loading history for services", { services: this.services.slice() });
+        const results = await Promise.all(loadTasks.concat([healthTask]));
 
-        for (const serviceName of this.services) {
-          try {
-            const entry = await window.ProtonServicesHistory.loadService(serviceName);
-            this._logInfo("History loaded for " + serviceName, {
-              points: entry ? entry.points.length : 0,
-            });
-
-            // Запоминаем последнюю точку — она нужна для восстановления
-            // L7-статуса после _initHealthCheck.
-            if (entry && Array.isArray(entry.points) && entry.points.length) {
-              this._lastHistoryPoint.set(
-                serviceName,
-                entry.points[entry.points.length - 1],
-              );
-            }
-          } catch (e) {
-            this._logInfo("History load failed for " + serviceName, e);
+        historyServices.forEach((serviceName, idx) => {
+          const entry = results[idx];
+          this._logInfo("History loaded for " + serviceName, {
+            points: entry ? entry.points.length : 0,
+          });
+          if (entry && Array.isArray(entry.points) && entry.points.length) {
+            this._lastHistoryPoint.set(
+              serviceName,
+              entry.points[entry.points.length - 1],
+            );
           }
-        }
+        });
+        this._logInfo("Health history loaded");
 
-        try {
-          await window.ProtonServicesHistory.loadHealth();
-          this._logInfo("Health history loaded");
-        } catch (e) {
-          this._logInfo("Health load failed", e);
+        // Если демон ещё не успел записать историю — файлы могут быть пустыми
+        // при первом чтении. Через 3 сек перечитываем: loadService больше
+        // не кэширует пустое, поэтому данные подтянутся.
+          const emptyServices = historyServices.filter((_, idx) => {
+          const entry = results[idx];
+          return !entry || !Array.isArray(entry.points) || entry.points.length === 0;
+        });
+
+        if (emptyServices.length > 0) {
+          this._logInfo("History empty for some services, will retry in 3s", { services: emptyServices });
+          setTimeout(() => {
+            const retryTasks = emptyServices.map((name) =>
+              window.ProtonServicesHistory.loadService(name).catch(() => null)
+            );
+            Promise.all(retryTasks).then((retryResults) => {
+              let updated = 0;
+              emptyServices.forEach((name, i) => {
+                const entry = retryResults[i];
+                if (entry && entry.points && entry.points.length > 0) {
+                  updated++;
+                  this._lastHistoryPoint.set(name, entry.points[entry.points.length - 1]);
+                }
+              });
+              if (updated > 0) {
+                this._logInfo("History retry loaded", { updated });
+                // Триггерим перерисовку графиков в dashboard-apps.js
+                window.dispatchEvent(new CustomEvent("proton-services-history-updated"));
+              }
+            });
+          }, 3000);
         }
       } catch (e) {
         this._logInfo("History init failed", e);
@@ -331,19 +446,6 @@
       }
 
       try {
-        // Ждём синхронизации настроек (как в _initHistory), но с меньшим таймаутом.
-        await new Promise((resolve) => {
-          let done = false;
-          const finish = () => {
-            if (done) return;
-            done = true;
-            window.removeEventListener("proton-settings-synced", finish);
-            resolve();
-          };
-          window.addEventListener("proton-settings-synced", finish);
-          setTimeout(finish, 1000);
-        });
-
         const res = await L.resolveDefault(this._rpcHealthCheck.getConfig(), null);
         if (!res || !res.success) {
           this._logInfo("HealthCheck getConfig failed", res);
@@ -846,6 +948,14 @@
       }
 
       if (!this.isOverviewPage()) return;
+
+	  await this._checkDaemonAlive();
+	  // Если демон ещё не записал heartbeat (только что стартовал, VM
+	  // проснулась после сна) — дадим ему 2 сек и перепроверим.
+	  if (!this._daemonAlive) {
+	    await new Promise((r) => setTimeout(r, 2000));
+	    await this._checkDaemonAlive();
+	  }
 
       // Сначала завершаем инициализацию истории, чтобы _historyReady
       // был установлен ДО того, как startStatusMonitoring проверит его.
@@ -1573,6 +1683,7 @@
     }
 
     _appendHealthPoint() {
+	  if (this._daemonAlive) return;
       if (!this._historyReady || !window.ProtonServicesHistory) return;
 
       const total = this.services.length;
@@ -1819,7 +1930,12 @@
 
     // ==================== Проверка статуса ====================
 
-        async updateAllStatuses() {
+    async updateAllStatuses() {
+	let now = Date.now();
+		if (now - (this._lastDaemonCheck || 0) > DAEMON_CHECK_THROTTLE_MS) {
+			this._lastDaemonCheck = now;
+			await this._checkDaemonAlive();
+		}
       // ЭТАП 2: разрешаем работу без смонтированного виджета,
       // если модуль истории активен — иначе точки никогда не запишутся.
       if (!this._mounted && !this._historyReady) return;
@@ -1944,7 +2060,9 @@
 		
 		// L7 — fire-and-forget. Не ждём, потому что проверки могут
         // занять до 5 сек × N. Семафор 2 внутри _runL7Cycle.
-        void this._runL7Cycle();
+        if (!this._daemonAlive) {
+			void this._runL7Cycle();
+		}
       }
     }
 
@@ -2112,6 +2230,7 @@
 }
 
 async _appendEvent(serviceName, type, hint, details) {
+	if (this._daemonAlive) return;
     if (!this._ensureAnalyzeRpc()) return;
     if (type === "running") return;
 
@@ -2126,6 +2245,7 @@ async _appendEvent(serviceName, type, hint, details) {
 }
 	
     _appendHistoryPoint(serviceName, status, hint, details, pidOverride) {
+	if (this._daemonAlive) return;     // демон ведёт историю
     if (!this._historyReady || !window.ProtonServicesHistory) return;
     if (!this._isValidServiceName(serviceName)) return;
 
@@ -2432,14 +2552,21 @@ async _appendEvent(serviceName, type, hint, details) {
     // ==================== Мониторинг ====================
 
     startStatusMonitoring() {
-      // === ЭТАП 2: история пишется независимо от _mounted ===
-      // Если модуль истории доступен, запускаем периодический опрос
-      // для записи точек, даже если legacy-виджет не смонтирован.
-      if (this._historyReady && !this._historyPollTimer) {
+      // История пишется только если демон мёртв (fallback-режим).
+      // Если демон жив — он пишет историю сам, а браузер только читает.
+      // Это устраняет конкуренцию за rpcd (file.exec блокирует rpcd).
+      if (this._historyReady && !this._historyPollTimer && !this._daemonAlive) {
         const interval = (this._historySampleInterval || 10) * 1000;
-        this._logInfo("Starting history poll", { interval });
+        this._logInfo("Starting history poll (browser fallback)", { interval });
         this._historyPollTimer = setInterval(() => {
           if (document.hidden) return;
+          if (this._daemonAlive) {
+            // Демон ожил — перестаём дублировать
+            clearInterval(this._historyPollTimer);
+            this._historyPollTimer = null;
+            this._logInfo("Daemon alive — stopping browser history poll");
+            return;
+          }
           this.updateAllStatuses().catch(() => {});
         }, interval);
       }

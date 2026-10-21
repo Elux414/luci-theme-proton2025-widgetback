@@ -105,20 +105,25 @@
    * Загрузить историю одного сервиса с backend в память.
    * Идемпотентно: если уже загружено, не перезагружает.
    */
-  async function loadService(service) {
-    if (memory.services.has(service)) return memory.services.get(service);
+   async function loadService(service, options) {
+    const opts = options || {};
+    const force = opts.force === true;
+    const existing = memory.services.get(service);
+
+    // Кэш считаем валидным только если в нём есть НЕПУСТЫЕ points
+    // и не запрошено принудительное обновление (демон мог дописать
+    // новые точки с момента прошлого чтения).
+    if (!force && existing && Array.isArray(existing.points) && existing.points.length > 0) {
+      return existing;
+    }
+
     const rpc = ensureRpc();
     if (!rpc) return null;
 
     try {
       const res = await L.resolveDefault(rpc.readHistory(service), null);
       if (!res || !res.success) {
-        memory.services.set(service, {
-          points: [],
-          sampleInterval: null,
-          maxAgeHours: null,
-        });
-        return memory.services.get(service);
+        return existing || { points: [], sampleInterval: null, maxAgeHours: null };
       }
 
       const entry = {
@@ -126,7 +131,12 @@
         sampleInterval: res.sample_interval || null,
         maxAgeHours: res.max_age_hours || null,
       };
-      memory.services.set(service, entry);
+
+      // Сохраняем в кэш только если есть points. Пустое — не кэшируем.
+      if (entry.points.length > 0) {
+        memory.services.set(service, entry);
+      }
+
       return entry;
     } catch (e) {
       console.warn("[ProtonServicesHistory] loadService failed:", service, e);
@@ -287,7 +297,9 @@
       if (!entry) continue;
 
       try {
-        await L.resolveDefault(
+        // L.resolveDefault возвращает null при ошибке RPC, не бросает.
+        // Поэтому проверяем payload.success явно.
+        const result = await L.resolveDefault(
           rpc.writeHistory(
             service,
             settings.sampleInterval,
@@ -296,9 +308,17 @@
           ),
           null,
         );
+        if (!result || !result.success) {
+          console.warn(
+            "[ProtonServicesHistory] flush service failed:",
+            service,
+            result,
+          );
+          dirtyServices.add(service);
+        }
       } catch (e) {
-        console.warn("[ProtonServicesHistory] flush service failed:", service, e);
-        dirtyServices.add(service); // вернуть в очередь
+        console.warn("[ProtonServicesHistory] flush service threw:", service, e);
+        dirtyServices.add(service);
       }
     }
 
@@ -306,7 +326,7 @@
     if (healthDirty) {
       healthDirty = false;
       try {
-        await L.resolveDefault(
+        const result = await L.resolveDefault(
           rpc.writeHealthHistory(
             settings.sampleInterval,
             settings.maxAgeHours,
@@ -314,8 +334,15 @@
           ),
           null,
         );
+        if (!result || !result.success) {
+          console.warn(
+            "[ProtonServicesHistory] flush health failed:",
+            result,
+          );
+          healthDirty = true;
+        }
       } catch (e) {
-        console.warn("[ProtonServicesHistory] flush health failed:", e);
+        console.warn("[ProtonServicesHistory] flush health threw:", e);
         healthDirty = true;
       }
     }
@@ -432,13 +459,112 @@
 
   /**
    * Принудительный flush при закрытии страницы.
+   *
+   * navigator.sendBeacon — стандартный API для отправки данных при
+   * pagehide/unload. Браузер гарантирует доставку, не блокирует страницу.
+   * Мы не получим ответа (нельзя проверить success), но при закрытии
+   * страницы это приемлемо: если данные не дошли — они и так потеряны.
+   *
+   * Если sendBeacon недоступен или вернул false (не принял) — fallback
+   * на fetch с keepalive: true (крайний случай, синхронный).
+   *
+   * Обычный flush() (каждые 30 сек) по-прежнему использует L.resolveDefault
+   * с проверкой success — см. flush().
    */
   function flushOnPageHide() {
-    // Синхронный flush через navigator.sendBeacon не работает с ubus.
-    // Используем async flush с keepalive через fetch — но для ubus это сложно.
-    // Проще — полагаемся на 30-секундный таймер; потеря 30 секунд данных
-    // не критична.
-    flush().catch(() => {});
+    if (!window.L || !L.env || !L.env.sessionid) {
+      // RPC не готов — нечего отправлять
+      return;
+    }
+
+    const sessionId = L.env.sessionid;
+    const ubusPath = L.env.ubuspath || "/ubus/";
+
+    // Что нужно отправить: dirtyServices + healthDirty
+    const payloads = [];
+
+    // Services
+    dirtyServices.forEach(function (service) {
+      const entry = memory.services.get(service);
+      if (!entry || !entry.points.length) return;
+      payloads.push({
+        method: "writeHistory",
+        params: {
+          name: service,
+          sample_interval: _settingsCache.sampleInterval,
+          max_age_hours: _settingsCache.maxAgeHours,
+          points: entry.points,
+        },
+      });
+    });
+
+    // Health
+    if (healthDirty && memory.health.points.length) {
+      payloads.push({
+        method: "writeHealthHistory",
+        params: {
+          sample_interval: _settingsCache.sampleInterval,
+          max_age_hours: _settingsCache.maxAgeHours,
+          points: memory.health.points,
+        },
+      });
+    }
+
+    if (!payloads.length) return;
+
+    // Метка, чтобы не отправлять повторно при beforeunload+pagehide
+    if (flushOnPageHide._sent) return;
+    flushOnPageHide._sent = true;
+
+    // Сбрасываем флаги сразу — чтобы избежать дублей
+    dirtyServices.clear();
+    healthDirty = false;
+
+    var sendBeaconAvailable = typeof navigator !== "undefined" &&
+      typeof navigator.sendBeacon === "function";
+
+    payloads.forEach(function (payload) {
+      var body = JSON.stringify({
+        jsonrpc: "2.0",
+        id: Date.now(),
+        method: "call",
+        params: [
+          sessionId,
+          "luci.proton-services-history",
+          payload.method,
+          payload.params,
+        ],
+      });
+
+      var sent = false;
+      if (sendBeaconAvailable) {
+        try {
+          var blob = new Blob([body], { type: "application/json" });
+          sent = navigator.sendBeacon(ubusPath, blob);
+        } catch (e) {
+          sent = false;
+        }
+      }
+
+      if (!sent) {
+        // Fallback: fetch с keepalive
+        try {
+          fetch(ubusPath, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: body,
+            keepalive: true,
+          }).catch(function () {});
+        } catch (e) {}
+      }
+    });
+
+    console.info(
+      "[ProtonServicesHistory] pagehide: flushed " +
+        payloads.length +
+        " payload(s) via " +
+        (sendBeaconAvailable ? "sendBeacon" : "fetch(keepalive)"),
+    );
   }
 
   // --- Утилиты анализа истории (Этап 3) ---
@@ -926,6 +1052,9 @@
   window.ProtonServicesHistory = {
     init,
 	readSettings,
+	getSampleInterval() {
+		return _settingsCache.sampleInterval;
+	},
     loadSettingsFromUci,
     loadService,
     loadHealth,
