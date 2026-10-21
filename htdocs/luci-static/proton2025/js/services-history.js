@@ -1063,16 +1063,20 @@
     loadService,
     loadHealth,
     loadUserActions,
+
     appendServicePoint,
     appendHealthPoint,
     setUserAction,
     getUserAction,
+
     getServiceHistory,
     getHealthHistory,
+
     flush,
     startAutoFlush,
     stopAutoFlush,
     flushOnPageHide,
+
     // === Этап 3: утилиты анализа ===
     getServiceHistoryForRender,
     getHealthHistoryForRender,
@@ -1119,4 +1123,5 @@
   });
 
   window.addEventListener("pagehide", flushOnPageHide);
+
 })();

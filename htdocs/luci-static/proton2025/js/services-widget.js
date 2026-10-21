@@ -951,11 +951,17 @@ _updateHistorySource() {
 
 	  await this._checkDaemonAlive();
 	  // Если демон ещё не записал heartbeat (только что стартовал, VM
-	  // проснулась после сна) — дадим ему 2 сек и перепроверим.
+	  // проснулась после сна) — дадим ему время с экспоненциальной задержкой.
 	  if (!this._daemonAlive) {
-	    await new Promise((r) => setTimeout(r, 2000));
-	    await this._checkDaemonAlive();
+	    const delays = [2000, 4000, 8000];
+	    for (let i = 0; i < delays.length; i++) {
+	      await new Promise((r) => setTimeout(r, delays[i]));
+	      await this._checkDaemonAlive();
+	      if (this._daemonAlive) break;
+	    }
 	  }
+#else
+	  this._daemonAlive = true; // Lite: демон всегда считается живым
 
       // Сначала завершаем инициализацию истории, чтобы _historyReady
       // был установлен ДО того, как startStatusMonitoring проверит его.
@@ -2063,6 +2069,7 @@ _updateHistorySource() {
         if (!this._daemonAlive) {
 			void this._runL7Cycle();
 		}
+
       }
     }
 
@@ -2243,7 +2250,7 @@ async _appendEvent(serviceName, type, hint, details) {
         this._logDebug("appendEvent failed", e);
     }
 }
-	
+
     _appendHistoryPoint(serviceName, status, hint, details, pidOverride) {
 	if (this._daemonAlive) return;     // демон ведёт историю
     if (!this._historyReady || !window.ProtonServicesHistory) return;
@@ -2422,6 +2429,10 @@ async _appendEvent(serviceName, type, hint, details) {
 
               if (svcData.running === true) {
                 return "running";
+              }
+
+              if (svcData.enabled === false) {
+                return "stopped";
               }
 
               if (svcData.enabled === true) {
