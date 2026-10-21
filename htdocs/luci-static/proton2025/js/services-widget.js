@@ -960,8 +960,6 @@ _updateHistorySource() {
 	      if (this._daemonAlive) break;
 	    }
 	  }
-#else
-	  this._daemonAlive = true; // Lite: демон всегда считается живым
 
       // Сначала завершаем инициализацию истории, чтобы _historyReady
       // был установлен ДО того, как startStatusMonitoring проверит его.
