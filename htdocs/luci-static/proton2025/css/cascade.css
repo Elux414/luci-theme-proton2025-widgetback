@@ -15994,3 +15994,47 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 .proton-service-graph-bg {
     fill: rgba(148, 163, 184, 0.04);
 }
+
+/* === Hosts Widget Columns === */
+.proton-hosts-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  width: 100%;
+}
+
+.proton-hosts-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.proton-hosts-col-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--proton-muted);
+  margin: 0 0 8px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--proton-border);
+  font-weight: 600;
+}
+
+.proton-hosts-list-inner {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Адаптивность для мобилок */
+@media (max-width: 600px) {
+  .proton-hosts-columns {
+    grid-template-columns: 1fr;
+  }
+}

@@ -62,8 +62,20 @@
     if (!ensureRpc())
       throw new Error("LuCI RPC API is not ready");
 
+    let selectedWan = null;
+    try {
+        selectedWan = localStorage.getItem('proton-wan-interface');
+    } catch(e) {}
+
     const interfaces = await L.resolveDefault(callInterfaceDump(), []);
-    const wan = pickWanInterface(interfaces);
+    
+    let wan = null;
+    if (selectedWan && selectedWan.trim() !== '') {
+        wan = interfaces.find(i => i.interface === selectedWan.trim());
+    }
+    if (!wan) {
+        wan = pickWanInterface(interfaces);
+    }
 
     if (!wan) {
       return {
@@ -89,10 +101,7 @@
       };
     }
 
-    const device = await L.resolveDefault(
-      callDeviceStatus(deviceName),
-      null,
-    );
+    const device = await L.resolveDefault(callDeviceStatus(deviceName), null);
 
     return {
       connected: !!wan.up && !!device && device.present !== false,

@@ -39,6 +39,7 @@ const VALID_OPTIONS = {
 	background_pattern: { default: 'none', values: ['none', 'grid', 'dots', 'stars', 'noise'] },
 	pattern_scale: { default: '100', min: 50, max: 200 },
 	custom_font: { default: '1', values: ['0', '1'] },
+	wan_interface: { default: '', pattern: 'any', maxlen: 64 },
 	login_animation: {
     	default: 'particles',
     	values: [

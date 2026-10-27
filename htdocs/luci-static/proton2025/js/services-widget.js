@@ -176,6 +176,7 @@
         odhcpd: "odhcpd",
         cron: "crond",
         sysntpd: "ntpd",
+		adguardhome: "AdGuardHome",
       };
       this._rcListOne = null;
       this._serviceListOne = null; // ubus service list (deep check)
@@ -2406,6 +2407,10 @@ async _appendEvent(serviceName, type, hint, details) {
       try {
         if (!this._isValidServiceName(serviceName)) return "unknown";
 
+        let procdSaysRunning = false;
+        let procdSaysEnabled = false;
+
+        // 1. Проверяем через procd / rc.list
         if (window.L && L.resolveDefault && L.rpc) {
           try {
             if (!this._rcListOne) {
@@ -2417,51 +2422,36 @@ async _appendEvent(serviceName, type, hint, details) {
               });
             }
 
-            const result = await L.resolveDefault(
-              this._rcListOne(serviceName),
-              null,
-            );
+            const result = await L.resolveDefault(this._rcListOne(serviceName), null);
 
             if (result && result[serviceName]) {
               const svcData = result[serviceName];
-
-              if (svcData.running === true) {
-                return "running";
-              }
-
-              if (svcData.enabled === false) {
-                return "stopped";
-              }
-
-              if (svcData.enabled === true) {
-                // Deep mode: проверяем через service list
-                if (this._deepCheck) {
-                  return await this._deepCheckService(serviceName);
-                }
-
-                // Простой режим: init.d fallback
-                const initCheck = await this.checkViaInitScript(serviceName);
-                if (initCheck === "running") return "running";
-                if (initCheck === null) return "unknown";
-              }
-
-              return "stopped";
+              if (svcData.running === true) procdSaysRunning = true;
+              if (svcData.enabled === true) procdSaysEnabled = true;
             }
-          } catch (e) {
-            // RPC check failed, fallback to init script
-          }
+          } catch (e) {}
         }
 
-        const initCheck = await this.checkViaInitScript(serviceName);
-        if (initCheck !== null) return initCheck;
+        // 2. Если procd подтверждает, что сервис запущен
+        if (procdSaysRunning) {
+          return "running";
+        }
 
-        // Последний fallback: проверяем через pidof (для ubus и подобных)
+        // 3. Если procd говорит "stopped", проверяем pidof (для кастомных скриптов)
         const pidofCheck = await this.checkViaPidof(serviceName);
-        if (pidofCheck !== null) return pidofCheck;
+        if (pidofCheck === "running") {
+            return "running";
+        }
 
-        // Сервис не найден ни в rc.list, ни в init.d, ни через pidof
-        // — скорее всего пакет удалён с роутера
+        // 4. Проверяем через init.d
+        const initCheck = await this.checkViaInitScript(serviceName);
+        if (initCheck === "running") return "running";
+        if (initCheck === "stopped") return "stopped";
+        if (initCheck === null) return "unknown";
+
+        if (procdSaysEnabled) return "stopped";
         return "not-installed";
+
       } catch (error) {
         return "error";
       }

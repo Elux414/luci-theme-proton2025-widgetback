@@ -495,6 +495,57 @@
 
     el.textContent = parts.length ? parts.join(" · ") : t("System information");
   }
+  
+  // Чтение /proc/stat и расчет нагрузки в браузере
+  let prevCpuTicks = null;
+
+  async function fetchCpuUsage() {
+    if (!window.L || !L.rpc) return null;
+    try {
+      if (!window._rpcReadFile) {
+        window._rpcReadFile = L.rpc.declare({
+          object: 'file',
+          method: 'read',
+          params: ['path'],
+          expect: { data: '' },
+        });
+      }
+      
+      const res = await L.resolveDefault(window._rpcReadFile('/proc/stat'), null);
+      let raw = '';
+      if (res && typeof res.data === 'string') raw = res.data;
+      else if (typeof res === 'string') raw = res;
+
+      if (!raw) return null;
+
+      const line = raw.split('\n').find(l => l.startsWith('cpu '));
+      if (!line) return null;
+
+      const parts = line.trim().split(/\s+/).slice(1).map(Number);
+      const total = parts.reduce((a, b) => a + b, 0);
+      const idle = parts[3] + (parts[4] || 0);
+
+      if (!prevCpuTicks) {
+        prevCpuTicks = { total, idle };
+        return null; // Первый вызов — данных нет
+      }
+
+      const dTotal = total - prevCpuTicks.total;
+      const dIdle = idle - prevCpuTicks.idle;
+      
+      prevCpuTicks = { total, idle };
+
+      if (dTotal <= 0) return 0;
+      
+      let usage = ((dTotal - dIdle) / dTotal) * 100;
+      if (usage < 0) usage = 0;
+      if (usage > 100) usage = 100;
+      
+      return Math.round(usage * 10) / 10;
+    } catch (e) {
+      return null;
+    }
+  }
 
   function renderCpu(card, cpu) {
     const valueEl = card.querySelector('[data-role="cpu-value"]');
@@ -1443,7 +1494,7 @@ function buildNetworkSparkline(hist) {
     const model = (sysinfo && sysinfo.model) || (board && board.model) || (board && board.board_name) || "";
     const release = (sysinfo && sysinfo.release) || (board && board.release && board.release.version) || "";
     const description = (sysinfo && sysinfo.description) || (board && board.release && board.release.description) || "";
-    const arch = (sysinfo && sysinfo.package_arch) || "";
+    const arch = (sysinfo && sysinfo.package_arch) || (board && board.release && board.release.arch) || (board && board.system) || "";
     const target = (sysinfo && sysinfo.target) || "";
     const feedUrl = (sysinfo && sysinfo.package_feed_url) || "";
     const kernel = (board && board.kernel) || "";
@@ -1497,24 +1548,40 @@ function buildNetworkSparkline(hist) {
     if (!card) return;
 
     try {
-      const [info, cpu, sysinfo, board, counts, topCpuRaw, topRamRaw, networkRaw] = await Promise.all([
+      // 1. Запрашиваем все данные параллельно.
+      // ВАЖНО: мы возвращаем вызов callCpuUsage (чтобы получить ядра),
+      // но нагрузку (usage) будем брать из fetchCpuUsage().
+      const [info, cpu, sysinfo, board, counts, topCpuRaw, topRamRaw, networkRaw, cpuUsage] = await Promise.all([
         L.resolveDefault(callSystemInfo(), null),
-        L.resolveDefault(callCpuUsage(), null),
+        L.resolveDefault(callCpuUsage(), null), // <--- ВОЗВРАЩАЕМ ДЛЯ ЯДЕР
         L.resolveDefault(callProtonSystemInfo(), null),
         L.resolveDefault(callSystemBoard(), null),
         L.resolveDefault(callProcessCount(), null),
         L.resolveDefault(callTopProcesses("cpu", 3), null),
         L.resolveDefault(callTopProcesses("ram", 3), null),
         L.resolveDefault(callNetworkStats(), null),
+        fetchCpuUsage(), // <--- НАГРУЗКА ИЗ БРАУЗЕРА
       ]);
 
       const memory = getMemory(info);
 
-      renderCpu(card, cpu);
+      // 2. Берем ядра из ответа callCpuUsage (как было в старом рабочем коде)
+      let cores = 2;
+      if (cpu && Number.isFinite(cpu.cores)) {
+          cores = cpu.cores;
+      } else if (sysinfo && typeof sysinfo.cores === "number") {
+          cores = sysinfo.cores;
+      } else if (info && Array.isArray(info.cpu)) {
+          cores = info.cpu.length;
+      }
+
+      // 3. Передаем в renderCpu правильный объект
+      renderCpu(card, { usage: cpuUsage, cores: cores });
+      
       renderMemory(card, memory);
       renderUptime(card, info);
       renderLoad(card, info);
-      renderSystemMeta(card, sysinfo, board, info);
+      renderSystemMeta(card, sysinfo, board, info); // <--- АРХИТЕКТУРА
 
       // --- Процессы ---
       if (counts) {
@@ -1524,14 +1591,10 @@ function buildNetworkSparkline(hist) {
         });
       }
 
-      const topCpu = topCpuRaw && Array.isArray(topCpuRaw.processes)
-        ? topCpuRaw.processes
-        : [];
-      const topRam = topRamRaw && Array.isArray(topRamRaw.processes)
-        ? topRamRaw.processes
-        : [];
+      const topCpu = topCpuRaw && Array.isArray(topCpuRaw.processes) ? topCpuRaw.processes : [];
+      const topRam = topRamRaw && Array.isArray(topRamRaw.processes) ? topRamRaw.processes : [];
 
-      const topCpuWithPct = computeProcessDeltas(topCpu, cpu || {});
+      const topCpuWithPct = computeProcessDeltas(topCpu, { cores: cores });
       renderTopProcesses(card, topCpuWithPct, topRam);
 
       // --- Сетевые интерфейсы ---
@@ -1547,8 +1610,7 @@ function buildNetworkSparkline(hist) {
       const subtitle = card.querySelector('[data-role="subtitle"]');
       if (subtitle) subtitle.textContent = t("Unable to read system information");
     }
-}
-
+  }
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------

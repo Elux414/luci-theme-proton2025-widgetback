@@ -52,6 +52,7 @@
     // --- Network interfaces ---
     "proton-network-selected": "network_selected",
     "proton-network-aliases": "network_aliases",
+	"proton-wan-interface": "wan_interface",
   };
 
   const UCI_TO_LOCAL = {};

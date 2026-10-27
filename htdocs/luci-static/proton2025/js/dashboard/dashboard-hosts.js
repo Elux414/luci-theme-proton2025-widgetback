@@ -33,6 +33,21 @@
   let pollTimer = null;
   let visibilityHandler = null;
   let mounted = false;
+  
+  let localIPs = new Set();
+  let localMacs = new Set();
+
+  async function fetchLocalAddresses() {
+    if (!window.L || !L.rpc) return;
+    try {
+      const dump = L.rpc.declare({ object: "network.interface", method: "dump", expect: { interface: [] } });
+      const res = await L.resolveDefault(dump(), {});
+      (res.interface || []).forEach(iface => {
+        (iface['ipv4-address'] || []).forEach(addr => localIPs.add(addr.address));
+        (iface['ipv6-address'] || []).forEach(addr => localIPs.add(addr.address));
+      });
+    } catch (e) {}
+  }
 
   // mac (lowercase) → { rxHistory: [...], txHistory: [...], prevRx, prevTx, prevTs }
   const hostHistory = new Map();
@@ -183,18 +198,13 @@
       ? trafficRes.hosts
       : {};
 
-    // Собираем все MAC из всех источников
     const allMacs = new Set();
-
-    for (const mac of Object.keys(trafficByMac)) {
-      allMacs.add(normalizeMac(mac));
-    }
+    for (const mac of Object.keys(trafficByMac)) allMacs.add(normalizeMac(mac));
     if (hintsRes && typeof hintsRes === "object") {
       for (const mac of Object.keys(hintsRes)) allMacs.add(normalizeMac(mac));
     }
     for (const mac of wifiMap.keys()) allMacs.add(mac);
 
-    // Hostname map из DHCP lease
     const hostnameByMac = new Map();
     const ipByMac = new Map();
 
@@ -235,25 +245,21 @@
     const hosts = [];
 
     for (const mac of allMacs) {
-      // Пропускаем нулевые
       if (mac === "00:00:00:00:00:00") continue;
+      
+      const ip = ipByMac.get(mac) || "";
+      // Исключаем IP самого роутера
+      if (localIPs.has(ip)) continue;
 
       const traffic = trafficByMac[mac] || trafficByMac[mac.toUpperCase()] || null;
       const rxBytes = traffic ? Number(traffic.rx_bytes) || 0 : 0;
       const txBytes = traffic ? Number(traffic.tx_bytes) || 0 : 0;
 
-      // Считаем скорости от предыдущего сэмпла
       let rateRx = 0;
       let rateTx = 0;
       let hist = hostHistory.get(mac);
       if (!hist) {
-        hist = {
-          rxHistory: [],
-          txHistory: [],
-          prevRx: null,
-          prevTx: null,
-          prevTs: null,
-        };
+        hist = { rxHistory: [], txHistory: [], prevRx: null, prevTx: null, prevTs: null };
         hostHistory.set(mac, hist);
       }
       if (hist.prevRx != null && hist.prevTs != null) {
@@ -279,7 +285,7 @@
       hosts.push({
         mac: mac,
         hostname: hostnameByMac.get(mac) || "",
-        ip: ipByMac.get(mac) || "",
+        ip: ip,
         type: wifi ? "wifi" : "lan",
         signal: wifi ? wifi.signal : null,
         rxBytes,
@@ -290,12 +296,6 @@
         txHistory: hist.txHistory.slice(),
       });
     }
-
-    hosts.sort((a, b) => {
-      const an = a.hostname || a.ip || a.mac;
-      const bn = b.hostname || b.ip || b.mac;
-      return an.localeCompare(bn);
-    });
 
     return { hosts, timestamp: now };
   }
@@ -381,81 +381,52 @@
   // Render
   // ---------------------------------------------------------------------------
 
-  function renderHosts(card, hosts) {
+    function renderHosts(card, hosts) {
     const list = card.querySelector('[data-role="list"]');
     if (!list) return;
 
-    list.replaceChildren();
-
-    if (!hosts.length) {
-      const empty = document.createElement("li");
-      empty.className = "proton-hosts-empty";
-      empty.textContent = t("No active clients");
-      list.appendChild(empty);
-      return;
-    }
-
-    const shown = hosts.slice(0, MAX_HOSTS);
-
-    shown.forEach((h) => {
-      const row = document.createElement("li");
-      row.className = "proton-hosts-row";
-      row.dataset.mac = h.mac;
-
-      const icon = document.createElement("span");
-      icon.className = "proton-hosts-icon";
-      icon.textContent = h.type === "wifi" ? "📱" : "💻";
-
-      const main = document.createElement("div");
-      main.className = "proton-hosts-main";
-
-      const top = document.createElement("div");
-      top.className = "proton-hosts-top";
-
-      const name = document.createElement("span");
-      name.className = "proton-hosts-name";
-      name.textContent = h.hostname || t("Unknown");
-
-      const ip = document.createElement("span");
-      ip.className = "proton-hosts-ip";
-      ip.textContent = h.ip || h.mac;
-
-      top.appendChild(name);
-      top.appendChild(ip);
-
-      const bottom = document.createElement("div");
-      bottom.className = "proton-hosts-bottom";
-
-      const type = document.createElement("span");
-      type.className = "proton-hosts-type";
-      if (h.type === "wifi") {
-        type.textContent = t("Wi-Fi") + (h.signal ? " · " + formatSignal(h.signal) : "");
-      } else {
-        type.textContent = "LAN";
-      }
-
-      const rates = document.createElement("span");
-      rates.className = "proton-hosts-rates";
-      rates.innerHTML =
-        `<span class="proton-hosts-rate-rx">▼ ${formatRate(h.rateRx)}</span>` +
-        `<span class="proton-hosts-rate-tx">▲ ${formatRate(h.rateTx)}</span>`;
-
-      bottom.appendChild(type);
-      bottom.appendChild(rates);
-
-      main.appendChild(top);
-      main.appendChild(bottom);
-
-      const chart = document.createElement("div");
-      chart.className = "proton-hosts-chart";
-      chart.innerHTML = buildSparkline(h.rxHistory, h.txHistory);
-
-      row.appendChild(icon);
-      row.appendChild(main);
-      row.appendChild(chart);
-
-      list.appendChild(row);
+    // Сортируем по имени
+    hosts.sort((a, b) => {
+        return (a.hostname || a.ip || a.mac).localeCompare(b.hostname || b.ip || b.mac);
     });
+
+    const wifi = hosts.filter(h => h.type === 'wifi');
+    const lan = hosts.filter(h => h.type === 'lan');
+
+    // Используем отдельный класс-обертку для 2 колонок
+    list.innerHTML = `
+      <div class="proton-hosts-columns">
+        <div class="proton-hosts-column">
+          <h4 class="proton-hosts-col-title">Wi-Fi (${wifi.length})</h4>
+          <ul class="proton-hosts-list-inner">${wifi.map(renderHostItem).join('') || '<li class="proton-hosts-empty">' + t('No active clients') + '</li>'}</ul>
+        </div>
+        <div class="proton-hosts-column">
+          <h4 class="proton-hosts-col-title">LAN (${lan.length})</h4>
+          <ul class="proton-hosts-list-inner">${lan.map(renderHostItem).join('') || '<li class="proton-hosts-empty">' + t('No active clients') + '</li>'}</ul>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderHostItem(h) {
+    return `
+      <li class="proton-hosts-row" data-mac="${h.mac}">
+        <span class="proton-hosts-icon">${h.type === 'wifi' ? '📱' : '💻'}</span>
+        <div class="proton-hosts-main">
+          <div class="proton-hosts-top">
+            <span class="proton-hosts-name">${h.hostname || t('Unknown')}</span>
+            <span class="proton-hosts-ip">${h.ip || h.mac}</span>
+          </div>
+          <div class="proton-hosts-bottom">
+            <span class="proton-hosts-type">${h.type === 'wifi' ? t('Wi-Fi') : 'LAN'}</span>
+            <span class="proton-hosts-rates">
+              <span class="proton-hosts-rate-rx">▼ ${formatRate(h.rateRx)}</span>
+              <span class="proton-hosts-rate-tx">▲ ${formatRate(h.rateTx)}</span>
+            </span>
+          </div>
+        </div>
+        <div class="proton-hosts-chart">${buildSparkline(h.rxHistory, h.txHistory)}</div>
+      </li>`;
   }
 
   function updateSubtitle(card, hosts) {
@@ -552,6 +523,7 @@
 
   function init() {
     if (!isOverviewPage()) return;
+	void fetchLocalAddresses();
     start();
   }
 

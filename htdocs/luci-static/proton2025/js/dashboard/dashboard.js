@@ -116,7 +116,7 @@
           </div>
 
           <article class="proton-dashboard-internet" id="proton-dashboard-internet">
-            <div class="proton-dashboard-internet-header">
+                       <div class="proton-dashboard-internet-header">
               <div>
                 <div class="proton-dashboard-internet-title-row">
                   <span class="proton-dashboard-internet-status-dot"></span>
@@ -126,7 +126,15 @@
                   ${this.t("Checking connection...")}
                 </div>
               </div>
-              <div class="proton-dashboard-internet-device" data-role="device">—</div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div class="proton-dashboard-internet-device" data-role="device">—</div>
+                <button type="button" class="proton-dashboard-network-settings" data-role="wan-settings" title="${this.t("Configure WAN interface")}">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <div class="proton-dashboard-rates">
@@ -228,6 +236,12 @@
 
     start() {
       if (!this.mounted || this.timer) return;
+	  
+	  // Находим кнопку и вешаем обработчик
+      const settingsBtn = this.container.querySelector('[data-role="wan-settings"]');
+      if (settingsBtn) {
+          settingsBtn.addEventListener('click', () => this.openWanSettingsModal());
+      }
 
       this.poll();
 
@@ -246,6 +260,83 @@
         "visibilitychange",
         this.onVisibilityChange,
       );
+    }
+	
+	async openWanSettingsModal() {
+      if (!window.L || !L.rpc) return;
+
+      // Получаем список интерфейсов
+      let interfaces = [];
+      try {
+        if (!this._callInterfaceDump) {
+          this._callInterfaceDump = L.rpc.declare({ object: "network.interface", method: "dump", expect: { interface: [] } });
+        }
+        const res = await L.resolveDefault(this._callInterfaceDump(), {});
+        interfaces = res.interface || [];
+      } catch(e) {}
+
+      const currentWan = localStorage.getItem('proton-wan-interface') || '';
+
+      // Создаём модалку
+      const overlay = document.createElement("div");
+      overlay.className = "proton-confirm-modal-overlay";
+
+      const modal = document.createElement("div");
+      modal.className = "proton-confirm-modal proton-network-modal";
+      modal.style.maxWidth = "500px";
+
+      modal.innerHTML = `
+        <h3>${this.t("Configure WAN interface")}</h3>
+        <div class="proton-network-modal-body">
+          <div class="proton-monitoring-row">
+            <label class="proton-monitoring-label" style="flex:0 0 100px;">${this.t("Interface")}</label>
+            <select id="proton-wan-select" class="cbi-input-select proton-monitoring-select" style="flex:1;">
+              <option value="">${this.t("Auto-detect")}</option>
+              ${interfaces.map(i => `
+                <option value="${i.interface}" ${currentWan === i.interface ? 'selected' : ''}>
+                  ${i.interface} (${i.proto || 'none'})
+                </option>
+              `).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="proton-confirm-modal-actions">
+          <button type="button" class="cbi-button cbi-button-neutral" data-action="cancel">${this.t("Cancel")}</button>
+          <button type="button" class="cbi-button cbi-button-positive" data-action="save">${this.t("Save")}</button>
+        </div>
+      `;
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      requestAnimationFrame(() => overlay.classList.add("is-open"));
+
+      const closeModal = () => {
+        overlay.classList.remove("is-open");
+        setTimeout(() => overlay.remove(), 220);
+      };
+
+      modal.querySelector('[data-action="cancel"]').addEventListener("click", closeModal);
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
+      document.addEventListener("keydown", function esc(e) { if (e.key === "Escape") { closeModal(); document.removeEventListener("keydown", esc); } });
+
+      modal.querySelector('[data-action="save"]').addEventListener("click", () => {
+        const val = modal.querySelector('#proton-wan-select').value;
+        
+        // Сохраняем в localStorage
+        localStorage.setItem('proton-wan-interface', val);
+        
+        // Сохраняем в UCI через settings-sync
+        if (window.protonSettingsSync && typeof window.protonSettingsSync.saveLocalKeyToUci === 'function') {
+            window.protonSettingsSync.saveLocalKeyToUci('proton-wan-interface', val);
+        }
+
+        closeModal();
+        
+        // Перезапускаем опрос для мгновенного обновления
+        this.previous = null; 
+        this.poll();
+      });
     }
 
     stop() {

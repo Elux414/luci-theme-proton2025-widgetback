@@ -156,6 +156,18 @@ function getTimezoneInfo() {
 	};
 }
 
+function countCpuCores() {
+	let stat = readfile('/proc/stat');
+	if (!stat) return 0;
+
+	let cores = 0;
+	for (let line in split(stat, '\n')) {
+		if (match(line, /^cpu[0-9]+[ \t]/))
+			cores++;
+	}
+	return cores;
+}
+
 function getSystemInfo() {
 	let release = readFileContent('/etc/openwrt_release') || '';
 	let packageArch = parseReleaseValue(release, 'DISTRIB_ARCH');
@@ -170,7 +182,8 @@ function getSystemInfo() {
 		model: getModelFromSysinfo(),
 		package_feed_url: findPackageFeedUrl(packageArch, releaseVersion),
 		timezone: tz.timezone,
-		zonename: tz.zonename
+		zonename: tz.zonename,
+		cores: countCpuCores()
 	};
 }
 
@@ -207,49 +220,6 @@ function readCpuSnapshot() {
 	let idle = (values[3] ?? 0) + (values[4] ?? 0);
 
 	return { total: total, idle: idle };
-}
-
-function countCpuCores() {
-	let stat = readfile('/proc/stat');
-	if (!stat) return 0;
-
-	let cores = 0;
-	for (let line in split(stat, '\n')) {
-		if (match(line, /^cpu[0-9]+[ \t]/))
-			cores++;
-	}
-	return cores;
-}
-
-function getCpuUsage() {
-	let snapshot = readCpuSnapshot();
-
-	if (!snapshot) {
-		return { usage: null, cores: countCpuCores() };
-	}
-
-	let cores = countCpuCores();
-
-	if (prevCpuSnapshot == null) {
-		prevCpuSnapshot = snapshot;
-		return { usage: null, cores: cores };
-	}
-
-	let dTotal = snapshot.total - prevCpuSnapshot.total;
-	let dIdle = snapshot.idle - prevCpuSnapshot.idle;
-
-	prevCpuSnapshot = snapshot;
-
-	if (dTotal <= 0) {
-		return { usage: 0, cores: cores };
-	}
-
-	let usage = ((dTotal - dIdle) / dTotal) * 100;
-
-	if (usage < 0) usage = 0;
-	if (usage > 100) usage = 100;
-
-	return { usage: int(usage * 10) / 10, cores: cores };
 }
 
 // --- Process count (running / total) ---------------------------------------
@@ -1155,11 +1125,6 @@ const methods = {
 	getSystemInfo: {
 		call: function() {
 			return getSystemInfo();
-		}
-	},
-	getCpuUsage: {
-		call: function() {
-			return getCpuUsage();
 		}
 	},
 	getServiceInfo: {
