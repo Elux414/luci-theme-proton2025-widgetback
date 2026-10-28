@@ -38,15 +38,56 @@
   let localMacs = new Set();
 
   async function fetchLocalAddresses() {
-    if (!window.L || !L.rpc) return;
+    // Ждём, пока RPC будет готов (максимум 5 секунд)
+    let attempts = 0;
+    while ((!window.L || !L.rpc) && attempts < 50) {
+      await new Promise(r => setTimeout(r, 100));
+      attempts++;
+    }
+
+    if (!window.L || !L.rpc) {
+      console.warn("[Proton2025 Hosts] RPC not ready after 5s, local IPs NOT collected");
+      return;
+    }
+
     try {
-      const dump = L.rpc.declare({ object: "network.interface", method: "dump", expect: { interface: [] } });
-      const res = await L.resolveDefault(dump(), {});
-      (res.interface || []).forEach(iface => {
-        (iface['ipv4-address'] || []).forEach(addr => localIPs.add(addr.address));
-        (iface['ipv6-address'] || []).forEach(addr => localIPs.add(addr.address));
+      if (!window.__protonHostsDumpRpc) {
+        window.__protonHostsDumpRpc = L.rpc.declare({
+          object: "network.interface",
+          method: "dump",
+          expect: { "": {} },
+        });
+      }
+
+      const raw = await L.resolveDefault(window.__protonHostsDumpRpc(), null);
+      if (!raw || !Array.isArray(raw.interface)) {
+        console.warn("[Proton2025 Hosts] network.interface dump returned empty");
+        return;
+      }
+
+      raw.interface.forEach(iface => {
+        // 1. IPv4-адреса
+        (iface['ipv4-address'] || []).forEach(addr => {
+          if (addr && addr.address) localIPs.add(addr.address);
+        });
+
+        // 2. IPv6-адреса
+        (iface['ipv6-address'] || []).forEach(addr => {
+          if (addr && addr.address) localIPs.add(addr.address);
+        });
+
+        // 3. source маршрутов (без маски)
+        (iface['route'] || []).forEach(route => {
+          if (route && route.source) {
+            const ip = route.source.split('/')[0];
+            if (ip) localIPs.add(ip);
+          }
+        });
       });
-    } catch (e) {}
+
+    } catch (e) {
+      console.warn("[Proton2025 Hosts] Failed to fetch local IPs:", e);
+    }
   }
 
   // mac (lowercase) → { rxHistory: [...], txHistory: [...], prevRx, prevTx, prevTs }
@@ -137,13 +178,17 @@
 
   function pickBestIp(hints) {
     if (!hints) return "";
+    let ip = "";
     if (Array.isArray(hints.ipaddrs) && hints.ipaddrs.length) {
-      return hints.ipaddrs[0];
+      ip = hints.ipaddrs[0];
+    } else if (Array.isArray(hints.ip6addrs) && hints.ip6addrs.length) {
+      ip = hints.ip6addrs[0];
     }
-    if (Array.isArray(hints.ip6addrs) && hints.ip6addrs.length) {
-      return hints.ip6addrs[0];
+    // Убираем CIDR-маску: "192.168.2.171/32" → "192.168.2.171"
+    if (ip && typeof ip === "string") {
+      ip = ip.split("/")[0];
     }
-    return "";
+    return ip;
   }
 
   function normalizeMac(mac) {
@@ -248,8 +293,10 @@
       if (mac === "00:00:00:00:00:00") continue;
       
       const ip = ipByMac.get(mac) || "";
-      // Исключаем IP самого роутера
-      if (localIPs.has(ip)) continue;
+      const ipClean = ip.split("/")[0];
+      if (localIPs.has(ipClean)) {
+        continue;
+      }
 
       const traffic = trafficByMac[mac] || trafficByMac[mac.toUpperCase()] || null;
       const rxBytes = traffic ? Number(traffic.rx_bytes) || 0 : 0;
@@ -485,11 +532,13 @@
   // Lifecycle
   // ---------------------------------------------------------------------------
 
-  function start() {
+  async function start() {
     const card = ensureCard();
     if (!card) return false;
 
     if (pollTimer) return true;
+
+    await fetchLocalAddresses();
 
     poll();
     pollTimer = setInterval(poll, POLL_INTERVAL);
@@ -523,7 +572,6 @@
 
   function init() {
     if (!isOverviewPage()) return;
-	void fetchLocalAddresses();
     start();
   }
 

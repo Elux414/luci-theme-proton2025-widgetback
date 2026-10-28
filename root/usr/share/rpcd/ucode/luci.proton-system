@@ -1076,9 +1076,33 @@ function getNetworkStats() {
 		let carrier = readFileContent('/sys/class/net/' + name + '/carrier');
 		let devType = readFileContent('/sys/class/net/' + name + '/type');
 
-		// up = operstate == "up" или "unknown" (для bridge) — берём "up"
-		let up = operstate == 'up';
-		let isCarrier = carrier == '1';
+		let meta = metaByDevice[name];
+		if (!meta) meta = {};
+		let proto = meta.proto;
+		if (!proto) proto = '';
+
+		// VPN-интерфейсы (WireGuard/OpenVPN/Tun/Tap) не имеют физлинка:
+		// operstate для них часто "unknown"/"down", carrier отсутствует или 0,
+		// хотя трафик идёт. Считаем их up, если они есть в /proc/net/dev
+		// (counters[name] уже заполнен на этом шаге) и не помечены админом как down.
+		let isVpnLike =
+			proto == 'wireguard' ||
+			index(name, 'wg') == 0 ||
+			index(name, 'tun') == 0 ||
+			index(name, 'tap') == 0 ||
+			index(name, 'ovpn') == 0;
+
+		let up;
+		let isCarrier;
+		if (isVpnLike) {
+			// Интерфейс присутствует в /proc/net/dev → он существует и активен.
+			// operstate/carrier игнорируем полностью (там мусор).
+			up = true;
+			isCarrier = true;
+		} else {
+			up = operstate == 'up';
+			isCarrier = carrier == '1';
+		}
 
 		// type: 1 = ethernet, 772 = loopback, 65534 = none, 512/... = другие
 		let typeStr = 'network';
@@ -1087,13 +1111,9 @@ function getNetworkStats() {
 		else if (devTypeNum == 772) typeStr = 'loopback';
 		else if (name == 'br-lan' || match(name, /^br-/)) typeStr = 'bridge';
 
-		let meta = metaByDevice[name];
-		if (!meta) meta = {};
 
 		let ifaceName = meta.interface;
 		if (!ifaceName) ifaceName = '';
-		let proto = meta.proto;
-		if (!proto) proto = '';
 
 		// display_name — то, что показываем в карточке. По умолчанию —
 		// имя устройства (br-lan, eth0). Alias/interace (lan, wan) идёт

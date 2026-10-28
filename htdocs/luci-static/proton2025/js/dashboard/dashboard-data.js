@@ -38,24 +38,36 @@
 
     const usable = items.filter((item) => item && item.interface);
 
-    const exactWan = usable.find((item) => item.interface === "wan");
-    if (exactWan) return exactWan;
+    // 1) Явные имена WAN
+    for (const name of ["wan", "wan6", "wwan", "wwan6"]) {
+      const exact = usable.find((item) => item.interface === name);
+      if (exact) return exact;
+    }
 
-    const exactWan6 = usable.find((item) => item.interface === "wan6");
-    if (exactWan6) return exactWan6;
-
+    // 2) Интерфейс с маршрутом по умолчанию (target=0.0.0.0 или "default")
     const defaultRoute = usable.find((item) => {
       if (!Array.isArray(item.route)) return false;
-
       return item.route.some(
         (route) =>
           route &&
-          (route.target === "0.0.0.0" || route.target === "::") &&
-          Number(route.mask) === 0,
+          ((route.target === "0.0.0.0" || route.target === "::" ||
+            route.target === "default") &&
+            (route.mask === undefined || Number(route.mask) === 0)),
       );
     });
+    if (defaultRoute) return defaultRoute;
 
-    return defaultRoute || null;
+    // 3) Любой up интерфейс с proto dhcp/pppoe/static и не bridge
+    const candidate = usable.find((item) => {
+      if (!item.up) return false;
+      if (item.interface.startsWith("br-")) return false;
+      const proto = String(item.proto || "").toLowerCase();
+      return proto === "dhcp" || proto === "pppoe" || proto === "static" || proto === "wwan";
+    });
+    if (candidate) return candidate;
+
+    // 4) Первый up интерфейс, кроме lo
+    return usable.find((item) => item.up && item.interface !== "lo") || null;
   }
 
   async function getSnapshot() {

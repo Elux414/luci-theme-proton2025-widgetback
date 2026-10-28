@@ -264,16 +264,65 @@
 	
 	async openWanSettingsModal() {
       if (!window.L || !L.rpc) return;
+	  
+	  // Дожидаемся синхронизации localStorage ← UCI, чтобы не показать
+	  // "Auto-detect" при уже сохранённом WAN.
+	  if (window.protonSettingsSync
+         && typeof window.protonSettingsSync.forceSync === 'function') {
+         try { await window.protonSettingsSync.forceSync(); } catch (e) {}
+      }
 
-      // Получаем список интерфейсов
+            // Получаем список интерфейсов.
+      // LuCI RPC возвращает структуру { interface: [ ... ] } или null.
+      // Надёжно разбираем все варианты, чтобы не показать пустой список.
       let interfaces = [];
       try {
         if (!this._callInterfaceDump) {
-          this._callInterfaceDump = L.rpc.declare({ object: "network.interface", method: "dump", expect: { interface: [] } });
+          this._callInterfaceDump = L.rpc.declare({
+            object: "network.interface",
+            method: "dump",
+            expect: { "": {} },
+          });
         }
-        const res = await L.resolveDefault(this._callInterfaceDump(), {});
-        interfaces = res.interface || [];
-      } catch(e) {}
+
+        const raw = await L.resolveDefault(this._callInterfaceDump(), null);
+        let payload = null;
+
+        // Вариант 1: payload = { interface: [...] }
+        if (raw && Array.isArray(raw.interface)) {
+          payload = raw.interface;
+        }
+        // Вариант 2: payload = { interface: { interface: [...] } } (двойная обёртка)
+        else if (raw && raw.interface && Array.isArray(raw.interface.interface)) {
+          payload = raw.interface.interface;
+        }
+        // Вариант 3: сырой ubus-ответ { result: [0, { interface: [...] }] }
+        else if (raw && Array.isArray(raw.result) && raw.result[1]
+                 && Array.isArray(raw.result[1].interface)) {
+          payload = raw.result[1].interface;
+        }
+        // Вариант 4: payload — уже массив
+        else if (Array.isArray(raw)) {
+          payload = raw;
+        }
+
+        if (Array.isArray(payload)) {
+          interfaces = payload.filter(function (iface) {
+            if (!iface || typeof iface !== "object" || !iface.interface) return false;
+
+            if (iface.interface === "loopback") return false;
+            if (iface.device === "lo") return false;
+            if (iface.l3_device === "lo") return false;
+
+            return true;
+          });
+        }
+      } catch (e) {
+        console.warn("[Proton2025] Failed to load interfaces for WAN settings:", e);
+      }
+
+      // Fallback: если dump вернул пусто — берём имена из сети через ubus call network.interface dump через system?
+      // Нет. Просто показываем подсказку в модалке, если пусто.
 
       const currentWan = localStorage.getItem('proton-wan-interface') || '';
 
@@ -290,13 +339,17 @@
         <div class="proton-network-modal-body">
           <div class="proton-monitoring-row">
             <label class="proton-monitoring-label" style="flex:0 0 100px;">${this.t("Interface")}</label>
-            <select id="proton-wan-select" class="cbi-input-select proton-monitoring-select" style="flex:1;">
+                        <select id="proton-wan-select" class="cbi-input-select proton-monitoring-select" style="flex:1;">
               <option value="">${this.t("Auto-detect")}</option>
-              ${interfaces.map(i => `
-                <option value="${i.interface}" ${currentWan === i.interface ? 'selected' : ''}>
-                  ${i.interface} (${i.proto || 'none'})
-                </option>
-              `).join('')}
+              ${interfaces.length === 0 ? `
+                <option value="" disabled>${this.t("No interfaces available")}</option>
+              ` : interfaces.map(i => {
+                const up = i.up ? "↑" : "↓";
+                const proto = i.proto ? i.proto : "—";
+                const dev = i.device || i.l3_device || "";
+                const label = `${up} ${i.interface} (${proto}${dev ? ", " + dev : ""})`;
+                return `<option value="${i.interface}" ${currentWan === i.interface ? 'selected' : ''}>${label}</option>`;
+              }).join('')}
             </select>
           </div>
         </div>
@@ -305,6 +358,16 @@
           <button type="button" class="cbi-button cbi-button-positive" data-action="save">${this.t("Save")}</button>
         </div>
       `;
+	  
+	  if (interfaces.length === 0) {
+        const body = modal.querySelector(".proton-network-modal-body");
+        if (body) {
+          const hint = document.createElement("div");
+          hint.style.cssText = "margin-top:8px;color:#f87171;font-size:12px;";
+          hint.textContent = "⚠ " + this.t("Unable to read network interfaces list") + " (ubus network.interface dump)";
+          body.appendChild(hint);
+        }
+      }
 
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
@@ -320,22 +383,31 @@
       overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
       document.addEventListener("keydown", function esc(e) { if (e.key === "Escape") { closeModal(); document.removeEventListener("keydown", esc); } });
 
-      modal.querySelector('[data-action="save"]').addEventListener("click", () => {
-        const val = modal.querySelector('#proton-wan-select').value;
-        
-        // Сохраняем в localStorage
-        localStorage.setItem('proton-wan-interface', val);
-        
-        // Сохраняем в UCI через settings-sync
-        if (window.protonSettingsSync && typeof window.protonSettingsSync.saveLocalKeyToUci === 'function') {
-            window.protonSettingsSync.saveLocalKeyToUci('proton-wan-interface', val);
+      modal.querySelector('[data-action="save"]').addEventListener("click", async () => {
+	  const val = modal.querySelector('#proton-wan-select').value;
+
+	  localStorage.setItem('proton-wan-interface', val);
+
+      let savedToUci = false;
+		if (window.protonSettingsSync
+			&& typeof window.protonSettingsSync.saveLocalKeyToUci === 'function') {
+        try {
+            savedToUci = await window.protonSettingsSync.saveLocalKeyToUci(
+                'proton-wan-interface', val
+            );
+        } catch (e) {}
+    }
+
+	    if (!savedToUci && window.protonServicesApi) {
+        // Не критично: локально сохранено, UCI догонит по syncFromUci.
+        console.warn('[Proton2025] WAN interface saved locally, UCI not confirmed');
         }
 
-        closeModal();
-        
-        // Перезапускаем опрос для мгновенного обновления
-        this.previous = null; 
-        this.poll();
+      closeModal();
+
+      // Перезапуск опроса — если выбран WAN, данные придут со следующего тика.
+      this.previous = null;
+      this.poll();
       });
     }
 

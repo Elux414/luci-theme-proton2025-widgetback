@@ -15142,6 +15142,7 @@ body[data-page="admin-status-overview"] .cbi-section .cbi-title h3 {
     gap: 12px;
     min-height: 260px;
     max-height: 55vh;
+	overflow: hidden;
 }
 
 .proton-network-modal-list-col {
@@ -15171,6 +15172,7 @@ body[data-page="admin-status-overview"] .cbi-section .cbi-title h3 {
     background: rgba(var(--proton-accent-rgb), 0.02);
     overflow-y: auto;
     min-height: 200px;
+	max-height: 100%;
     transition: var(--proton-transition);
 }
 
@@ -15342,12 +15344,13 @@ body[data-page="admin-status-overview"] .cbi-section .cbi-title h3 {
 @media (max-width: 640px) {
     .proton-network-modal-lists {
         grid-template-columns: 1fr;
-        max-height: none;
+        max-height: 70vh;
+		overflow: hidden;
     }
 
     .proton-network-modal-list {
         min-height: 140px;
-        max-height: 200px;
+        max-height: calc(35vh - 40px);
     }
 }
 
