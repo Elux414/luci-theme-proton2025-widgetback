@@ -1284,7 +1284,7 @@ function renderDetailGraph(box, serviceName, container) {
           btn.type = "button";
           btn.className = "proton-apps-settings-btn";
 
-          const isInstalled = entry.fromInitd === true;
+          const isInstalled = entry.fromInitd === true || entry.name === "wireguard";
           const isAdded = current.has(entry.name);
 
           if (!isInstalled) {

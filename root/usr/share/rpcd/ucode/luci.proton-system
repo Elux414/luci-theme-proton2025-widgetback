@@ -1090,7 +1090,8 @@ function getNetworkStats() {
 			index(name, 'wg') == 0 ||
 			index(name, 'tun') == 0 ||
 			index(name, 'tap') == 0 ||
-			index(name, 'ovpn') == 0;
+			index(name, 'ovpn') == 0 ||
+			index(name, 'zt') == 0;
 
 		let up;
 		let isCarrier;

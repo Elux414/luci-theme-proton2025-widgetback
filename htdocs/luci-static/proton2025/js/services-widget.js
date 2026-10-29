@@ -92,6 +92,7 @@
         singbox: { category: "vpn", icon: "🔒" },
         "sing-box": { category: "vpn", icon: "🔒" },
         podkop: { category: "vpn", icon: "🔒", daemon: false },
+		wireguard: { category: "vpn", icon: "🔒", daemon: false },
 
         // AdBlock / DNS фильтрация
         adblock: { category: "adblock", icon: "🚫" },
@@ -2406,6 +2407,26 @@ async _appendEvent(serviceName, type, hint, details) {
     async checkServiceStatus(serviceName) {
       try {
         if (!this._isValidServiceName(serviceName)) return "unknown";
+		
+		// === SPECIAL: wireguard ===
+        // Не является init-сервисом. L1 = интерфейс активен.
+        // Пытаемся найти iface из L7-конфига. Если iface не задан,
+        // считаем "unknown" — нечего проверять.
+        if (serviceName === "wireguard") {
+          const l7cfg = this._l7Config.services.get("wireguard");
+          const iface = l7cfg && l7cfg.fields && l7cfg.fields.iface;
+          if (!iface || !this._isValidServiceName(iface)) return "unknown";
+          
+          if (!window.L || !L.fs || !L.fs.exec) return "unknown";
+          try {
+            const result = await L.fs.exec("/usr/bin/wg", ["show", iface]);
+            if (result && typeof result.code === "number") {
+              if (result.code === 0) return "running";
+              return "stopped";
+            }
+          } catch (e) {}
+          return "unknown";
+        }
 
         let procdSaysRunning = false;
         let procdSaysEnabled = false;

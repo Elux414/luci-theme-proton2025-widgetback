@@ -70,6 +70,9 @@ const VALID_OPTIONS = {
 	network_selected: { default: '[]', pattern: 'json_array', maxlen: 4096 },
 	network_aliases: { default: '{}', pattern: 'json_object', maxlen: 8192 },
 	
+	// --- Hosts network filter ---
+	hosts_network_filter: { default: '[]', pattern: 'json_array', maxlen: 4096 },
+	
 	// --- Services history ---
 	history_sample_interval: { default: '10', min: 5, max: 60 },
 	history_max_age_hours:   { default: '24', min: 1, max: 24 },
