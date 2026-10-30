@@ -2408,25 +2408,35 @@ async _appendEvent(serviceName, type, hint, details) {
       try {
         if (!this._isValidServiceName(serviceName)) return "unknown";
 		
-		// === SPECIAL: wireguard ===
-        // Не является init-сервисом. L1 = интерфейс активен.
-        // Пытаемся найти iface из L7-конфига. Если iface не задан,
-        // считаем "unknown" — нечего проверять.
+			// === SPECIAL: wireguard ===
+			// Не является init-сервисом. L1 = интерфейс активен.
         if (serviceName === "wireguard") {
-          const l7cfg = this._l7Config.services.get("wireguard");
-          const iface = l7cfg && l7cfg.fields && l7cfg.fields.iface;
-          if (!iface || !this._isValidServiceName(iface)) return "unknown";
-          
-          if (!window.L || !L.fs || !L.fs.exec) return "unknown";
-          try {
-            const result = await L.fs.exec("/usr/bin/wg", ["show", iface]);
-            if (result && typeof result.code === "number") {
-              if (result.code === 0) return "running";
-              return "stopped";
-            }
-          } catch (e) {}
-          return "unknown";
-        }
+			let iface = null;
+			const l7cfg = this._l7Config.services.get("wireguard");
+			if (l7cfg && l7cfg.fields && l7cfg.fields.iface) {
+				iface = l7cfg.fields.iface;
+		}
+
+			if (!iface) {
+				// Fallback: проверяем, есть ли хоть один wg-интерфейс
+				try {
+					const result = await L.fs.exec("/usr/bin/wg", ["show"]);
+					if (result && result.code === 0 && result.stdout && result.stdout.trim()) {
+						return "running";
+					}
+				} catch (e) {}
+				return "unknown";
+			}
+
+			try {
+				const result = await L.fs.exec("/usr/bin/wg", ["show", iface]);
+				if (result && typeof result.code === "number") {
+					if (result.code === 0) return "running";
+				return "stopped";
+				}
+			} catch (e) {}
+			return "unknown";
+		}
 
         let procdSaysRunning = false;
         let procdSaysEnabled = false;

@@ -8,7 +8,7 @@
 (function () {
   "use strict";
 
-  const POLL_INTERVAL = 5000;
+  const POLL_INTERVAL = 3000;
   const HISTORY_SIZE = 30;
 
   let callGetHostTraffic = null;

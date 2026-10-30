@@ -83,6 +83,9 @@
 				"/bin/pidof": [
 					"exec"
 			],
+				"/usr/bin/wg": [
+					"exec"
+			],
 				"/proc/cpuinfo": [
 					"read"
 			],

@@ -1211,7 +1211,7 @@ function renderDetailGraph(box, serviceName, container) {
       const filterLower = String(filter || "").toLowerCase().trim();
 
       const filtered = available
-        .filter((entry) => isDaemon(entry))
+        .filter((entry) => isDaemon(entry) || entry.name === "wireguard")
         .filter((entry) => {
           if (!filterLower) return true;
           const info = api.getServiceInfo(entry.name);
