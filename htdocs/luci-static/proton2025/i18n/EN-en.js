@@ -177,4 +177,11 @@ window.ProtonTranslations = {
   "Command": "Command",
   "Edit": "Edit",
   "These services are tracked in history and health checks": "These services are tracked in history and health checks",
+  "Click to rename": "Click to rename",
+  "Custom device names": "Custom device names",
+  "No custom names yet": "No custom names yet",
+  "Clear all": "Clear all",
+  "Clear all custom device names?": "Clear all custom device names?",
+  "Total RX": "Total RX",
+  "Total TX": "Total TX",
 };

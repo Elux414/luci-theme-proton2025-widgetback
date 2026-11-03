@@ -54,6 +54,7 @@
     "proton-network-aliases": "network_aliases",
 	"proton-wan-interface": "wan_interface",
 	"proton-hosts-filter": "hosts_network_filter",
+	"proton-host-aliases": "host_aliases",
   };
 
   const UCI_TO_LOCAL = {};

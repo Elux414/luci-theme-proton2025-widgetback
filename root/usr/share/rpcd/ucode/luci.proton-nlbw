@@ -38,13 +38,14 @@ function getHostTraffic() {
 	let parsed = parseJsonSafe(raw);
 
 	if (!parsed || !parsed.columns || !parsed.data) {
+		let rawSafe = raw != null ? raw : '';
 		return {
-			success: false,
-			error: 'nlbw returned unexpected output',
-			raw_length: length(raw ?? ''),
-			raw_first_200: substr(raw ?? '', 0, 200),
-			hosts: {},
-			timestamp: time()
+				success: false,
+				error: 'nlbw returned unexpected output',
+				raw_length: length(rawSafe),
+				raw_first_200: substr(rawSafe, 0, 200),
+				hosts: {},
+				timestamp: time()
 		};
 	}
 
@@ -63,21 +64,37 @@ function getHostTraffic() {
 	}
 
 	let hosts = {};
-
 	for (let row in parsed.data) {
 		if (!row || type(row) != 'array') continue;
-
+	
 		let mac = lc(trim('' + (row[idx.mac] ?? '')));
 		if (!mac || mac == '00:00:00:00:00:00') continue;
-
-		hosts[mac] = {
-			mac: mac,
-			conns: +(row[idx.conns] ?? 0),
-			rx_bytes: +(row[idx.rx_bytes] ?? 0),
-			rx_pkts: +(row[idx.rx_pkts] ?? 0),
-			tx_bytes: +(row[idx.tx_bytes] ?? 0),
-			tx_pkts: +(row[idx.tx_pkts] ?? 0)
-		};
+	
+		let conns    = +(row[idx.conns]    ?? 0);
+		let rx_bytes = +(row[idx.rx_bytes] ?? 0);
+		let rx_pkts  = +(row[idx.rx_pkts]  ?? 0);
+		let tx_bytes = +(row[idx.tx_bytes] ?? 0);
+		let tx_pkts  = +(row[idx.tx_pkts]  ?? 0);
+	
+		// nlbw с -g mac может вернуть несколько строк для одного MAC
+		// (разные IP у одного хоста). Агрегируем суммы, а не перезаписываем.
+		let existing = hosts[mac];
+		if (existing) {
+			existing.conns    += conns;
+			existing.rx_bytes += rx_bytes;
+			existing.rx_pkts  += rx_pkts;
+			existing.tx_bytes += tx_bytes;
+			existing.tx_pkts  += tx_pkts;
+		} else {
+			hosts[mac] = {
+				mac: mac,
+				conns: conns,
+				rx_bytes: rx_bytes,
+				rx_pkts: rx_pkts,
+				tx_bytes: tx_bytes,
+				tx_pkts: tx_pkts
+			};
+		}
 	}
 
 	return {

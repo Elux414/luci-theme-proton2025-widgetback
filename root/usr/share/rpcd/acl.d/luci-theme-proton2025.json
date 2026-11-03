@@ -30,6 +30,7 @@
 					"getMethods",
 					"getConfig",
 					"getSchema",
+					"testTelegram",
 					"runCheck"
 				],
                 "system": [

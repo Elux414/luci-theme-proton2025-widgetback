@@ -2,14 +2,6 @@
 // Copyright 2025-2026 ChesterGoodiny
 // Licensed under the Apache License, Version 2.0
 // See LICENSE and NOTICE for details.
-//
-// Синхронные L7-проверки сервисов по настраиваемым методам.
-// Требования: busybox + ubus + sh (ash).
-// Опционально: curl (для http / proxy_socks5 / proxy_http),
-//              wg из wireguard-tools (для wireguard),
-//              ping (для tunnel_ping, обычно busybox).
-// busybox `timeout` НЕ используется — в базовой сборке его нет.
-// Для custom применён собственный таймаут через фоновой watcher + kill.
 
 'use strict';
 
@@ -960,6 +952,45 @@ function rpcRunCheck(req) {
 	}
 }
 
+// --- Telegram Notifications -------------------------------------------------
+
+function sendTelegramMessage(token, chatId, text) {
+	if (!token || !chatId || !text) return false;
+
+	// Экранируем кавычки и спецсимволы для JSON
+	let safeText = replace(text, /\\/g, '\\\\');
+	safeText = replace(safeText, /"/g, '\\"');
+	safeText = replace(safeText, /\n/g, '\\n');
+
+	let payload = '{"chat_id":"' + chatId + '","text":"' + safeText + '","parse_mode":"HTML"}';
+	let url = "https://api.telegram.org/bot" + token + "/sendMessage";
+
+	// Используем popen, так как curl может долго висеть, если нет сети
+	// Ограничиваем время выполнения 10 секундами
+	let cmd = "curl -s -m 10 -X POST " + url + " -H 'Content-Type: application/json' -d '" + payload + "'";
+	let h = popen(cmd, 'r');
+	if (!h) return false;
+
+	let out = h.read('all') ?? '';
+	let code = h.close();
+
+	// Код 0 у curl означает успешное соединение, но Telegram может вернуть ошибку в JSON
+	if (code != 0) {
+		logHealthCheck('telegram', 'send failed, curl exit ' + code);
+		return false;
+	}
+
+	// Проверяем, что ответ содержит "ok":true
+	if (index(out, '"ok":true') < 0) {
+		let cleanOut = replace(trim(out), /\s+/g, ' ');
+		if (length(cleanOut) > 150) cleanOut = substr(cleanOut, 0, 147) + '...';
+		logHealthCheck('telegram', 'API error: ' + cleanOut);
+		return false;
+	}
+
+	return true;
+}
+
 // --- RPC export -------------------------------------------------------------
 
 const methods = {
@@ -983,6 +1014,17 @@ const methods = {
 	clearService: {
 		args: { name: '' },
 		call: function(req) { return rpcClearService(req.args?.name ?? ''); }
+	},
+	testTelegram: {
+		args: { token: '', chat_id: '' },
+		call: function(req) {
+			let t = req.args?.token ?? '';
+			let c = req.args?.chat_id ?? '';
+			if (!t || !c) return { success: false, error: 'Token and Chat ID required' };
+
+			let ok = sendTelegramMessage(t, c, "🔔 <b>Proton2025</b>\nTest notification from your router.");
+			return { success: ok, error: ok ? null : 'Failed to send (check token/chat or network)' };
+		}
 	},
 	runCheck: {
 		args: { name: '' },

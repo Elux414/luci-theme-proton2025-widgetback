@@ -66,6 +66,7 @@
   let summaryEventsTimer = null;
   let summarySelectedEventGroup = null;
   let callWriteUserAction = null;
+  let callTestTelegram = null;
 
   // ---------------------------------------------------------------------------
   // i18n
@@ -262,6 +263,264 @@
     } catch (e) {
       return ["dnsmasq", "dropbear"];
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Telegram
+  // ---------------------------------------------------------------------------
+
+  function renderTelegramSection(container, settings, rootContainer) {
+    const state = rootContainer._monitoringState;
+    if (!state.telegram) {
+      state.telegram = {
+        enabled: false,
+        token: "",
+        chat_id: "",
+        events: ["health-fail", "health-recovery", "crash", "restart", "user-stop", "silent-death"],
+        services: []
+      };
+      if (settings.telegram) {
+        Object.assign(state.telegram, settings.telegram);
+      }
+    }
+
+    const tg = state.telegram;
+
+    const section = document.createElement("section");
+    section.className = "proton-monitoring-section";
+    section.style.marginTop = "24px";
+
+    const title = document.createElement("h4");
+    title.className = "proton-monitoring-section-title";
+    title.textContent = t("Telegram Notifications");
+    section.appendChild(title);
+
+    // Тумблер
+    const enabledRow = document.createElement("label");
+    enabledRow.className = "proton-monitoring-toggle";
+    enabledRow.style.marginBottom = "16px";
+
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.checked = tg.enabled;
+
+    const slider = document.createElement("span");
+    slider.className = "proton-monitoring-toggle-slider";
+
+    const text = document.createElement("span");
+    text.className = "proton-monitoring-toggle-text";
+    text.textContent = t("Enable Telegram notifications");
+
+    enabledRow.appendChild(check);
+    enabledRow.appendChild(slider);
+    enabledRow.appendChild(text);
+    section.appendChild(enabledRow);
+
+    const fieldsBox = document.createElement("div");
+    fieldsBox.className = "proton-telegram-settings";
+    fieldsBox.style.display = tg.enabled ? "flex" : "none";
+
+    // 1. Bot Token
+    const tokenRow = document.createElement("div");
+    tokenRow.className = "proton-telegram-row";
+    const tokenLabel = document.createElement("label");
+    tokenLabel.textContent = "Bot Token";
+    const tokenInput = document.createElement("input");
+    tokenInput.type = "text";
+    tokenInput.className = "cbi-input-text";
+    tokenInput.value = tg.token;
+    tokenInput.placeholder = "123456:ABC-DEF...";
+    tokenInput.addEventListener("input", () => { tg.token = tokenInput.value.trim(); });
+    tokenRow.appendChild(tokenLabel);
+    tokenRow.appendChild(tokenInput);
+    fieldsBox.appendChild(tokenRow);
+
+    // 2. Chat ID
+    const chatRow = document.createElement("div");
+    chatRow.className = "proton-telegram-row";
+    const chatLabel = document.createElement("label");
+    chatLabel.textContent = "Chat ID";
+    const chatInput = document.createElement("input");
+    chatInput.type = "text";
+    chatInput.className = "cbi-input-text";
+    chatInput.value = tg.chat_id;
+    chatInput.placeholder = "-1001234567890";
+    chatInput.addEventListener("input", () => { tg.chat_id = chatInput.value.trim(); });
+    chatRow.appendChild(chatLabel);
+    chatRow.appendChild(chatInput);
+    fieldsBox.appendChild(chatRow);
+
+    // 3. Кнопка теста
+    const testRow = document.createElement("div");
+    testRow.style.display = "flex";
+    testRow.style.justifyContent = "flex-end";
+
+    const testBtn = document.createElement("button");
+    testBtn.type = "button";
+    testBtn.className = "cbi-button cbi-button-action";
+    testBtn.textContent = "Test Connection";
+
+    testBtn.addEventListener("click", async () => {
+      if (!tg.token || !tg.chat_id) {
+        showToast(t("Token and Chat ID are required"), "warning");
+        return;
+      }
+      testBtn.disabled = true;
+      testBtn.textContent = t("Sending...");
+
+      if (!ensureRpc()) {
+        showToast(t("RPC not ready"), "error");
+        testBtn.disabled = false;
+        testBtn.textContent = "Test Connection";
+        return;
+      }
+
+      if (!callTestTelegram) {
+        callTestTelegram = L.rpc.declare({
+          object: "luci.proton-healthcheck",
+          method: "testTelegram",
+          params: ["token", "chat_id"],
+          expect: { "": {} }
+        });
+      }
+
+      try {
+        const res = await L.resolveDefault(callTestTelegram(tg.token, tg.chat_id), null);
+        if (res && res.success) {
+          showToast(t("Test message sent!"), "success");
+        } else {
+          showToast(t("Failed: ") + (res?.error || "RPC failed"), "error");
+        }
+      } catch (e) {
+        showToast(t("Request failed: ") + e.message, "error");
+      }
+
+      testBtn.disabled = false;
+      testBtn.textContent = "Test Connection";
+    });
+
+    testRow.appendChild(testBtn);
+    fieldsBox.appendChild(testRow);
+
+    // 4. Список сервисов
+    const allServices = readAppsList();
+    const isAllServices = tg.services.length === 0;
+
+    const svcRow = document.createElement("div");
+    svcRow.className = "proton-telegram-row";
+
+    const svcLabel = document.createElement("label");
+    svcLabel.textContent = "Services to notify";
+    svcRow.appendChild(svcLabel);
+
+    const allCbLabel = document.createElement("label");
+    allCbLabel.className = "proton-telegram-checkbox-row";
+    allCbLabel.style.fontWeight = "600";
+    allCbLabel.style.marginBottom = "8px";
+
+    const allCb = document.createElement("input");
+    allCb.type = "checkbox";
+    allCb.checked = isAllServices;
+
+    allCbLabel.appendChild(allCb);
+    allCbLabel.appendChild(document.createTextNode("Notify all selected services"));
+    svcRow.appendChild(allCbLabel);
+
+    const svcList = document.createElement("div");
+    svcList.className = "proton-telegram-checkbox-list";
+    svcList.style.display = isAllServices ? "none" : "flex";
+
+    allServices.forEach(sName => {
+      const lbl = document.createElement("label");
+      lbl.className = "proton-telegram-checkbox-row";
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = tg.services.includes(sName);
+
+      cb.addEventListener("change", () => {
+        if (cb.checked) {
+          if (!tg.services.includes(sName)) tg.services.push(sName);
+        } else {
+          tg.services = tg.services.filter(s => s !== sName);
+        }
+        if (tg.services.length === allServices.length) {
+          tg.services = [];
+          allCb.checked = true;
+          svcList.style.display = "none";
+        }
+      });
+
+      lbl.appendChild(cb);
+      lbl.appendChild(document.createTextNode(sName));
+      svcList.appendChild(lbl);
+    });
+
+    allCb.addEventListener("change", () => {
+      if (allCb.checked) {
+        tg.services = [];
+        svcList.style.display = "none";
+      } else {
+        tg.services = allServices.slice();
+        svcList.style.display = "flex";
+        svcList.querySelectorAll("input[type='checkbox']").forEach(c => c.checked = true);
+      }
+    });
+
+    svcRow.appendChild(svcList);
+    fieldsBox.appendChild(svcRow);
+
+    // 5. Список событий
+    const evRow = document.createElement("div");
+    evRow.className = "proton-telegram-row";
+
+    const evLabel = document.createElement("label");
+    evLabel.textContent = "Events to notify";
+    evRow.appendChild(evLabel);
+
+    const evList = document.createElement("div");
+    evList.style.cssText = "display:flex; flex-wrap:wrap; gap:12px;";
+
+    const allEvents = [
+      { id: "health-fail", label: "Health Fail" },
+      { id: "health-recovery", label: "Health Recover" },
+      { id: "crash", label: "Crash" },
+      { id: "restart", label: "Restart" },
+      { id: "user-stop", label: "User Stop" },
+      { id: "silent-death", label: "Silent Death" }
+    ];
+
+    allEvents.forEach(ev => {
+      const lbl = document.createElement("label");
+      lbl.className = "proton-telegram-checkbox-row";
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = tg.events.includes(ev.id);
+
+      cb.addEventListener("change", () => {
+        if (cb.checked) {
+          if (!tg.events.includes(ev.id)) tg.events.push(ev.id);
+        } else {
+          tg.events = tg.events.filter(e => e !== ev.id);
+        }
+      });
+
+      lbl.appendChild(cb);
+      lbl.appendChild(document.createTextNode(ev.label));
+      evList.appendChild(lbl);
+    });
+
+    evRow.appendChild(evList);
+    fieldsBox.appendChild(evRow);
+
+    check.addEventListener("change", () => {
+      tg.enabled = check.checked;
+      fieldsBox.style.display = tg.enabled ? "flex" : "none";
+    });
+
+    section.appendChild(fieldsBox);
+    container.appendChild(section);
   }
 
   // ---------------------------------------------------------------------------
@@ -823,20 +1082,47 @@ function renderDetailGraph(box, serviceName, container) {
     const isRunning = status === "running";
     const isInstalled = status !== "not-installed";
 
-    const toggleBtn = document.createElement("button");
-    toggleBtn.type = "button";
-    toggleBtn.className = isRunning ? "cbi-button cbi-button-negative" : "cbi-button cbi-button-positive";
-    toggleBtn.textContent = isRunning ? t("Stop") : t("Start");
-    toggleBtn.disabled = !isInstalled;
+    // Для WireGuard управление через rc init недоступно (это не сервис, а интерфейс).
+    // Скрываем кнопки, оставляя только информационный статус.
+    const isWireguard = name === "wireguard";
 
-    const restartBtn = document.createElement("button");
-    restartBtn.type = "button";
-    restartBtn.className = "cbi-button cbi-button-neutral";
-    restartBtn.textContent = t("Restart");
-    restartBtn.disabled = !isInstalled || !isRunning;
+    if (!isWireguard) {
+      const toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      toggleBtn.className = isRunning ? "cbi-button cbi-button-negative" : "cbi-button cbi-button-positive";
+      toggleBtn.textContent = isRunning ? t("Stop") : t("Start");
+      toggleBtn.disabled = !isInstalled;
 
-    actions.appendChild(toggleBtn);
-    actions.appendChild(restartBtn);
+      toggleBtn.addEventListener("click", function () {
+        const act = isRunning ? "stop" : "start";
+        const doAction = function () {
+          runServiceAction(name, act, toggleBtn, restartBtn, box);
+        };
+        if (act === "stop" && CRITICAL_SERVICES.has(name)) {
+          showConfirmDialog(
+            t("Stop service?"),
+                            t('Are you sure you want to stop the "{name}" service? This may disrupt network connectivity.').replace("{name}", info.displayName || name),
+                            t("Stop"),
+                            doAction
+          );
+        } else {
+          doAction();
+        }
+      });
+
+      const restartBtn = document.createElement("button");
+      restartBtn.type = "button";
+      restartBtn.className = "cbi-button cbi-button-neutral";
+      restartBtn.textContent = t("Restart");
+      restartBtn.disabled = !isInstalled || !isRunning;
+
+      restartBtn.addEventListener("click", function () {
+        runServiceAction(name, "restart", toggleBtn, restartBtn, box);
+      });
+
+      actions.appendChild(toggleBtn);
+      actions.appendChild(restartBtn);
+    }
 
     // Log toggle
     const logToggleWrap = document.createElement("div");
@@ -906,29 +1192,6 @@ function renderDetailGraph(box, serviceName, container) {
       const pidEl = box.querySelector('[data-role="pid"]');
       if (uptimeEl) uptimeEl.textContent = "—";
       if (pidEl) pidEl.textContent = "—";
-    });
-
-    // Toggle start/stop
-    toggleBtn.addEventListener("click", function () {
-      const act = isRunning ? "stop" : "start";
-      const doAction = function () {
-        runServiceAction(name, act, toggleBtn, restartBtn, box);
-      };
-      if (act === "stop" && CRITICAL_SERVICES.has(name)) {
-        showConfirmDialog(
-          t("Stop service?"),
-          t('Are you sure you want to stop the "{name}" service? This may disrupt network connectivity.').replace("{name}", info.displayName || name),
-          t("Stop"),
-          doAction
-        );
-      } else {
-        doAction();
-      }
-    });
-
-    // Restart
-    restartBtn.addEventListener("click", function () {
-      runServiceAction(name, "restart", toggleBtn, restartBtn, box);
     });
 
     return box;
@@ -1438,12 +1701,11 @@ function renderDetailGraph(box, serviceName, container) {
     // Достаём state мониторинга (создан в renderMonitoringTab).
     const modalOverlay = document.querySelector(".proton-apps-settings-modal");
     const monitoringContent = modalOverlay
-      ? modalOverlay.querySelector('[data-tab-content="monitoring"]')
-      : null;
+    ? modalOverlay.querySelector('[data-tab-content="monitoring"]')
+    : null;
     const mState = monitoringContent ? monitoringContent._monitoringState : null;
 
     if (!mState) {
-      // Если таб «Мониторинг» ещё не открывался — нечего сохранять.
       showToast(t("Settings saved"), "success");
       return;
     }
@@ -1455,7 +1717,7 @@ function renderDetailGraph(box, serviceName, container) {
       const res = await L.resolveDefault(
         callProtonSetSettings({
           history_sample_interval: String(mState.history.sampleInterval),
-          history_max_age_hours: String(mState.history.maxAgeHours),
+                              history_max_age_hours: String(mState.history.maxAgeHours),
         }),
         null,
       );
@@ -1473,9 +1735,9 @@ function renderDetailGraph(box, serviceName, container) {
         callHealthSetGlobal(
           hGlobal.enabled ? "1" : "0",
           String(hGlobal.interval),
-          String(hGlobal.timeout),
-          String(hGlobal.failures_threshold),
-          hGlobal.log_to_syslog ? "1" : "0",
+                            String(hGlobal.timeout),
+                            String(hGlobal.failures_threshold),
+                            hGlobal.log_to_syslog ? "1" : "0",
         ),
         null,
       );
@@ -1486,97 +1748,106 @@ function renderDetailGraph(box, serviceName, container) {
       errors.push("health global: " + (e && e.message ? e.message : e));
     }
 
-    // --- 3. L7 per-service ---
-    // Список сервисов для обработки: только те, что в newServicesList.
-    // Всё, что было настроено, но выпало из списка — очищаем.
+    // --- 3. Telegram Settings ---
+    const tg = mState.telegram;
+    if (tg) {
+      try {
+        const res = await L.resolveDefault(
+          callProtonSetSettings({
+            telegram_enabled: tg.enabled ? "1" : "0",
+            telegram_bot_token: tg.token || "",
+            telegram_chat_id: tg.chat_id || "",
+            telegram_events: JSON.stringify(tg.events || []),
+                                telegram_services: JSON.stringify(tg.services || [])
+          }),
+          null
+        );
+        if (!res || !res.success) {
+          errors.push("telegram: " + (res?.error || "unknown"));
+        }
+      } catch (e) {
+        errors.push("telegram: " + (e.message || e));
+      }
+    }
+
+    // --- 4. L7 per-service ---
     const configByName = new Map();
     (mState.health.services || []).forEach(function (s) {
       if (s && s.name) configByName.set(s.name, s);
     });
 
-    // Для каждого сервиса из нового списка:
-    //   - если есть method → setService(name, enabled, config)
-    //   - если method пустой → clearService(name)
-    const toSave = [];
-    const toClear = [];
+      const toSave = [];
+      const toClear = [];
 
-    newServicesList.forEach(function (name) {
-      const cfg = configByName.get(name);
-      if (cfg && cfg.method) {
-        toSave.push({
-          name: name,
-          enabled: cfg.enabled === true,
-          config: {
-            method: cfg.method,
-            // Доп. поля — плоским объектом. Backend сам выберет по методу.
-            ...cfg.fields,
-          },
-        });
-      } else if (cfg) {
-        // cfg есть, но method пустой → пользователь снял метод.
-        toClear.push(name);
-      }
-      // Если cfg нет вообще — сервис никогда не настраивался, пропускаем.
-    });
-
-    // Сервисы, которые были в UCI, но выпали из списка — тоже очищаем.
-    configByName.forEach(function (cfg, name) {
-      if (newServicesList.indexOf(name) === -1) {
-        toClear.push(name);
-      }
-    });
-
-    // Выполняем setService последовательно (чтобы избежать гонки в UCI).
-    for (const item of toSave) {
-      try {
-        const configJson = JSON.stringify(item.config);
-        const res = await L.resolveDefault(
-          callHealthSetService(item.name, item.enabled ? "1" : "0", configJson),
-          null,
-        );
-        if (!res || !res.success) {
-          errors.push(item.name + ": " + (res && res.error ? res.error : "unknown"));
+      newServicesList.forEach(function (name) {
+        const cfg = configByName.get(name);
+        if (cfg && cfg.method) {
+          toSave.push({
+            name: name,
+            enabled: cfg.enabled === true,
+            config: {
+              method: cfg.method,
+              ...cfg.fields,
+            },
+          });
+        } else if (cfg) {
+          toClear.push(name);
         }
-      } catch (e) {
-        errors.push(item.name + ": " + (e && e.message ? e.message : e));
-      }
-    }
+      });
 
-    // Очистка
-    for (const name of toClear) {
-      try {
-        const res = await L.resolveDefault(callHealthClearService(name), null);
-        if (!res || !res.success) {
-          errors.push(name + " (clear): " + (res && res.error ? res.error : "unknown"));
+      configByName.forEach(function (cfg, name) {
+        if (newServicesList.indexOf(name) === -1) {
+          toClear.push(name);
         }
-      } catch (e) {
-        errors.push(name + " (clear): " + (e && e.message ? e.message : e));
-      }
-    }
+      });
 
-    // --- 4. Обновляем кэш services-history.js ---
-    if (window.ProtonServicesHistory
+      for (const item of toSave) {
+        try {
+          const configJson = JSON.stringify(item.config);
+          const res = await L.resolveDefault(
+            callHealthSetService(item.name, item.enabled ? "1" : "0", configJson),
+                                             null,
+          );
+          if (!res || !res.success) {
+            errors.push(item.name + ": " + (res && res.error ? res.error : "unknown"));
+          }
+        } catch (e) {
+          errors.push(item.name + ": " + (e && e.message ? e.message : e));
+        }
+      }
+
+      for (const name of toClear) {
+        try {
+          const res = await L.resolveDefault(callHealthClearService(name), null);
+          if (!res || !res.success) {
+            errors.push(name + " (clear): " + (res && res.error ? res.error : "unknown"));
+          }
+        } catch (e) {
+          errors.push(name + " (clear): " + (e && e.message ? e.message : e));
+        }
+      }
+
+      // --- 5. Обновляем кэш services-history.js ---
+      if (window.ProtonServicesHistory
         && typeof window.ProtonServicesHistory.loadSettingsFromUci === "function") {
-      try {
-        await window.ProtonServicesHistory.loadSettingsFromUci();
-      } catch (e) {
-        // Не критично — кэш обновится по событию proton-settings-synced.
-      }
-    }
+        try {
+          await window.ProtonServicesHistory.loadSettingsFromUci();
+        } catch (e) {}
+        }
 
-    // --- 5. Результат ---
-    if (errors.length === 0) {
-      showToast(t("Settings saved"), "success");
-    } else {
-      console.warn("[Proton2025] Apply settings errors:", errors);
-      showToast(
-        t("Some settings were not saved") + ": " + errors.length,
-        "warning",
-      );
-    }
+        // --- 6. Результат ---
+        if (errors.length === 0) {
+          showToast(t("Settings saved"), "success");
+        } else {
+          console.warn("[Proton2025] Apply settings errors:", errors);
+          showToast(
+            t("Some settings were not saved") + ": " + errors.length,
+                    "warning",
+          );
+        }
   }
 
-    // =========================================================================
+  // =========================================================================
   //  Таб «Мониторинг»
   // =========================================================================
 
@@ -1654,11 +1925,26 @@ function renderDetailGraph(box, serviceName, container) {
         }
       : null;
 
+    const tgEnabled = rawSettings.telegram_enabled === "1";
+    let tgEvents = ["health-fail", "health-recovery", "crash", "restart", "user-stop", "silent-death"];
+    try { tgEvents = JSON.parse(rawSettings.telegram_events || '[]'); } catch(e){}
+    let tgServices = [];
+    try { tgServices = JSON.parse(rawSettings.telegram_services || '[]'); } catch(e){}
+
+    const telegram = {
+        enabled: tgEnabled,
+        token: rawSettings.telegram_bot_token || "",
+        chat_id: rawSettings.telegram_chat_id || "",
+        events: Array.isArray(tgEvents) ? tgEvents : [],
+        services: Array.isArray(tgServices) ? tgServices : []
+      };
+
     return {
       history: { sampleInterval, maxAgeHours },
       health: { global: healthGlobal, services: healthServices },
       methods,
       schema,
+      telegram: telegram,
     };
   }
 
@@ -1769,8 +2055,8 @@ function renderDetailGraph(box, serviceName, container) {
     l7Title.textContent = t("Health check");
     l7Section.appendChild(l7Title);
 
-    // ВАЖНО: _monitoringState инициализируется ДО renderL7Section, потому
-    // что renderL7Section читает rootContainer._monitoringState в самом начале.
+    // ВАЖНО: _monitoringState инициализируется ДО renderL7Section и renderTelegramSection,
+    // потому что они читают rootContainer._monitoringState.
     container.dataset.role = "monitoring-content";
     container._monitoringState = {
       history: {
@@ -1778,8 +2064,15 @@ function renderDetailGraph(box, serviceName, container) {
         maxAgeHours: settings.history.maxAgeHours,
       },
       health: JSON.parse(JSON.stringify(settings.health)),
-      methods: settings.methods.slice(),
-      schema: settings.schema,
+ methods: settings.methods.slice(),
+ schema: settings.schema,
+ telegram: settings.telegram ? JSON.parse(JSON.stringify(settings.telegram)) : {
+   enabled: false,
+   token: "",
+   chat_id: "",
+   events: ["health-fail", "health-recovery", "crash", "restart", "user-stop", "silent-death"],
+   services: []
+ }
     };
 
     // Слушаем изменения селектов истории — обновляем state контейнера.
@@ -1788,15 +2081,17 @@ function renderDetailGraph(box, serviceName, container) {
       if (v == v) container._monitoringState.history.sampleInterval = v;
     });
 
-    retentionSelect.addEventListener("change", function () {
-      const v = parseInt(retentionSelect.value, 10);
-      if (v == v) container._monitoringState.history.maxAgeHours = v;
-    });
+      retentionSelect.addEventListener("change", function () {
+        const v = parseInt(retentionSelect.value, 10);
+        if (v == v) container._monitoringState.history.maxAgeHours = v;
+      });
 
-    // Теперь можно рендерить L7 — state готов.
-    renderL7Section(l7Section, settings, container);
+        // Теперь можно рендерить L7 — state готов.
+        renderL7Section(l7Section, settings, container);
+        container.appendChild(l7Section);
 
-    container.appendChild(l7Section);
+        // === Секция «Telegram» ===
+        renderTelegramSection(container, settings, container);
   }
 
   // =========================================================================

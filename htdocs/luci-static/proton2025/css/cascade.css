@@ -12798,8 +12798,8 @@ body.login-page .login-password-toggle:focus-visible {
 
 /* Hosts widget */
 .proton-dashboard-hosts {
-    height: 337px;
-    max-height: 337px;
+    height: 380px;
+    max-height: 380px;
     display: flex;
     flex-direction: column;
 }
@@ -12818,14 +12818,16 @@ body.login-page .login-password-toggle:focus-visible {
 }
 
 .proton-hosts-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
     align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
+    gap: 12px;
+    padding: 8px 12px;
     border: 1px solid var(--proton-border);
     border-radius: calc(var(--proton-radius) * 0.8);
     background: rgba(var(--proton-accent-rgb), 0.02);
     transition: background 0.15s ease, border-color 0.15s ease;
+    min-height: 56px;
 }
 
 .proton-hosts-row:hover {
@@ -12834,28 +12836,23 @@ body.login-page .login-password-toggle:focus-visible {
 }
 
 .proton-hosts-icon {
-    flex: 0 0 auto;
-    width: 22px;
-    height: 22px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 15px;
-    line-height: 1;
+    width: 24px;
+    text-align: center;
+    font-size: 16px;
 }
 
 .proton-hosts-main {
-    flex: 1 1 auto;
-    min-width: 0;
     display: flex;
     flex-direction: column;
+    justify-content: center;
     gap: 2px;
+    min-width: 0;
 }
 
 .proton-hosts-top {
     display: flex;
-    align-items: baseline;
     justify-content: space-between;
+    align-items: center;
     gap: 8px;
     min-width: 0;
 }
@@ -12867,31 +12864,20 @@ body.login-page .login-password-toggle:focus-visible {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    min-width: 0;
-}
-
-.proton-hosts-ip {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.72rem;
-    color: var(--proton-text-secondary);
-    white-space: nowrap;
-    flex: 0 0 auto;
+    flex: 1;
 }
 
 .proton-hosts-bottom {
     display: flex;
-    align-items: center;
     justify-content: space-between;
+    align-items: center;
     gap: 8px;
     min-width: 0;
 }
 
 .proton-hosts-type {
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     color: var(--proton-text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .proton-hosts-rates {
@@ -12900,7 +12886,7 @@ body.login-page .login-password-toggle:focus-visible {
     font-size: 0.72rem;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
-    flex: 0 0 auto;
+    flex-shrink: 0;
 }
 
 .proton-hosts-rate-rx {
@@ -12912,12 +12898,9 @@ body.login-page .login-password-toggle:focus-visible {
 }
 
 .proton-hosts-chart {
-    flex: 0 0 90px;
-    width: 90px;
+    width: 70px;
     height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-shrink: 0;
 }
 
 .proton-hosts-sparkline {
@@ -12946,6 +12929,32 @@ body.login-page .login-password-toggle:focus-visible {
     color: var(--proton-text-secondary);
     font-size: 0.85rem;
     list-style: none;
+}
+
+/* Редактирование имени хоста */
+.proton-hosts-name {
+    cursor: pointer;
+    border-bottom: 1px dashed transparent;
+    transition: border-color 0.15s ease;
+}
+
+.proton-hosts-name:hover {
+    border-bottom-color: var(--proton-accent);
+}
+
+.proton-hosts-name-edit {
+    min-width: 0;
+    flex: 1;
+    padding: 0 4px;
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--proton-text-primary);
+    background: var(--proton-bg-tertiary);
+    border: 1px solid var(--proton-accent);
+    border-radius: 4px;
+    outline: none;
+    box-sizing: border-box;
 }
 
 /* =====================================================
@@ -15464,6 +15473,19 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
     background: rgba(148, 163, 184, 0.04);
 }
 
+/* Жестко скрываем скроллбары у контейнера графиков и таймлайна */
+.proton-apps-graph-container,
+.proton-apps-events-timeline {
+    overflow: hidden !important;
+    scrollbar-width: none !important; /* Firefox */
+    -ms-overflow-style: none !important; /* IE/Edge */
+}
+
+.proton-apps-graph-container::-webkit-scrollbar,
+.proton-apps-events-timeline::-webkit-scrollbar {
+    display: none !important; /* Chrome/Safari */
+}
+
 .proton-health-graph-svg {
     display: block;
     width: 100%;
@@ -16040,4 +16062,118 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
   .proton-hosts-columns {
     grid-template-columns: 1fr;
   }
+}
+
+/* IPv6 в карточке */
+.proton-hosts-ips {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    min-width: 0;
+    flex-shrink: 0;
+    line-height: 1.2;
+}
+
+.proton-hosts-ip {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+    color: var(--proton-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.proton-hosts-ipv6 {
+    font-size: 0.65rem;
+    opacity: 0.7;
+}
+
+/* Tooltip для хостов */
+.proton-hosts-tooltip {
+    position: fixed;
+    z-index: 9999;
+    background: rgba(20, 25, 35, 0.98);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    padding: 10px 12px;
+    box-shadow: var(--proton-shadow-lg);
+    pointer-events: none;
+    min-width: 220px;
+    max-width: 320px;
+    font-size: 0.8rem;
+    color: var(--proton-fg);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+:root[data-theme="light"] .proton-hosts-tooltip {
+    background: rgba(255, 255, 255, 0.98);
+}
+.proton-hosts-tooltip-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+    color: var(--proton-accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.proton-hosts-tooltip-row {
+    margin-bottom: 4px;
+    line-height: 1.4;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+}
+.proton-hosts-tooltip-row strong {
+    color: var(--proton-muted);
+    font-family: inherit;
+    font-weight: 500;
+}
+.proton-hosts-tooltip-divider {
+    height: 1px;
+    background: var(--proton-border);
+    margin: 6px 0;
+}
+
+/* Telegram Settings in Monitoring Tab */
+.proton-telegram-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 16px;
+}
+.proton-telegram-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.proton-telegram-row label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--proton-fg);
+}
+.proton-telegram-row input[type="text"] {
+    width: 100%;
+    max-width: 100%;
+}
+.proton-telegram-checkbox-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    background: var(--proton-bg-tertiary);
+    border: 1px solid var(--proton-border);
+    border-radius: var(--proton-radius-sm);
+    max-height: 200px;
+    overflow-y: auto;
+}
+.proton-telegram-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+.proton-telegram-checkbox-row input[type="checkbox"] {
+    margin: 0;
 }

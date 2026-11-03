@@ -727,4 +727,11 @@ window.ProtonTranslations = {
   "Command": "Команда",
   "Edit": "Редагувати",
   "These services are tracked in history and health checks": "Ці сервіси відстежуються в історії та health-check",
+  "Click to rename": "Натисніть, щоб перейменувати",
+  "Custom device names": "Власні імена пристроїв",
+  "No custom names yet": "Власних імен поки немає",
+  "Clear all": "Очистити все",
+  "Clear all custom device names?": "Видалити всі власні імена пристроїв?",
+  "Total RX": "Всього завантажено",
+  "Total TX": "Всього віддано",
 };

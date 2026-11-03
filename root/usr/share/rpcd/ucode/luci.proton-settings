@@ -40,6 +40,12 @@ const VALID_OPTIONS = {
 	pattern_scale: { default: '100', min: 50, max: 200 },
 	custom_font: { default: '1', values: ['0', '1'] },
 	wan_interface: { default: '', pattern: 'any', maxlen: 64 },
+		// --- Telegram Notifications ---
+	telegram_enabled: { default: '0', values: ['0', '1'] },
+	telegram_bot_token: { default: '', pattern: 'any', maxlen: 128 },
+	telegram_chat_id: { default: '', pattern: 'any', maxlen: 64 },
+	telegram_events: { default: '["health-fail","health-recovery","silent-death","crash","user-stop","restart"]', pattern: 'json_array', maxlen: 2048 },
+	telegram_services: { default: '[]', pattern: 'json_array', maxlen: 4096 },
 	login_animation: {
     	default: 'particles',
     	values: [
@@ -72,6 +78,9 @@ const VALID_OPTIONS = {
 	
 	// --- Hosts network filter ---
 	hosts_network_filter: { default: '[]', pattern: 'json_array', maxlen: 4096 },
+	
+	// --- Hosts: пользовательские имена устройств ---
+	host_aliases: { default: '{}', pattern: 'json_object', maxlen: 16384 },
 	
 	// --- Services history ---
 	history_sample_interval: { default: '10', min: 5, max: 60 },

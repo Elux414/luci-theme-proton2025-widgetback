@@ -704,4 +704,11 @@ window.ProtonTranslations = {
   "Command": "命令",
   "Edit": "编辑",
   "These services are tracked in history and health checks": "这些服务会在历史和健康检查中被追踪",
+  "Click to rename": "点击重命名",
+  "Custom device names": "自定义设备名称",
+  "No custom names yet": "暂无自定义名称",
+  "Clear all": "全部清除",
+  "Clear all custom device names?": "清除所有自定义设备名称？",
+  "Total RX": "总下载",
+  "Total TX": "总上传",
 };
