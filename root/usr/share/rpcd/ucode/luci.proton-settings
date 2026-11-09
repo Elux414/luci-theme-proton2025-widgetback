@@ -139,19 +139,56 @@ function validateOption(name, value) {
 	return true;
 }
 
-// Get all settings
+// Legacy-опции глобального L7, которые нужно удалить из UCI после
+// перехода на per-service настройки (v7.1+).
+const LEGACY_GLOBAL_L7_OPTIONS = [
+    'health_check_enabled',
+    'health_check_interval',
+    'health_check_timeout',
+    'health_check_failures_threshold',
+    'health_check_log_to_syslog',
+];
+
+// Одноразовая миграция: удаляем legacy-опции из секции settings.
+// Вызывается при каждом getSettings() — но реально пишет UCI только если
+// legacy-опции найдены. После первого запуска они исчезают.
+function migrateLegacyGlobalL7() {
+    const uci = cursor();
+    uci.load(CONFIG_NAME);
+
+    if (!uci.get(CONFIG_NAME, SECTION_NAME)) return false;
+
+    let changed = false;
+    for (let opt in LEGACY_GLOBAL_L7_OPTIONS) {
+        if (uci.get(CONFIG_NAME, SECTION_NAME, opt) != null) {
+            uci.delete(CONFIG_NAME, SECTION_NAME, opt);
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        uci.commit(CONFIG_NAME);
+    }
+
+    return changed;
+}
+
 function getSettings() {
-	const uci = cursor();
-	uci.load(CONFIG_NAME);
+    // Одноразовая миграция legacy global L7 options.
+    // Не критично для чтения — если не удалось, продолжим без миграции.
+    try { migrateLegacyGlobalL7(); } catch (e) {}
 
-	let settings = {};
+    const uci = cursor();
+    uci.load(CONFIG_NAME);
 
-	for (let name in VALID_OPTIONS) {
-		let value = uci.get(CONFIG_NAME, SECTION_NAME, name);
-		settings[name] = value ?? VALID_OPTIONS[name].default;
-	}
+    let settings = {};
 
-	return { settings: settings };
+    for (let name in VALID_OPTIONS) {
+        let value = uci.get(CONFIG_NAME, SECTION_NAME, name);
+        settings[name] = value ?? VALID_OPTIONS[name].default;
+    }
+
+    return { settings: settings };
 }
 
 // Set a single setting

@@ -442,67 +442,61 @@ _updateHistorySource() {
     }
 
     async _initHealthCheck() {
-      if (!this._ensureHealthCheckRpc()) {
-        this._logDebug("HealthCheck RPC not available");
-        return;
-      }
+		if (!this._ensureHealthCheckRpc()) return;
 
-      try {
-        const res = await L.resolveDefault(this._rpcHealthCheck.getConfig(), null);
-        if (!res || !res.success) {
-          this._logInfo("HealthCheck getConfig failed", res);
-          return;
-        }
+		try {
+			const res = await L.resolveDefault(this._rpcHealthCheck.getConfig(), null);
+			if (!res || !res.success) {
+				this._logInfo("HealthCheck getConfig failed", res);
+				return;
+			}
 
-        this._l7Config.global = res.global || null;
-        this._l7Config.services.clear();
+			this._l7Config.services.clear();
 
-        const services = Array.isArray(res.services) ? res.services : [];
-        for (const svc of services) {
-          if (!svc || !svc.name) continue;
-          if (!this._isValidServiceName(svc.name)) continue;
-          this._l7Config.services.set(svc.name, {
-            enabled: svc.enabled === true,
-            method: svc.method || "",
-            fields: svc.fields || {},
-          });
-        }
+			const services = Array.isArray(res.services) ? res.services : [];
+			for (const svc of services) {
+				if (!svc || !svc.name) continue;
+				if (!this._isValidServiceName(svc.name)) continue;
+				const fields = svc.fields || {};
+				this._l7Config.services.set(svc.name, {
+					enabled: svc.enabled === true,
+					method: svc.method || "",
+					interval: Number.isFinite(+fields.interval) ? +fields.interval : 60,
+					timeout: Number.isFinite(+fields.timeout) ? +fields.timeout : 5,
+					failures_threshold: Number.isFinite(+fields.failures_threshold) ? +fields.failures_threshold : 2,
+					log_to_syslog: String(fields.log_to_syslog) === "0" ? false : true,
+					fields: fields,
+				});
+			}
 
-        this._l7ConfigReady = true;
+			this._l7ConfigReady = true;
 
-        this._logInfo("HealthCheck config loaded", {
-          globalEnabled: !!(this._l7Config.global && this._l7Config.global.enabled),
-          servicesCount: this._l7Config.services.size,
-        });
+			this._logInfo("HealthCheck config loaded", {
+				servicesCount: this._l7Config.services.size,
+			});
 
-        // Пересобираем UI-статус: если сервис уже health-failed в кэше — сбрасываем.
-        for (const [svcName, cfg] of this._l7Config.services) {
-          if (!cfg.enabled) {
-            this._l7Failures.delete(svcName);
-            this._l7LastRun.delete(svcName);
-          }
-        }
+			for (const [svcName, cfg] of this._l7Config.services) {
+				if (!cfg.enabled) {
+					this._l7Failures.delete(svcName);
+					this._l7LastRun.delete(svcName);
+				}
+			}
 
-        // Восстанавливаем L7-статус из последней точки истории.
-        // Это нужно, чтобы после перезагрузки страницы сервис, который был
-        // в health-failed, не показывался ложно «зелёным» на 30-60 секунд,
-        // пока не сработает следующий цикл L7.
-        this._restoreL7StatusFromHistory();
-      } catch (e) {
-        this._logInfo("HealthCheck init failed", e);
-        this._l7ConfigReady = false;
-      }
-    }
+			this._restoreL7StatusFromHistory();
+
+			} catch (e) {
+				this._logInfo("HealthCheck init failed", e);
+				this._l7ConfigReady = false;
+			}
+		}
 
     _isL7EnabledFor(serviceName) {
-      if (!this._l7ConfigReady) return false;
-      const g = this._l7Config.global;
-      if (!g || !g.enabled) return false;
-      const svc = this._l7Config.services.get(serviceName);
-      if (!svc || !svc.enabled) return false;
-      if (!svc.method) return false;
-      return true;
-    }
+		if (!this._l7ConfigReady) return false;
+		const svc = this._l7Config.services.get(serviceName);
+		if (!svc || !svc.enabled) return false;
+		if (!svc.method) return false;
+		return true;
+	}
 
     /**
      * Восстанавливает L7-статус из последней точки истории.
@@ -524,48 +518,41 @@ _updateHistorySource() {
      *     L1 сам разберётся при следующем опросе.
      *   - если последняя точка = 2 (unknown) — ничего не делаем.
      */
-    _restoreL7StatusFromHistory() {
-      if (!this._l7ConfigReady) return;
-      if (!this._l7Config.global || !this._l7Config.global.enabled) return;
+     _restoreL7StatusFromHistory() {
+		if (!this._l7ConfigReady) return;
 
-      const threshold = this._l7Threshold();
-      let restored = 0;
+		let restored = 0;
 
-      for (const [serviceName, point] of this._lastHistoryPoint) {
-        if (!Array.isArray(point) || point.length < 2) continue;
+		for (const [serviceName, point] of this._lastHistoryPoint) {
+			if (!Array.isArray(point) || point.length < 2) continue;
 
-        const status = Number(point[1]);
-        if (status !== 3) continue;
+			const status = Number(point[1]);
+			if (status !== 3) continue;
 
-        // Проверяем, что L7 сейчас реально включён для сервиса.
-        // Если метод не задан или per-service enabled выключен —
-        // восстанавливать нечего.
-        if (!this._isL7EnabledFor(serviceName)) continue;
+			if (!this._isL7EnabledFor(serviceName)) continue;
 
-        this._l7StatusCache.set(serviceName, "fail");
-        // Заполняем счётчик до порога: следующая проверка (провал)
-        // не должна сбрасывать статус. Но если следующая проверка
-        // успешна — счётчик обнулится, статус переключится в 'ok'.
-        this._l7Failures.set(serviceName, threshold);
-        restored++;
-      }
+			const threshold = this._l7Threshold(serviceName);
+			this._l7StatusCache.set(serviceName, "fail");
+			this._l7Failures.set(serviceName, threshold);
+			restored++;
+		}
 
-      if (restored > 0) {
-        this._logInfo("L7 status restored from history", { count: restored });
-      }
-    }
+		if (restored > 0) {
+			this._logInfo("L7 status restored from history", { count: restored });
+		}
+	  }
 
-    _l7IntervalMs() {
-      const g = this._l7Config.global;
-      const sec = g && Number.isFinite(g.interval) ? g.interval : 60;
-      return Math.max(30, sec) * 1000;
-    }
+    _l7IntervalMs(serviceName) {
+		const cfg = this._l7Config.services.get(serviceName);
+		const sec = cfg && Number.isFinite(cfg.interval) ? cfg.interval : 60;
+		return Math.max(10, sec) * 1000;
+	}
 
-    _l7Threshold() {
-      const g = this._l7Config.global;
-      const n = g && Number.isFinite(g.failures_threshold) ? g.failures_threshold : 2;
-      return Math.max(1, n);
-    }
+	_l7Threshold(serviceName) {
+		const cfg = this._l7Config.services.get(serviceName);
+		const n = cfg && Number.isFinite(cfg.failures_threshold) ? cfg.failures_threshold : 2;
+		return Math.max(1, n);
+	}
 	
 	// Композитный статус: L1 + L7.
     //   L1 !== 'running' → возвращаем L1 как есть.
@@ -584,25 +571,23 @@ _updateHistorySource() {
     async _runL7Cycle() {
       if (this._l7CycleRunning) return;
       if (!this._l7ConfigReady) return;
-      if (!this._l7Config.global || !this._l7Config.global.enabled) return;
       if (document.hidden) return;
 
       this._l7CycleRunning = true;
 
       try {
         const now = Date.now();
-        const interval = this._l7IntervalMs();
-        const MAX_CONCURRENT = 2;
+		const MAX_CONCURRENT = 2;
 
-        // Собираем очередь: сервисы, у которых истёк интервал,
-        // L7 включён, и которые сейчас не в работе.
-        const queue = [];
-        for (const serviceName of this.services) {
-          if (!this._isL7EnabledFor(serviceName)) continue;
-          if (this._l7InFlight.has(serviceName)) continue;
+		const queue = [];
+		for (const serviceName of this.services) {
+			if (!this._isL7EnabledFor(serviceName)) continue;
+			if (this._l7InFlight.has(serviceName)) continue;
 
-          const lastRun = this._l7LastRun.get(serviceName) || 0;
-          if (now - lastRun < interval) continue;
+			// Per-service interval.
+			const interval = this._l7IntervalMs(serviceName);
+			const lastRun = this._l7LastRun.get(serviceName) || 0;
+			if (now - lastRun < interval) continue;
 
           // Проверяем, что сервис сейчас running (по кэшу).
           // L7 работает только для running — см. ТЗ §6.4.
@@ -710,7 +695,7 @@ _updateHistorySource() {
         // Провал L7.
         const failures = (this._l7Failures.get(serviceName) || 0) + 1;
         this._l7Failures.set(serviceName, failures);
-        const threshold = this._l7Threshold();
+        const threshold = this._l7Threshold(serviceName);
 
         this._logDebug("L7 fail", serviceName, { failures, threshold, error: res.error });
 

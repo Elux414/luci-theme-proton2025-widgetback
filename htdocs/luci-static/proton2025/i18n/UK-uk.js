@@ -734,4 +734,10 @@ window.ProtonTranslations = {
   "Clear all custom device names?": "Видалити всі власні імена пристроїв?",
   "Total RX": "Всього завантажено",
   "Total TX": "Всього віддано",
+  "Common settings": "Загальні налаштування",
+  "Check method": "Метод перевірки",
+  "Log health check to syslog": "Писати перевірки в syslog",
+  "Configure interval, timeout and failure threshold individually for each service.":
+    "Налаштуйте інтервал, таймаут і поріг провалів окремо для кожного сервісу.",
+  "Timeout must be ≤ interval": "Таймаут має бути ≤ інтервалу",
 };

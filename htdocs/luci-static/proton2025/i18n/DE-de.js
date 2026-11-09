@@ -738,4 +738,10 @@ window.ProtonTranslations = {
   "Clear all custom device names?": "Alle eigenen Gerätenamen löschen?",
   "Total RX": "Gesamt RX",
   "Total TX": "Gesamt TX",
+  "Common settings": "Allgemeine Einstellungen",
+  "Check method": "Prüfmethode",
+  "Log health check to syslog": "Health-Check ins Syslog schreiben",
+  "Configure interval, timeout and failure threshold individually for each service.":
+    "Intervall, Timeout und Fehlerschwelle für jeden Dienst separat konfigurieren.",
+  "Timeout must be ≤ interval": "Timeout muss ≤ Intervall sein",
 };

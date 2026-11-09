@@ -3,13 +3,6 @@
  * Copyright 2025-2026 ChesterGoodiny
  * Licensed under the Apache License, Version 2.0
  * See LICENSE and NOTICE for details.
- *
- * KeeneticOS-style applications panel:
- *   - Compact chip grid (was: list of rows)
- *   - Click a chip → expandable detail panel below
- *   - Detail shows: description, uptime, pid, logs
- *   - Actions: Start / Stop / Restart
- *   - Settings modal (unchanged) — add/remove services
  */
 
 (function () {
@@ -22,17 +15,14 @@
   const SERVICES_STORAGE_KEY = "proton-services-widget";
   const LOG_LINES_DEFAULT = 20;
 
-  // Значения для селектов в табе «Мониторинг».
-  // Совпадают с VALID_OPTIONS в luci.proton-settings.ut:
-  //   history_sample_interval: 5..60
-  //   history_max_age_hours:   1..24
-  // Плюс периоды графика — они же значения для max_age_hours.
+  // History: sample interval и retention.
   const HISTORY_SAMPLE_INTERVALS = [5, 10, 30, 60];
   const HISTORY_MAX_AGE_HOURS = [1, 6, 24];
 
-  const L7_INTERVALS = [30, 60, 300];
-  const L7_TIMEOUTS = [2, 5, 10];
-  const L7_FAILURE_THRESHOLDS = [1, 2, 3];
+  // Per-service L7 presets. Значение "custom" → числовой input.
+  const INTERVAL_PRESETS = [30, 60, 120, 300, 600, 1800, 3600];
+  const TIMEOUT_PRESETS = [2, 5, 10, 30, 60];
+  const FAILURE_PRESETS = [1, 2, 3, 5, 10];
 
   const CRITICAL_SERVICES = new Set([
     "network",
@@ -58,7 +48,6 @@
   let callHealthGetMethods = null;
   let callHealthGetSchema = null;
   let callProtonSetSettings = null;
-  let callHealthSetGlobal = null;
   let callHealthSetService = null;
   let callHealthClearService = null;
   let busyServices = new Set();
@@ -115,7 +104,6 @@
       });
     }
 
-    // --- Monitoring (таб «Мониторинг») ---
     if (!callProtonGetSettings) {
       callProtonGetSettings = L.rpc.declare({
         object: "luci.proton-settings",
@@ -148,21 +136,11 @@
       });
     }
 
-    // --- Write-методы (шаг 6.5) ---
     if (!callProtonSetSettings) {
       callProtonSetSettings = L.rpc.declare({
         object: "luci.proton-settings",
         method: "setSettings",
         params: ["settings"],
-        expect: { "": {} },
-      });
-    }
-
-    if (!callHealthSetGlobal) {
-      callHealthSetGlobal = L.rpc.declare({
-        object: "luci.proton-healthcheck",
-        method: "setGlobal",
-        params: ["enabled", "interval", "timeout", "failures_threshold", "log_to_syslog"],
         expect: { "": {} },
       });
     }
@@ -184,8 +162,7 @@
         expect: { "": {} },
       });
     }
-	
-	// --- user-action flags (writeUserAction) ---
+
     if (!callWriteUserAction) {
       callWriteUserAction = L.rpc.declare({
         object: "luci.proton-services-history",
@@ -236,23 +213,22 @@
   }
 
   function writeAppsList(list) {
-  try {
-    const json = JSON.stringify(list);
-    localStorage.setItem(STORAGE_KEY, json);
+    try {
+      const json = JSON.stringify(list);
+      localStorage.setItem(STORAGE_KEY, json);
 
-    // Прямое сохранение в UCI — не полагаемся на перехват setItem
-    if (
-      window.protonSettingsSync &&
-      typeof window.protonSettingsSync.saveLocalKeyToUci === "function"
-    ) {
-      window.protonSettingsSync.saveLocalKeyToUci(STORAGE_KEY, json);
+      if (
+        window.protonSettingsSync &&
+        typeof window.protonSettingsSync.saveLocalKeyToUci === "function"
+      ) {
+        window.protonSettingsSync.saveLocalKeyToUci(STORAGE_KEY, json);
+      }
+
+      return true;
+    } catch (e) {
+      return false;
     }
-
-    return true;
-  } catch (e) {
-    return false;
   }
-}
 
   function readServicesList() {
     try {
@@ -266,7 +242,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Telegram
+  // Telegram section
   // ---------------------------------------------------------------------------
 
   function renderTelegramSection(container, settings, rootContainer) {
@@ -295,7 +271,6 @@
     title.textContent = t("Telegram Notifications");
     section.appendChild(title);
 
-    // Тумблер
     const enabledRow = document.createElement("label");
     enabledRow.className = "proton-monitoring-toggle";
     enabledRow.style.marginBottom = "16px";
@@ -320,7 +295,7 @@
     fieldsBox.className = "proton-telegram-settings";
     fieldsBox.style.display = tg.enabled ? "flex" : "none";
 
-    // 1. Bot Token
+    // Bot Token
     const tokenRow = document.createElement("div");
     tokenRow.className = "proton-telegram-row";
     const tokenLabel = document.createElement("label");
@@ -335,7 +310,7 @@
     tokenRow.appendChild(tokenInput);
     fieldsBox.appendChild(tokenRow);
 
-    // 2. Chat ID
+    // Chat ID
     const chatRow = document.createElement("div");
     chatRow.className = "proton-telegram-row";
     const chatLabel = document.createElement("label");
@@ -350,7 +325,7 @@
     chatRow.appendChild(chatInput);
     fieldsBox.appendChild(chatRow);
 
-    // 3. Кнопка теста
+    // Test
     const testRow = document.createElement("div");
     testRow.style.display = "flex";
     testRow.style.justifyContent = "flex-end";
@@ -402,7 +377,7 @@
     testRow.appendChild(testBtn);
     fieldsBox.appendChild(testRow);
 
-    // 4. Список сервисов
+    // Services
     const allServices = readAppsList();
     const isAllServices = tg.services.length === 0;
 
@@ -470,7 +445,7 @@
     svcRow.appendChild(svcList);
     fieldsBox.appendChild(svcRow);
 
-    // 5. Список событий
+    // Events
     const evRow = document.createElement("div");
     evRow.className = "proton-telegram-row";
 
@@ -554,59 +529,55 @@
     if (minutes > 0) return `${minutes}m ${secs}s`;
     return `${secs}s`;
   }
-  
+
   function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, function (c) {
-    return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
-  });
-}
-
-function renderLogLine(rawLine) {
-  const line = String(rawLine || "");
-  if (!line) return "";
-
-  // Health-check строки помечены префиксом "[HC] " (см. backend getServiceLog).
-  const isHealthCheck = line.startsWith("[HC] ");
-  const body = isHealthCheck ? line.slice(5) : line;
-  const hcClass = isHealthCheck ? " proton-log-hc" : "";
-
-  // Паттерн logread (busybox):
-  // "Wed Oct  7 09:18:31 2026 authpriv.info dropbear[1854]: message"
-  // либо "Jan  1 00:00:00 hostname daemon.warn proc[123]: message"
-  const m = body.match(
-    /^(\S{3}\s+\S{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}(?:\s+\d{4})?)\s+([a-z][a-z0-9]+\.(?:emerg|alert|crit|err|warn|warning|notice|info|debug))\s+([^\s:]+(?:\[\d+\])?):\s*(.*)$/i
-  );
-
-  if (!m) {
-    return (
-      '<span class="proton-log-msg' + hcClass + '">' +
-      escapeHtml(body) +
-      "</span>\n"
-    );
+    return String(str).replace(/[&<>"']/g, function (c) {
+      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+    });
   }
 
-  const ts = m[1];
-  const lvl = m[2];
-  const proc = m[3];
-  const msg = m[4];
+  function renderLogLine(rawLine) {
+    const line = String(rawLine || "");
+    if (!line) return "";
 
-  const lvlLower = lvl.split(".")[1].toLowerCase();
-  const lvlClass = "proton-log-lvl-" + (
-    lvlLower === "warn" || lvlLower === "warning" ? "warning" :
-    lvlLower === "err" || lvlLower === "error" ? "error" :
-    lvlLower === "crit" || lvlLower === "emerg" || lvlLower === "alert" ? "critical" :
-    lvlLower === "notice" ? "notice" :
-    lvlLower === "debug" ? "debug" :
-    "info"
-  );
+    const isHealthCheck = line.startsWith("[HC] ");
+    const body = isHealthCheck ? line.slice(5) : line;
+    const hcClass = isHealthCheck ? " proton-log-hc" : "";
 
-  return (
-    '<span class="proton-log-ts' + hcClass + '">' + escapeHtml(ts) + "</span> " +
-    '<span class="proton-log-lvl ' + lvlClass + hcClass + '">' + escapeHtml(lvl) + "</span> " +
-    '<span class="proton-log-proc' + hcClass + '">' + escapeHtml(proc) + ":</span> " +
-    '<span class="proton-log-msg' + hcClass + '">' + escapeHtml(msg) + "</span>\n"
-  );
-}
+    const m = body.match(
+      /^(\S{3}\s+\S{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}(?:\s+\d{4})?)\s+([a-z][a-z0-9]+\.(?:emerg|alert|crit|err|warn|warning|notice|info|debug))\s+([^\s:]+(?:\[\d+\])?):\s*(.*)$/i
+    );
+
+    if (!m) {
+      return (
+        '<span class="proton-log-msg' + hcClass + '">' +
+        escapeHtml(body) +
+        "</span>\n"
+      );
+    }
+
+    const ts = m[1];
+    const lvl = m[2];
+    const proc = m[3];
+    const msg = m[4];
+
+    const lvlLower = lvl.split(".")[1].toLowerCase();
+    const lvlClass = "proton-log-lvl-" + (
+      lvlLower === "warn" || lvlLower === "warning" ? "warning" :
+      lvlLower === "err" || lvlLower === "error" ? "error" :
+      lvlLower === "crit" || lvlLower === "emerg" || lvlLower === "alert" ? "critical" :
+      lvlLower === "notice" ? "notice" :
+      lvlLower === "debug" ? "debug" :
+      "info"
+    );
+
+    return (
+      '<span class="proton-log-ts' + hcClass + '">' + escapeHtml(ts) + "</span> " +
+      '<span class="proton-log-lvl ' + lvlClass + hcClass + '">' + escapeHtml(lvl) + "</span> " +
+      '<span class="proton-log-proc' + hcClass + '">' + escapeHtml(proc) + ":</span> " +
+      '<span class="proton-log-msg' + hcClass + '">' + escapeHtml(msg) + "</span>\n"
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Confirm dialog
@@ -745,7 +716,6 @@ function renderLogLine(rawLine) {
       <div class="proton-dashboard-card-body">
       <div class="proton-apps-grid" data-role="grid" role="list"></div>
 
-      <!-- Health-график: показывается, когда ничего не выбрано -->
       <div class="proton-apps-summary" data-role="summary">
         <div class="proton-apps-summary-header">
         <span class="proton-apps-summary-title" data-i18n="Services Health">${t("Services Health")}</span>
@@ -757,7 +727,7 @@ function renderLogLine(rawLine) {
         </div>
       </div>
       <div class="proton-apps-graph-container" data-role="summary-graph"></div>
-	  <div class="proton-apps-events-timeline" data-role="summary-events"></div>
+      <div class="proton-apps-events-timeline" data-role="summary-events"></div>
       <div class="proton-apps-summary-footer" data-role="summary-footer"></div>
       </div>
 
@@ -821,101 +791,92 @@ function renderLogLine(rawLine) {
     const fragment = document.createDocumentFragment();
 
     if (!services.length) {
-        const empty = document.createElement("div");
-        empty.className = "proton-dashboard-apps-empty";
-        empty.textContent = t("No applications selected");
-        fragment.appendChild(empty);
-        grid.replaceChildren(fragment);
-        return;
+      const empty = document.createElement("div");
+      empty.className = "proton-dashboard-apps-empty";
+      empty.textContent = t("No applications selected");
+      fragment.appendChild(empty);
+      grid.replaceChildren(fragment);
+      return;
     }
 
     const api = getStatusFromApi();
     const statusOrder = { running: 0, stopped: 1, unknown: 2, error: 2, "not-installed": 3 };
 
     const sorted = services.slice().sort(function (a, b) {
-        const sa = statusOrder[statuses[a]] ?? 9;
-        const sb = statusOrder[statuses[b]] ?? 9;
-        if (sa !== sb) return sa - sb;
-        const ia = api ? api.getServiceInfo(a) : { displayName: a };
-        const ib = api ? api.getServiceInfo(b) : { displayName: b };
-        return (ia.displayName || a).localeCompare(ib.displayName || b);
+      const sa = statusOrder[statuses[a]] ?? 9;
+      const sb = statusOrder[statuses[b]] ?? 9;
+      if (sa !== sb) return sa - sb;
+      const ia = api ? api.getServiceInfo(a) : { displayName: a };
+      const ib = api ? api.getServiceInfo(b) : { displayName: b };
+      return (ia.displayName || a).localeCompare(ib.displayName || b);
     });
 
     sorted.forEach(function (name) {
-        const info = api ? api.getServiceInfo(name) : {
-            name: name,
-            displayName: name,
-            icon: "📦",
-            category: "other",
-        };
-        const status = statuses[name] || "unknown";
-        fragment.appendChild(createChip(name, info, status));
+      const info = api ? api.getServiceInfo(name) : {
+        name: name,
+        displayName: name,
+        icon: "📦",
+        category: "other",
+      };
+      const status = statuses[name] || "unknown";
+      fragment.appendChild(createChip(name, info, status));
     });
 
     grid.replaceChildren(fragment);
-}
+  }
 
-/**
- * Инициализация графика в detail-панели сервиса.
- * Рисует график, вешает обработчики на панель периодов.
- */
-function initDetailGraph(box, serviceName, toolbar, container) {
-  if (!box || !container || !toolbar) return;
+  function initDetailGraph(box, serviceName, toolbar, container) {
+    if (!box || !container || !toolbar) return;
 
-  // Начальный рендер
-  renderDetailGraph(box, serviceName, container);
-
-  // Обработчик клика по периодам
-  toolbar.addEventListener("click", function (e) {
-    const btn = e.target.closest(".proton-apps-graph-period");
-    if (!btn) return;
-    const period = parseInt(btn.dataset.period, 10);
-    if (!period || period === detailGraphPeriodSec) return;
-
-    detailGraphPeriodSec = period;
-    toolbar.querySelectorAll(".proton-apps-graph-period").forEach(function (b) {
-      b.classList.toggle("active", parseInt(b.dataset.period, 10) === period);
-    });
     renderDetailGraph(box, serviceName, container);
-  });
-}
 
-/**
- * Рендер графика истории сервиса в detail-панели.
- */
-function renderDetailGraph(box, serviceName, container) {
-  if (!container) return;
+    toolbar.addEventListener("click", function (e) {
+      const btn = e.target.closest(".proton-apps-graph-period");
+      if (!btn) return;
+      const period = parseInt(btn.dataset.period, 10);
+      if (!period || period === detailGraphPeriodSec) return;
 
-  if (!window.ProtonServicesHistory || !window.ProtonServicesGraph) {
-    container.innerHTML = '<div class="proton-apps-graph-empty">' + t("Loading...") + '</div>';
-    return;
-  }
-
-  const windowMs = detailGraphPeriodSec * 1000;
-  let points = [];
-  try {
-    points = window.ProtonServicesHistory.getServiceHistoryForRender(serviceName, windowMs, {
-      targetCount: 200,
+      detailGraphPeriodSec = period;
+      toolbar.querySelectorAll(".proton-apps-graph-period").forEach(function (b) {
+        b.classList.toggle("active", parseInt(b.dataset.period, 10) === period);
+      });
+      renderDetailGraph(box, serviceName, container);
     });
-  } catch (e) {
-    console.warn("[Proton2025] Failed to get service history:", e);
-    points = [];
   }
 
-  const width = container.clientWidth || 400;
-  const height = container.clientHeight || 120;
+  function renderDetailGraph(box, serviceName, container) {
+    if (!container) return;
 
-  if (!points.length) {
-    container.innerHTML = '<div class="proton-apps-graph-empty">' + t("No data") + '</div>';
-    return;
+    if (!window.ProtonServicesHistory || !window.ProtonServicesGraph) {
+      container.innerHTML = '<div class="proton-apps-graph-empty">' + t("Loading...") + '</div>';
+      return;
+    }
+
+    const windowMs = detailGraphPeriodSec * 1000;
+    let points = [];
+    try {
+      points = window.ProtonServicesHistory.getServiceHistoryForRender(serviceName, windowMs, {
+        targetCount: 200,
+      });
+    } catch (e) {
+      console.warn("[Proton2025] Failed to get service history:", e);
+      points = [];
+    }
+
+    const width = container.clientWidth || 400;
+    const height = container.clientHeight || 120;
+
+    if (!points.length) {
+      container.innerHTML = '<div class="proton-apps-graph-empty">' + t("No data") + '</div>';
+      return;
+    }
+
+    window.ProtonServicesGraph.renderServiceGraph(container, points, {
+      width: width,
+      height: height,
+      windowMs: windowMs,
+    });
   }
-
-  window.ProtonServicesGraph.renderServiceGraph(container, points, {
-    width: width,
-    height: height,
-    windowMs: windowMs,
-  });
-}
 
   // ---------------------------------------------------------------------------
   // Detail panel
@@ -931,11 +892,9 @@ function renderDetailGraph(box, serviceName, container) {
       chip.classList.remove("active");
     });
 
-    // Показываем summary снова
     const summaryEl = card.querySelector('[data-role="summary"]');
     if (summaryEl) summaryEl.style.display = "";
 
-    // Перерисовываем health-график (ширина могла измениться)
     renderSummaryGraph(card);
   }
 
@@ -950,7 +909,6 @@ function renderDetailGraph(box, serviceName, container) {
     const card = document.getElementById("proton-dashboard-apps");
     if (!card) return;
 
-    // Скрываем summary при выборе сервиса
     const summaryEl = card.querySelector('[data-role="summary"]');
     if (summaryEl) summaryEl.style.display = "none";
 
@@ -977,12 +935,10 @@ function renderDetailGraph(box, serviceName, container) {
 
     const status = api ? await api.checkStatus(name) : "unknown";
 
-    // Контейнер
     const box = document.createElement("div");
     box.className = "proton-apps-detail";
     box.dataset.service = name;
 
-    // Header
     const header = document.createElement("div");
     header.className = "proton-apps-detail-header";
 
@@ -1017,7 +973,6 @@ function renderDetailGraph(box, serviceName, container) {
     header.appendChild(icon);
     header.appendChild(text);
 
-    // Meta (uptime, pid) — подгружаем асинхронно
     const meta = document.createElement("div");
     meta.className = "proton-apps-detail-meta";
 
@@ -1032,7 +987,6 @@ function renderDetailGraph(box, serviceName, container) {
     meta.appendChild(metaUptime);
     meta.appendChild(metaPid);
 
-    // === График истории сервиса ===
     const graphWrap = document.createElement("div");
     graphWrap.className = "proton-apps-detail-graph";
     graphWrap.dataset.role = "service-graph";
@@ -1050,9 +1004,9 @@ function renderDetailGraph(box, serviceName, container) {
 
     const periods = [
       { sec: 300, label: t("5m") },
- { sec: 3600, label: t("1h") },
- { sec: 21600, label: t("6h") },
- { sec: 86400, label: t("24h") },
+      { sec: 3600, label: t("1h") },
+      { sec: 21600, label: t("6h") },
+      { sec: 86400, label: t("24h") },
     ];
 
     periods.forEach(function (p) {
@@ -1075,15 +1029,11 @@ function renderDetailGraph(box, serviceName, container) {
     graphWrap.appendChild(graphHeader);
     graphWrap.appendChild(graphContainer);
 
-    // Actions
     const actions = document.createElement("div");
     actions.className = "proton-apps-detail-actions";
 
     const isRunning = status === "running";
     const isInstalled = status !== "not-installed";
-
-    // Для WireGuard управление через rc init недоступно (это не сервис, а интерфейс).
-    // Скрываем кнопки, оставляя только информационный статус.
     const isWireguard = name === "wireguard";
 
     if (!isWireguard) {
@@ -1101,9 +1051,9 @@ function renderDetailGraph(box, serviceName, container) {
         if (act === "stop" && CRITICAL_SERVICES.has(name)) {
           showConfirmDialog(
             t("Stop service?"),
-                            t('Are you sure you want to stop the "{name}" service? This may disrupt network connectivity.').replace("{name}", info.displayName || name),
-                            t("Stop"),
-                            doAction
+            t('Are you sure you want to stop the "{name}" service? This may disrupt network connectivity.').replace("{name}", info.displayName || name),
+            t("Stop"),
+            doAction
           );
         } else {
           doAction();
@@ -1124,7 +1074,6 @@ function renderDetailGraph(box, serviceName, container) {
       actions.appendChild(restartBtn);
     }
 
-    // Log toggle
     const logToggleWrap = document.createElement("div");
     logToggleWrap.className = "proton-apps-detail-log-toggle";
 
@@ -1156,8 +1105,8 @@ function renderDetailGraph(box, serviceName, container) {
             logBox.innerHTML = `<div class="proton-apps-detail-logs-empty">${t("Logs unavailable")}</div>`;
           } else {
             logBox.innerHTML = lines.map(function (line) {
-				return renderLogLine(line);
-			}).join("");
+              return renderLogLine(line);
+            }).join("");
           }
         } catch (e) {
           logBox.innerHTML = `<div class="proton-apps-detail-logs-empty">${t("Logs unavailable")}</div>`;
@@ -1165,7 +1114,6 @@ function renderDetailGraph(box, serviceName, container) {
       }
     });
 
-    // Собираем
     box.appendChild(header);
     box.appendChild(meta);
     box.appendChild(graphWrap);
@@ -1173,10 +1121,8 @@ function renderDetailGraph(box, serviceName, container) {
     box.appendChild(logToggleWrap);
     box.appendChild(logBox);
 
-    // === Обработчики графика ===
     initDetailGraph(box, name, graphToolbar, graphContainer);
 
-    // Подгружаем uptime/pid асинхронно
     fetchServiceInfo(name).then(function (res) {
       const uptimeEl = box.querySelector('[data-role="uptime"]');
       const pidEl = box.querySelector('[data-role="pid"]');
@@ -1201,17 +1147,16 @@ function renderDetailGraph(box, serviceName, container) {
     if (busyServices.has(name)) return;
     busyServices.add(name);
 
-    // --- Установить/снять user-action флаг ДО init.d ---
     try {
-        if (ensureRpc()) {
-            if (action === "stop") {
-                await L.resolveDefault(callWriteUserAction(name, "stop"), null);
-            } else if (action === "start") {
-                await L.resolveDefault(callWriteUserAction(name, ""), null);
-            }
+      if (ensureRpc()) {
+        if (action === "stop") {
+          await L.resolveDefault(callWriteUserAction(name, "stop"), null);
+        } else if (action === "start") {
+          await L.resolveDefault(callWriteUserAction(name, ""), null);
         }
+      }
     } catch (e) {
-        console.warn("[Proton2025] writeUserAction failed:", name, action, e);
+      console.warn("[Proton2025] writeUserAction failed:", name, action, e);
     }
 
     const origToggle = toggleBtn.textContent;
@@ -1222,37 +1167,37 @@ function renderDetailGraph(box, serviceName, container) {
     restartBtn.textContent = t("Please wait...");
 
     try {
-        await callRcInit(name, action);
-        const ok = await waitForStatus(name, action === "stop" ? "stopped" : "running", TOGGLE_TIMEOUT_MS);
+      await callRcInit(name, action);
+      const ok = await waitForStatus(name, action === "stop" ? "stopped" : "running", TOGGLE_TIMEOUT_MS);
 
-        if (ok) {
-            showToast(t("Action applied"), "success");
-            if (selectedService === name) {
-                const slot = box.parentElement;
-                if (slot) {
-                    slot.replaceChildren();
-                    const detail = await buildServiceDetail(name);
-                    if (detail) slot.appendChild(detail);
-                }
-            }
-        } else {
-            showToast(t("Action failed"), "error");
-            toggleBtn.disabled = false;
-            restartBtn.disabled = false;
-            toggleBtn.textContent = origToggle;
-            restartBtn.textContent = origRestart;
+      if (ok) {
+        showToast(t("Action applied"), "success");
+        if (selectedService === name) {
+          const slot = box.parentElement;
+          if (slot) {
+            slot.replaceChildren();
+            const detail = await buildServiceDetail(name);
+            if (detail) slot.appendChild(detail);
+          }
         }
-    } catch (e) {
-        console.warn("[Proton2025] service action failed:", name, action, e);
+      } else {
         showToast(t("Action failed"), "error");
         toggleBtn.disabled = false;
         restartBtn.disabled = false;
         toggleBtn.textContent = origToggle;
         restartBtn.textContent = origRestart;
+      }
+    } catch (e) {
+      console.warn("[Proton2025] service action failed:", name, action, e);
+      showToast(t("Action failed"), "error");
+      toggleBtn.disabled = false;
+      restartBtn.disabled = false;
+      toggleBtn.textContent = origToggle;
+      restartBtn.textContent = origRestart;
     } finally {
-        busyServices.delete(name);
+      busyServices.delete(name);
     }
-}
+  }
 
   async function waitForStatus(name, expected, timeoutMs) {
     const api = getStatusFromApi();
@@ -1315,54 +1260,50 @@ function renderDetailGraph(box, serviceName, container) {
     const statuses = {};
 
     await Promise.all(
-        services.map(async function (name) {
-            if (busyServices.has(name)) {
-                statuses[name] = "running";
-                return;
-            }
-            try {
-                statuses[name] = await api.checkStatus(name);
-            } catch (e) {
-                statuses[name] = "unknown";
-            }
-        })
+      services.map(async function (name) {
+        if (busyServices.has(name)) {
+          statuses[name] = "running";
+          return;
+        }
+        try {
+          statuses[name] = await api.checkStatus(name);
+        } catch (e) {
+          statuses[name] = "unknown";
+        }
+      })
     );
 
-    // Инкрементальное обновление: не пересоздаём чипы, если их состав
-    // совпадает. Меняем только точку статуса (dataset.status) и цвет.
     const grid = card.querySelector('[data-role="grid"]');
     const existingChips = grid
-        ? Array.from(grid.querySelectorAll(".proton-apps-chip"))
-        : [];
+      ? Array.from(grid.querySelectorAll(".proton-apps-chip"))
+      : [];
     const existingOrder = existingChips.map((c) => c.dataset.service);
     const desiredOrder = services.slice();
 
     const sameSet =
-        existingOrder.length === desiredOrder.length &&
-        existingOrder.every((name, i) => name === desiredOrder[i]);
+      existingOrder.length === desiredOrder.length &&
+      existingOrder.every((name, i) => name === desiredOrder[i]);
 
     if (sameSet) {
-        // Состав не изменился — обновляем только точки статуса
-        existingChips.forEach((chip) => {
-            const name = chip.dataset.service;
-            const newStatus = statuses[name] || "unknown";
-            if (chip.dataset.status !== newStatus) {
-                chip.dataset.status = newStatus;
-                const dot = chip.querySelector(".proton-apps-chip-dot");
-                if (dot) dot.dataset.status = newStatus;
-            }
-        });
+      existingChips.forEach((chip) => {
+        const name = chip.dataset.service;
+        const newStatus = statuses[name] || "unknown";
+        if (chip.dataset.status !== newStatus) {
+          chip.dataset.status = newStatus;
+          const dot = chip.querySelector(".proton-apps-chip-dot");
+          if (dot) dot.dataset.status = newStatus;
+        }
+      });
     } else {
-        // Состав изменился (пользователь добавил/удалил сервис) — пересоздаём
-        renderChips(card, services, statuses);
+      renderChips(card, services, statuses);
     }
 
     updateSubtitle(card, services, statuses);
     updateFooter(card, services);
-}
+  }
 
   // ---------------------------------------------------------------------------
-  // Settings modal (unchanged from previous version)
+  // Settings modal
   // ---------------------------------------------------------------------------
 
   async function openSettingsModal() {
@@ -1379,8 +1320,6 @@ function renderDetailGraph(box, serviceName, container) {
     const available = await api.listAvailableServices();
     const current = new Set(readAppsList());
 
-    // Загружаем настройки мониторинга параллельно.
-    // Пока идёт запрос — рендерим скелет модалки.
     const monitoringPromise = loadMonitoringSettings();
 
     const overlay = document.createElement("div");
@@ -1394,7 +1333,6 @@ function renderDetailGraph(box, serviceName, container) {
     const heading = document.createElement("h3");
     heading.textContent = t("Applications settings");
 
-    // --- Табы ---
     const tabsNav = document.createElement("ul");
     tabsNav.className = "proton-tabs-navigation";
 
@@ -1417,7 +1355,6 @@ function renderDetailGraph(box, serviceName, container) {
     tabsNav.appendChild(tabServicesLi);
     tabsNav.appendChild(tabMonitoringLi);
 
-    // --- Контент: таб «Сервисы» ---
     const contentServices = document.createElement("div");
     contentServices.className = "proton-tab-content active";
     contentServices.dataset.tabContent = "services";
@@ -1442,13 +1379,11 @@ function renderDetailGraph(box, serviceName, container) {
     contentServices.appendChild(searchWrap);
     contentServices.appendChild(listContainer);
 
-    // --- Контент: таб «Мониторинг» ---
     const contentMonitoring = document.createElement("div");
     contentMonitoring.className = "proton-tab-content";
     contentMonitoring.dataset.tabContent = "monitoring";
     contentMonitoring.innerHTML = `<div class="proton-apps-settings-loading">${t("Loading...")}</div>`;
 
-    // --- Действия ---
     const actions = document.createElement("div");
     actions.className = "proton-confirm-modal-actions";
 
@@ -1593,7 +1528,6 @@ function renderDetailGraph(box, serviceName, container) {
       searchTimeout = setTimeout(() => render(searchInput.value), 120);
     });
 
-    // --- Переключение табов ---
     function activateTab(tabName) {
       const tabs = [tabServicesBtn, tabMonitoringBtn];
       const contents = [contentServices, contentMonitoring];
@@ -1610,7 +1544,6 @@ function renderDetailGraph(box, serviceName, container) {
     tabServicesBtn.addEventListener("click", () => activateTab("services"));
     tabMonitoringBtn.addEventListener("click", () => activateTab("monitoring"));
 
-    // --- Закрытие ---
     function close() {
       modalOpen = false;
       document.removeEventListener("keydown", escHandler);
@@ -1627,11 +1560,9 @@ function renderDetailGraph(box, serviceName, container) {
 
     cancelBtn.addEventListener("click", close);
 
-    // Кнопка [Сохранить] — батч: список сервисов + history_* + health_check_*.
     saveBtn.addEventListener("click", async function () {
       const newList = Array.from(current).filter((n) => api.isValidServiceName(n));
 
-      // Показать подтверждение
       showConfirmDialog(
         t("Apply changes?"),
         t("Save monitoring and services settings?"),
@@ -1666,7 +1597,6 @@ function renderDetailGraph(box, serviceName, container) {
     document.body.appendChild(overlay);
     setTimeout(() => searchInput.focus(), 80);
 
-    // Наполняем таб «Мониторинг» после загрузки настроек.
     monitoringPromise.then(function (settings) {
       renderMonitoringTab(contentMonitoring, settings);
     }).catch(function (err) {
@@ -1674,35 +1604,23 @@ function renderDetailGraph(box, serviceName, container) {
       contentMonitoring.innerHTML = `<div class="proton-apps-settings-empty">${t("Unable to load settings")}</div>`;
     });
   }
-  
+
   // =========================================================================
-  //  Батч-сохранение (шаг 6.5)
+  //  Батч-сохранение
   // =========================================================================
 
-  /**
-   * Применяет все изменения из обоих табов модалки:
-   *   1. Сохраняет список сервисов в localStorage + UCI (services_selected).
-   *   2. Сохраняет history_* в UCI (luci.proton-settings.setSettings).
-   *   3. Сохраняет health_check_* global в UCI (luci.proton-healthcheck.setGlobal).
-   *   4. Сохраняет / очищает per-service health_check (setService / clearService).
-   *   5. Обновляет кэш services-history.js.
-   *
-   * @param {string[]} newServicesList — итоговый список сервисов из таба «Сервисы».
-   */
   async function applySettings(newServicesList) {
     if (!ensureRpc()) {
       showToast(t("Services API not ready"), "warning");
       return;
     }
 
-    // Список сервисов — в localStorage + UCI через settings-sync.
     writeAppsList(newServicesList);
 
-    // Достаём state мониторинга (создан в renderMonitoringTab).
     const modalOverlay = document.querySelector(".proton-apps-settings-modal");
     const monitoringContent = modalOverlay
-    ? modalOverlay.querySelector('[data-tab-content="monitoring"]')
-    : null;
+      ? modalOverlay.querySelector('[data-tab-content="monitoring"]')
+      : null;
     const mState = monitoringContent ? monitoringContent._monitoringState : null;
 
     if (!mState) {
@@ -1712,12 +1630,12 @@ function renderDetailGraph(box, serviceName, container) {
 
     const errors = [];
 
-    // --- 1. History settings ---
+    // 1. History
     try {
       const res = await L.resolveDefault(
         callProtonSetSettings({
           history_sample_interval: String(mState.history.sampleInterval),
-                              history_max_age_hours: String(mState.history.maxAgeHours),
+          history_max_age_hours: String(mState.history.maxAgeHours),
         }),
         null,
       );
@@ -1728,27 +1646,7 @@ function renderDetailGraph(box, serviceName, container) {
       errors.push("history: " + (e && e.message ? e.message : e));
     }
 
-    // --- 2. L7 global ---
-    const hGlobal = mState.health.global;
-    try {
-      const res = await L.resolveDefault(
-        callHealthSetGlobal(
-          hGlobal.enabled ? "1" : "0",
-          String(hGlobal.interval),
-                            String(hGlobal.timeout),
-                            String(hGlobal.failures_threshold),
-                            hGlobal.log_to_syslog ? "1" : "0",
-        ),
-        null,
-      );
-      if (!res || !res.success) {
-        errors.push("health global: " + (res && res.error ? res.error : "unknown"));
-      }
-    } catch (e) {
-      errors.push("health global: " + (e && e.message ? e.message : e));
-    }
-
-    // --- 3. Telegram Settings ---
+    // 2. Telegram
     const tg = mState.telegram;
     if (tg) {
       try {
@@ -1758,7 +1656,7 @@ function renderDetailGraph(box, serviceName, container) {
             telegram_bot_token: tg.token || "",
             telegram_chat_id: tg.chat_id || "",
             telegram_events: JSON.stringify(tg.events || []),
-                                telegram_services: JSON.stringify(tg.services || [])
+            telegram_services: JSON.stringify(tg.services || []),
           }),
           null
         );
@@ -1770,106 +1668,92 @@ function renderDetailGraph(box, serviceName, container) {
       }
     }
 
-    // --- 4. L7 per-service ---
+    // 3. L7 per-service
     const configByName = new Map();
     (mState.health.services || []).forEach(function (s) {
       if (s && s.name) configByName.set(s.name, s);
     });
 
-      const toSave = [];
-      const toClear = [];
+    const toSave = [];
+    const toClear = [];
 
-      newServicesList.forEach(function (name) {
-        const cfg = configByName.get(name);
-        if (cfg && cfg.method) {
-          toSave.push({
-            name: name,
-            enabled: cfg.enabled === true,
-            config: {
-              method: cfg.method,
-              ...cfg.fields,
-            },
-          });
-        } else if (cfg) {
-          toClear.push(name);
-        }
-      });
+    newServicesList.forEach(function (name) {
+      const cfg = configByName.get(name);
+      if (cfg && cfg.method) {
+        // Собираем config: method + common per-service + method-specific.
+        const configObj = Object.assign({}, cfg.fields || {});
+        configObj.method = cfg.method;
+        configObj.interval = cfg.interval;
+        configObj.timeout = cfg.timeout;
+        configObj.failures_threshold = cfg.failures_threshold;
+        configObj.log_to_syslog = cfg.log_to_syslog ? "1" : "0";
 
-      configByName.forEach(function (cfg, name) {
-        if (newServicesList.indexOf(name) === -1) {
-          toClear.push(name);
-        }
-      });
-
-      for (const item of toSave) {
-        try {
-          const configJson = JSON.stringify(item.config);
-          const res = await L.resolveDefault(
-            callHealthSetService(item.name, item.enabled ? "1" : "0", configJson),
-                                             null,
-          );
-          if (!res || !res.success) {
-            errors.push(item.name + ": " + (res && res.error ? res.error : "unknown"));
-          }
-        } catch (e) {
-          errors.push(item.name + ": " + (e && e.message ? e.message : e));
-        }
+        toSave.push({
+          name: name,
+          enabled: cfg.enabled === true,
+          config: configObj,
+        });
+      } else if (cfg) {
+        toClear.push(name);
       }
+    });
 
-      for (const name of toClear) {
-        try {
-          const res = await L.resolveDefault(callHealthClearService(name), null);
-          if (!res || !res.success) {
-            errors.push(name + " (clear): " + (res && res.error ? res.error : "unknown"));
-          }
-        } catch (e) {
-          errors.push(name + " (clear): " + (e && e.message ? e.message : e));
-        }
+    configByName.forEach(function (cfg, name) {
+      if (newServicesList.indexOf(name) === -1) {
+        toClear.push(name);
       }
+    });
 
-      // --- 5. Обновляем кэш services-history.js ---
-      if (window.ProtonServicesHistory
-        && typeof window.ProtonServicesHistory.loadSettingsFromUci === "function") {
-        try {
-          await window.ProtonServicesHistory.loadSettingsFromUci();
-        } catch (e) {}
+    for (const item of toSave) {
+      try {
+        const configJson = JSON.stringify(item.config);
+        const res = await L.resolveDefault(
+          callHealthSetService(item.name, item.enabled ? "1" : "0", configJson),
+          null,
+        );
+        if (!res || !res.success) {
+          errors.push(item.name + ": " + (res && res.error ? res.error : "unknown"));
         }
+      } catch (e) {
+        errors.push(item.name + ": " + (e && e.message ? e.message : e));
+      }
+    }
 
-        // --- 6. Результат ---
-        if (errors.length === 0) {
-          showToast(t("Settings saved"), "success");
-        } else {
-          console.warn("[Proton2025] Apply settings errors:", errors);
-          showToast(
-            t("Some settings were not saved") + ": " + errors.length,
-                    "warning",
-          );
+    for (const name of toClear) {
+      try {
+        const res = await L.resolveDefault(callHealthClearService(name), null);
+        if (!res || !res.success) {
+          errors.push(name + " (clear): " + (res && res.error ? res.error : "unknown"));
         }
+      } catch (e) {
+        errors.push(name + " (clear): " + (e && e.message ? e.message : e));
+      }
+    }
+
+    // 4. Обновляем кэш services-history.js
+    if (window.ProtonServicesHistory
+      && typeof window.ProtonServicesHistory.loadSettingsFromUci === "function") {
+      try {
+        await window.ProtonServicesHistory.loadSettingsFromUci();
+      } catch (e) {}
+    }
+
+    // 5. Результат
+    if (errors.length === 0) {
+      showToast(t("Settings saved"), "success");
+    } else {
+      console.warn("[Proton2025] Apply settings errors:", errors);
+      showToast(
+        t("Some settings were not saved") + ": " + errors.length,
+        "warning",
+      );
+    }
   }
 
   // =========================================================================
   //  Таб «Мониторинг»
   // =========================================================================
 
-  /**
-   * Загружает все данные для таба «Мониторинг»:
-   *   - history_* из luci.proton-settings.getSettings
-   *   - health_check_* из luci.proton-healthcheck.getConfig
-   *   - доступность утилит из luci.proton-healthcheck.getMethods
-   *   - схему полей методов из luci.proton-healthcheck.getSchema
-   *
-   * Возвращает объект:
-   *   {
-   *     history: { sampleInterval, maxAgeHours },
-   *     health: {
-   *       global: { enabled, interval, timeout, failures_threshold, log_to_syslog },
-   *       services: [{ name, enabled, method, fields }, ...]
-   *     },
-   *     methods: [{ id, available }, ...],
-   *     schema: { methods, fields, defaults, limits }
-   *   }
-   * При ошибке любое поле может быть null.
-   */
   async function loadMonitoringSettings() {
     if (!ensureRpc()) {
       return null;
@@ -1882,32 +1766,29 @@ function renderDetailGraph(box, serviceName, container) {
       L.resolveDefault(callHealthGetSchema(), null),
     ]);
 
-    // --- История ---
+    // History
     const rawSettings = (settingsRes && settingsRes.settings) ? settingsRes.settings : {};
     const sampleInterval = clampInt(rawSettings.history_sample_interval, HISTORY_SAMPLE_INTERVALS, 10);
     const maxAgeHours = clampInt(rawSettings.history_max_age_hours, HISTORY_MAX_AGE_HOURS, 24);
 
-    // --- L7 global ---
-    const rawGlobal = (healthRes && healthRes.global) ? healthRes.global : {};
-    const healthGlobal = {
-      enabled: rawGlobal.enabled === true,
-      interval: clampInt(rawGlobal.interval, L7_INTERVALS, 60),
-      timeout: clampInt(rawGlobal.timeout, L7_TIMEOUTS, 5),
-      failures_threshold: clampInt(rawGlobal.failures_threshold, L7_FAILURE_THRESHOLDS, 2),
-      log_to_syslog: rawGlobal.log_to_syslog !== false,
-    };
-
-    // --- L7 per-service ---
+    // L7 per-service (без global)
     const healthServices = (healthRes && Array.isArray(healthRes.services))
-      ? healthRes.services.map((s) => ({
-          name: String(s.name || ""),
-          enabled: s.enabled === true,
-          method: String(s.method || ""),
-          fields: (s.fields && typeof s.fields === "object") ? s.fields : {},
-        }))
+      ? healthRes.services.map((s) => {
+          const fields = (s.fields && typeof s.fields === "object") ? s.fields : {};
+          return {
+            name: String(s.name || ""),
+            enabled: s.enabled === true,
+            method: String(s.method || ""),
+            interval: Number.isFinite(+fields.interval) ? +fields.interval : 60,
+            timeout: Number.isFinite(+fields.timeout) ? +fields.timeout : 5,
+            failures_threshold: Number.isFinite(+fields.failures_threshold) ? +fields.failures_threshold : 2,
+            log_to_syslog: String(fields.log_to_syslog) !== "0",
+            fields: fields,
+          };
+        })
       : [];
 
-    // --- Доступность методов ---
+    // Methods availability
     const methods = (methodsRes && Array.isArray(methodsRes.methods))
       ? methodsRes.methods.map((m) => ({
           id: String(m.id || ""),
@@ -1915,16 +1796,18 @@ function renderDetailGraph(box, serviceName, container) {
         }))
       : [];
 
-    // --- Схема полей ---
+    // Schema
     const schema = (schemaRes && schemaRes.success)
       ? {
           methods: Array.isArray(schemaRes.methods) ? schemaRes.methods.slice() : [],
           fields: (schemaRes.fields && typeof schemaRes.fields === "object") ? schemaRes.fields : {},
           defaults: (schemaRes.defaults && typeof schemaRes.defaults === "object") ? schemaRes.defaults : {},
+          common_fields: Array.isArray(schemaRes.common_fields) ? schemaRes.common_fields.slice() : [],
           limits: (schemaRes.limits && typeof schemaRes.limits === "object") ? schemaRes.limits : {},
         }
       : null;
 
+    // Telegram
     const tgEnabled = rawSettings.telegram_enabled === "1";
     let tgEvents = ["health-fail", "health-recovery", "crash", "restart", "user-stop", "silent-death"];
     try { tgEvents = JSON.parse(rawSettings.telegram_events || '[]'); } catch(e){}
@@ -1932,39 +1815,28 @@ function renderDetailGraph(box, serviceName, container) {
     try { tgServices = JSON.parse(rawSettings.telegram_services || '[]'); } catch(e){}
 
     const telegram = {
-        enabled: tgEnabled,
-        token: rawSettings.telegram_bot_token || "",
-        chat_id: rawSettings.telegram_chat_id || "",
-        events: Array.isArray(tgEvents) ? tgEvents : [],
-        services: Array.isArray(tgServices) ? tgServices : []
-      };
+      enabled: tgEnabled,
+      token: rawSettings.telegram_bot_token || "",
+      chat_id: rawSettings.telegram_chat_id || "",
+      events: Array.isArray(tgEvents) ? tgEvents : [],
+      services: Array.isArray(tgServices) ? tgServices : []
+    };
 
     return {
       history: { sampleInterval, maxAgeHours },
-      health: { global: healthGlobal, services: healthServices },
+      health: { services: healthServices },
       methods,
       schema,
       telegram: telegram,
     };
   }
 
-  /**
-   * Приводит значение к одному из разрешённых. Если не совпадает —
-   * возвращает дефолт. Защита от битого UCI.
-   */
   function clampInt(value, allowed, fallback) {
     const n = +value;
     if (n != n) return fallback;
     return allowed.indexOf(n) >= 0 ? n : fallback;
   }
 
-  /**
-   * Отрисовывает таб «Мониторинг».
-   *   - Секция «История»: интервал опроса + период хранения.
-   *   - Секция «Проверка отклика (L7)»: заглушка (шаг 6.3).
-   *
-   * `settings` — объект из loadMonitoringSettings(), может быть null.
-   */
   function renderMonitoringTab(container, settings) {
     container.innerHTML = "";
 
@@ -1985,7 +1857,6 @@ function renderDetailGraph(box, serviceName, container) {
     historyTitle.textContent = t("History");
     historySection.appendChild(historyTitle);
 
-    // Селект «Интервал опроса»
     const intervalRow = document.createElement("div");
     intervalRow.className = "proton-monitoring-row";
 
@@ -2010,7 +1881,6 @@ function renderDetailGraph(box, serviceName, container) {
     intervalRow.appendChild(intervalSelect);
     historySection.appendChild(intervalRow);
 
-    // Селект «Период хранения»
     const retentionRow = document.createElement("div");
     retentionRow.className = "proton-monitoring-row";
 
@@ -2035,7 +1905,6 @@ function renderDetailGraph(box, serviceName, container) {
     retentionRow.appendChild(retentionSelect);
     historySection.appendChild(retentionRow);
 
-    // Инфо-строка: сколько сервисов отслеживается
     const infoLine = document.createElement("div");
     infoLine.className = "proton-monitoring-info";
 
@@ -2045,7 +1914,7 @@ function renderDetailGraph(box, serviceName, container) {
 
     container.appendChild(historySection);
 
-    // === Секция «L7» ===
+    // === Секция «Health check» (per-service) ===
     const l7Section = document.createElement("section");
     l7Section.className = "proton-monitoring-section";
     l7Section.dataset.role = "l7-section";
@@ -2055,210 +1924,65 @@ function renderDetailGraph(box, serviceName, container) {
     l7Title.textContent = t("Health check");
     l7Section.appendChild(l7Title);
 
-    // ВАЖНО: _monitoringState инициализируется ДО renderL7Section и renderTelegramSection,
-    // потому что они читают rootContainer._monitoringState.
+    const l7Hint = document.createElement("div");
+    l7Hint.className = "proton-monitoring-info";
+    l7Hint.style.marginTop = "0";
+    l7Hint.style.marginBottom = "10px";
+    l7Hint.textContent = t("Configure interval, timeout and failure threshold individually for each service.");
+    l7Section.appendChild(l7Hint);
+
     container.dataset.role = "monitoring-content";
     container._monitoringState = {
       history: {
         sampleInterval: settings.history.sampleInterval,
         maxAgeHours: settings.history.maxAgeHours,
       },
-      health: JSON.parse(JSON.stringify(settings.health)),
- methods: settings.methods.slice(),
- schema: settings.schema,
- telegram: settings.telegram ? JSON.parse(JSON.stringify(settings.telegram)) : {
-   enabled: false,
-   token: "",
-   chat_id: "",
-   events: ["health-fail", "health-recovery", "crash", "restart", "user-stop", "silent-death"],
-   services: []
- }
+      health: {
+        services: JSON.parse(JSON.stringify(settings.health.services || [])),
+      },
+      methods: settings.methods.slice(),
+      schema: settings.schema,
+      telegram: settings.telegram
+        ? JSON.parse(JSON.stringify(settings.telegram))
+        : {
+            enabled: false,
+            token: "",
+            chat_id: "",
+            events: ["health-fail", "health-recovery", "crash", "restart", "user-stop", "silent-death"],
+            services: [],
+          },
     };
 
-    // Слушаем изменения селектов истории — обновляем state контейнера.
     intervalSelect.addEventListener("change", function () {
       const v = parseInt(intervalSelect.value, 10);
       if (v == v) container._monitoringState.history.sampleInterval = v;
     });
 
-      retentionSelect.addEventListener("change", function () {
-        const v = parseInt(retentionSelect.value, 10);
-        if (v == v) container._monitoringState.history.maxAgeHours = v;
-      });
+    retentionSelect.addEventListener("change", function () {
+      const v = parseInt(retentionSelect.value, 10);
+      if (v == v) container._monitoringState.history.maxAgeHours = v;
+    });
 
-        // Теперь можно рендерить L7 — state готов.
-        renderL7Section(l7Section, settings, container);
-        container.appendChild(l7Section);
+    renderL7ServiceListContainer(l7Section, container);
 
-        // === Секция «Telegram» ===
-        renderTelegramSection(container, settings, container);
+    container.appendChild(l7Section);
+
+    // === Секция «Telegram» ===
+    renderTelegramSection(container, settings, container);
   }
 
-  // =========================================================================
-  //  Секция «L7» — глобальные настройки + список сервисов
-  // =========================================================================
-
-  /**
-   * Рисует секцию «Health check»:
-   *   - 4 глобальных настройки (чекбокс + 3 селекта + чекбокс)
-   *   - список сервисов (по readAppsList())
-   *
-   * @param {HTMLElement} section  — контейнер секции
-   * @param {object}      settings — из loadMonitoringSettings()
-   * @param {HTMLElement} rootContainer — контейнер таба «Мониторинг»
-   */
-  function renderL7Section(section, settings, rootContainer) {
+  function renderL7ServiceListContainer(section, rootContainer) {
     const state = rootContainer._monitoringState;
     if (!state || !state.health) return;
 
-    const hGlobal = state.health.global;
-
-    // --- Чекбокс «Включить проверку отклика» ---
-    const enabledRow = document.createElement("label");
-    enabledRow.className = "proton-monitoring-toggle";
-
-    const enabledCheck = document.createElement("input");
-    enabledCheck.type = "checkbox";
-    enabledCheck.id = "proton-l7-enabled";
-    enabledCheck.checked = hGlobal.enabled === true;
-
-    const enabledSlider = document.createElement("span");
-    enabledSlider.className = "proton-monitoring-toggle-slider";
-
-    const enabledText = document.createElement("span");
-    enabledText.className = "proton-monitoring-toggle-text";
-    enabledText.textContent = t("Enable health check");
-
-    enabledRow.appendChild(enabledCheck);
-    enabledRow.appendChild(enabledSlider);
-    enabledRow.appendChild(enabledText);
-    section.appendChild(enabledRow);
-
-    enabledCheck.addEventListener("change", function () {
-      hGlobal.enabled = enabledCheck.checked;
-      // При отключении — гасим всю секцию ниже
-      updateL7SectionDisabledState(section, !enabledCheck.checked);
-    });
-
-    // --- Сетка селектов ---
-    const grid = document.createElement("div");
-    grid.className = "proton-monitoring-grid proton-l7-collapsible";
-
-    grid.appendChild(buildL7Select({
-      id: "proton-l7-interval",
-      label: t("Interval"),
-      values: L7_INTERVALS,
-      unit: t("seconds"),
-      current: hGlobal.interval,
-      onChange: function (v) { hGlobal.interval = v; },
-    }));
-
-    grid.appendChild(buildL7Select({
-      id: "proton-l7-timeout",
-      label: t("Timeout"),
-      values: L7_TIMEOUTS,
-      unit: t("seconds"),
-      current: hGlobal.timeout,
-      onChange: function (v) { hGlobal.timeout = v; },
-    }));
-
-    grid.appendChild(buildL7Select({
-      id: "proton-l7-threshold",
-      label: t("Failures until failed"),
-      values: L7_FAILURE_THRESHOLDS,
-      unit: "",
-      current: hGlobal.failures_threshold,
-      onChange: function (v) { hGlobal.failures_threshold = v; },
-    }));
-
-    section.appendChild(grid);
-
-    // --- Чекбокс «Логировать в syslog» ---
-    const logRow = document.createElement("label");
-    logRow.className = "proton-monitoring-check-row proton-l7-collapsible";
-
-    const logCheck = document.createElement("input");
-    logCheck.type = "checkbox";
-    logCheck.id = "proton-l7-log";
-    logCheck.checked = hGlobal.log_to_syslog !== false;
-
-    const logText = document.createElement("span");
-    logText.textContent = t("Log to syslog");
-
-    logRow.appendChild(logCheck);
-    logRow.appendChild(logText);
-    section.appendChild(logRow);
-
-    logCheck.addEventListener("change", function () {
-      hGlobal.log_to_syslog = logCheck.checked;
-    });
-
-    // --- Список сервисов ---
-    const listTitle = document.createElement("div");
-    listTitle.className = "proton-monitoring-subtitle proton-l7-collapsible";
-    listTitle.textContent = t("Services to monitor");
-    section.appendChild(listTitle);
-
     const list = document.createElement("div");
-    list.className = "proton-l7-services proton-l7-collapsible";
+    list.className = "proton-l7-services";
     list.dataset.role = "l7-services";
-    section.appendChild(list);
 
-    // Если L7 выключен — сразу гасим всё после чекбокса
-    updateL7SectionDisabledState(section, !enabledCheck.checked);
-
-    // Отрисовываем список сервисов
     renderL7ServiceList(list, state, rootContainer);
+    section.appendChild(list);
   }
 
-  /**
-   * Строит строку с лейблом и селектом для одной L7-настройки.
-   */
-  function buildL7Select(opts) {
-    const row = document.createElement("div");
-    row.className = "proton-monitoring-row";
-
-    const label = document.createElement("label");
-    label.className = "proton-monitoring-label";
-    label.textContent = opts.label;
-    label.setAttribute("for", opts.id);
-
-    const select = document.createElement("select");
-    select.id = opts.id;
-    select.className = "cbi-input-select proton-monitoring-select";
-
-    opts.values.forEach(function (v) {
-      const opt = document.createElement("option");
-      opt.value = String(v);
-      opt.textContent = opts.unit ? (v + " " + opts.unit) : String(v);
-      if (v === opts.current) opt.selected = true;
-      select.appendChild(opt);
-    });
-
-    select.addEventListener("change", function () {
-      const v = parseInt(select.value, 10);
-      if (v == v) opts.onChange(v);
-    });
-
-    row.appendChild(label);
-    row.appendChild(select);
-    return row;
-  }
-
-  /**
-   * Гасит/включает часть L7-секции после чекбокса «Включить».
-   * Первый child (enabledRow) — всегда активен.
-   */
-   function updateL7SectionDisabledState(section, disabled) {
-    section.querySelectorAll(".proton-l7-collapsible").forEach((el) => {
-      el.classList.toggle("is-disabled", disabled);
-    });
-  }
-
-  /**
-   * Рисует список сервисов из readAppsList().
-   * Для каждого — чекбокс enabled + превью метода + цели.
-   */
   function renderL7ServiceList(listEl, state, rootContainer) {
     listEl.replaceChildren();
 
@@ -2271,13 +1995,11 @@ function renderDetailGraph(box, serviceName, container) {
       return;
     }
 
-    // Карта per-service настроек из UCI: name -> { enabled, method, fields }
     const configByName = new Map();
     (state.health.services || []).forEach(function (s) {
       if (s && s.name) configByName.set(s.name, s);
     });
 
-    // Список доступных утилит: id -> available
     const methodAvailability = new Map();
     (state.methods || []).forEach(function (m) {
       if (m && m.id) methodAvailability.set(m.id, m.available === true);
@@ -2295,10 +2017,6 @@ function renderDetailGraph(box, serviceName, container) {
     });
   }
 
-  /**
-   * Одна строка сервиса в списке L7:
-   *   [checkbox] Icon  DisplayName       Метод: <превью>   [▼]
-   */
   function createL7ServiceRow(serviceName, config, state, methodAvailability, rootContainer) {
     const api = getStatusFromApi();
     const info = api ? api.getServiceInfo(serviceName) : {
@@ -2311,18 +2029,15 @@ function renderDetailGraph(box, serviceName, container) {
     row.className = "proton-l7-service-row";
     row.dataset.service = serviceName;
 
-    // Чекбокс enabled
     const check = document.createElement("input");
     check.type = "checkbox";
     check.className = "proton-l7-service-check";
     check.checked = !!(config && config.enabled === true);
 
-    // Иконка
     const icon = document.createElement("span");
     icon.className = "proton-l7-service-icon";
     icon.textContent = info.icon || "📦";
 
-    // Имя + превью
     const text = document.createElement("div");
     text.className = "proton-l7-service-text";
 
@@ -2337,7 +2052,6 @@ function renderDetailGraph(box, serviceName, container) {
     text.appendChild(nameEl);
     text.appendChild(metaEl);
 
-    // Кнопка раскрытия
     const expand = document.createElement("button");
     expand.type = "button";
     expand.className = "proton-l7-service-expand";
@@ -2350,15 +2064,11 @@ function renderDetailGraph(box, serviceName, container) {
     row.appendChild(text);
     row.appendChild(expand);
 
-    // Чекбокс enabled — обновляет state, при включении с пустым методом
-    // не даём сохранить (в шаге 6.4 добавим валидацию).
     check.addEventListener("change", function () {
       const cfg = ensureServiceConfig(state, serviceName);
       cfg.enabled = check.checked;
     });
 
-    // Клик по строке (кроме чекбокса) — раскрытие редактора.
-    // Пока — заглушка: в шаге 6.4 заменим на реальный renderL7Editor.
     row.addEventListener("click", function (ev) {
       if (ev.target === check) return;
       if (ev.target.closest(".proton-l7-editor")) return;
@@ -2368,22 +2078,31 @@ function renderDetailGraph(box, serviceName, container) {
     return row;
   }
 
-  /**
-   * Возвращает существующий конфиг сервиса из state или создаёт пустой.
-   */
   function ensureServiceConfig(state, serviceName) {
     if (!state.health.services) state.health.services = [];
     let cfg = state.health.services.find(function (s) { return s.name === serviceName; });
     if (!cfg) {
-      cfg = { name: serviceName, enabled: false, method: "", fields: {} };
+      cfg = {
+        name: serviceName,
+        enabled: false,
+        method: "",
+        interval: 60,
+        timeout: 5,
+        failures_threshold: 2,
+        log_to_syslog: true,
+        fields: {},
+      };
       state.health.services.push(cfg);
+    } else {
+      if (!Number.isFinite(cfg.interval)) cfg.interval = 60;
+      if (!Number.isFinite(cfg.timeout)) cfg.timeout = 5;
+      if (!Number.isFinite(cfg.failures_threshold)) cfg.failures_threshold = 2;
+      if (cfg.log_to_syslog == null) cfg.log_to_syslog = true;
+      if (!cfg.fields || typeof cfg.fields !== "object") cfg.fields = {};
     }
     return cfg;
   }
 
-  /**
-   * Превью: «dns · google.com @ 127.0.0.1» или «not configured».
-   */
   function buildL7ServicePreview(config, state, methodAvailability) {
     if (!config || !config.method) {
       return t("Not configured");
@@ -2391,10 +2110,10 @@ function renderDetailGraph(box, serviceName, container) {
 
     const avail = methodAvailability.get(config.method);
     const label = config.method + (avail === false ? " (" + t("Unavailable") + ")" : "");
+    const intervalStr = Number.isFinite(config.interval) ? (" · " + config.interval + "s") : "";
 
     const fields = config.fields || {};
 
-    // Компактное превью цели по методу
     let target = "";
     if (config.method === "dns") {
       target = [fields.host, fields.server].filter(Boolean).join(" @ ");
@@ -2410,27 +2129,21 @@ function renderDetailGraph(box, serviceName, container) {
       target = (fields.command || "").slice(0, 40);
     }
 
-    return target ? (label + " · " + target) : label;
+    const targetStr = target ? " · " + target : "";
+    return label + targetStr + intervalStr;
   }
 
-  /**
-   * Раскрывает/скрывает inline-редактор под строкой сервиса.
-   * В шаге 6.3 — только заглушка (создаёт пустой div).
-   * В шаге 6.4 — здесь будет реальный вызов renderL7Editor.
-   */
   function toggleL7ServiceEditor(row, serviceName, state, methodAvailability, rootContainer) {
     const next = row.nextElementSibling;
     const isEditorOpen = next && next.classList && next.classList.contains("proton-l7-editor");
 
     if (isEditorOpen) {
-      // Свернуть
       next.remove();
       row.querySelector(".proton-l7-service-expand").setAttribute("aria-expanded", "false");
       row.querySelector(".proton-l7-service-expand").textContent = "▾";
       return;
     }
 
-        // Развернуть: рендерим редактор.
     const editor = document.createElement("div");
     editor.className = "proton-l7-editor";
     editor.dataset.service = serviceName;
@@ -2446,20 +2159,97 @@ function renderDetailGraph(box, serviceName, container) {
     row.querySelector(".proton-l7-service-expand").textContent = "▴";
   }
 
+  /**
+   * Строит строку "label + select(preset | custom) + [input]".
+   */
+  function buildSelectOrCustomRow(opts) {
+    const row = document.createElement("div");
+    row.className = "proton-l7-editor-row";
+
+    const label = document.createElement("label");
+    label.className = "proton-l7-editor-label";
+    label.textContent = opts.label;
+    label.setAttribute("for", opts.id);
+
+    const selectWrap = document.createElement("div");
+    selectWrap.style.cssText = "display:flex;flex:1 1 auto;min-width:0;gap:6px;align-items:center;";
+
+    const select = document.createElement("select");
+    select.id = opts.id;
+    select.className = "cbi-input-select proton-l7-editor-select";
+    select.style.flex = "0 0 auto";
+    select.style.minWidth = "140px";
+
+    const isPreset = opts.presets.indexOf(opts.value) !== -1;
+
+    opts.presets.forEach(function (v) {
+      const opt = document.createElement("option");
+      opt.value = String(v);
+      opt.textContent = opts.unit ? (v + " " + opts.unit) : String(v);
+      if (v === opts.value) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    const customOpt = document.createElement("option");
+    customOpt.value = "custom";
+    customOpt.textContent = "— " + t("Custom") + " —";
+    if (!isPreset) customOpt.selected = true;
+    select.appendChild(customOpt);
+
+    const customInput = document.createElement("input");
+    customInput.type = "number";
+    customInput.min = String(opts.min);
+    customInput.max = String(opts.max);
+    customInput.step = "1";
+    customInput.className = "cbi-input-text proton-l7-editor-input";
+    customInput.style.flex = "1 1 auto";
+    customInput.style.minWidth = "80px";
+    customInput.style.display = isPreset ? "none" : "";
+    customInput.value = String(opts.value);
+
+    function clampValue(raw) {
+      let v = parseInt(raw, 10);
+      if (v != v) v = opts.presets[0] || opts.min;
+      if (v < opts.min) v = opts.min;
+      if (v > opts.max) v = opts.max;
+      return v;
+    }
+
+    select.addEventListener("change", function () {
+      if (select.value === "custom") {
+        customInput.style.display = "";
+        customInput.focus();
+        customInput.select();
+        opts.onChange(clampValue(customInput.value));
+      } else {
+        customInput.style.display = "none";
+        opts.onChange(parseInt(select.value, 10));
+      }
+    });
+
+    customInput.addEventListener("input", function () {
+      const v = clampValue(customInput.value);
+      opts.onChange(v);
+    });
+
+    customInput.addEventListener("blur", function () {
+      const v = clampValue(customInput.value);
+      customInput.value = String(v);
+      opts.onChange(v);
+    });
+
+    selectWrap.appendChild(select);
+    selectWrap.appendChild(customInput);
+
+    row.appendChild(label);
+    row.appendChild(selectWrap);
+    return row;
+  }
+
   // =========================================================================
   //  Inline-редактор L7 для одного сервиса
   // =========================================================================
 
-  /**
-   * Рисует редактор для одного сервиса.
-   *
-   * @param {HTMLElement} editor          — контейнер редактора
-   * @param {string}      serviceName     — имя сервиса
-   * @param {object}      state           — monitoring state
-   * @param {Map}         methodAvailability — id → available
-   * @param {HTMLElement} rootContainer   — контейнер таба «Мониторинг»
-   * @param {function}    onClose         — колбэк закрытия (сворачивания)
-   */
   function renderL7Editor(editor, serviceName, state, methodAvailability, rootContainer, onClose) {
     const schema = state.schema;
     if (!schema || !schema.methods || !schema.fields || !schema.defaults) {
@@ -2467,18 +2257,93 @@ function renderDetailGraph(box, serviceName, container) {
       return;
     }
 
-    // Текущий конфиг сервиса (или пустой)
     const cfg = ensureServiceConfig(state, serviceName);
 
-    // Локальная копия — на случай [Отмена]. Не трогаем оригинал до Save.
     const draft = {
       method: cfg.method || "",
+      interval: Number.isFinite(cfg.interval) ? cfg.interval : 60,
+      timeout: Number.isFinite(cfg.timeout) ? cfg.timeout : 5,
+      failures_threshold: Number.isFinite(cfg.failures_threshold) ? cfg.failures_threshold : 2,
+      log_to_syslog: cfg.log_to_syslog !== false,
       fields: Object.assign({}, cfg.fields || {}),
+    };
+
+    const limits = (schema.limits && typeof schema.limits === "object") ? schema.limits : {
+      min_interval: 10, max_interval: 3600,
+      min_timeout: 1, max_timeout: 60,
+      min_failures: 1, max_failures: 10,
     };
 
     editor.innerHTML = "";
 
-    // === Селект метода ===
+    // ===== Common settings =====
+    const commonTitle = document.createElement("div");
+    commonTitle.className = "proton-l7-editor-section-title";
+    commonTitle.textContent = t("Common settings");
+    editor.appendChild(commonTitle);
+
+    const intervalRow = buildSelectOrCustomRow({
+      id: "proton-l7-editor-interval-" + slug(serviceName),
+      label: t("Interval"),
+      unit: t("seconds"),
+      presets: INTERVAL_PRESETS,
+      value: draft.interval,
+      min: limits.min_interval,
+      max: limits.max_interval,
+      onChange: function (v) { draft.interval = v; },
+    });
+    editor.appendChild(intervalRow);
+
+    const timeoutRow = buildSelectOrCustomRow({
+      id: "proton-l7-editor-timeout-" + slug(serviceName),
+      label: t("Timeout"),
+      unit: t("seconds"),
+      presets: TIMEOUT_PRESETS,
+      value: draft.timeout,
+      min: limits.min_timeout,
+      max: limits.max_timeout,
+      onChange: function (v) { draft.timeout = v; },
+    });
+    editor.appendChild(timeoutRow);
+
+    const thresholdRow = buildSelectOrCustomRow({
+      id: "proton-l7-editor-threshold-" + slug(serviceName),
+      label: t("Failures until failed"),
+      unit: "",
+      presets: FAILURE_PRESETS,
+      value: draft.failures_threshold,
+      min: limits.min_failures,
+      max: limits.max_failures,
+      onChange: function (v) { draft.failures_threshold = v; },
+    });
+    editor.appendChild(thresholdRow);
+
+    const logRow = document.createElement("label");
+    logRow.className = "proton-monitoring-check-row";
+    logRow.style.marginTop = "4px";
+
+    const logCheck = document.createElement("input");
+    logCheck.type = "checkbox";
+    logCheck.id = "proton-l7-editor-log-" + slug(serviceName);
+    logCheck.checked = draft.log_to_syslog;
+    logCheck.addEventListener("change", function () {
+      draft.log_to_syslog = logCheck.checked;
+    });
+
+    const logText = document.createElement("span");
+    logText.textContent = t("Log health check to syslog");
+
+    logRow.appendChild(logCheck);
+    logRow.appendChild(logText);
+    editor.appendChild(logRow);
+
+    // ===== Method-specific =====
+    const methodTitle = document.createElement("div");
+    methodTitle.className = "proton-l7-editor-section-title";
+    methodTitle.style.marginTop = "14px";
+    methodTitle.textContent = t("Check method");
+    editor.appendChild(methodTitle);
+
     const methodRow = document.createElement("div");
     methodRow.className = "proton-l7-editor-row";
 
@@ -2491,7 +2356,6 @@ function renderDetailGraph(box, serviceName, container) {
     methodSelect.id = "proton-l7-editor-method-" + slug(serviceName);
     methodSelect.className = "cbi-input-select proton-l7-editor-select";
 
-    // Опция «не выбрано»
     const emptyOpt = document.createElement("option");
     emptyOpt.value = "";
     emptyOpt.textContent = "— " + t("Not configured") + " —";
@@ -2501,7 +2365,6 @@ function renderDetailGraph(box, serviceName, container) {
     schema.methods.forEach(function (mid) {
       const opt = document.createElement("option");
       opt.value = mid;
-
       const available = methodAvailability.get(mid) !== false;
       opt.textContent = mid + (available ? "" : " (" + t("Unavailable") + ")");
       if (mid === draft.method) opt.selected = true;
@@ -2512,12 +2375,12 @@ function renderDetailGraph(box, serviceName, container) {
     methodRow.appendChild(methodSelect);
     editor.appendChild(methodRow);
 
-    // === Контейнер для полей ===
     const fieldsBox = document.createElement("div");
     fieldsBox.className = "proton-l7-editor-fields";
     editor.appendChild(fieldsBox);
 
-    // Рендер полей по выбранному методу
+    const commonSet = { interval: true, timeout: true, failures_threshold: true, log_to_syslog: true };
+
     function renderFields() {
       fieldsBox.replaceChildren();
 
@@ -2529,10 +2392,11 @@ function renderDetailGraph(box, serviceName, container) {
         return;
       }
 
-      const fieldNames = schema.fields[draft.method] || [];
+      const allFieldNames = schema.fields[draft.method] || [];
+      const methodFieldNames = allFieldNames.filter(function (f) { return !commonSet[f]; });
       const defaults = schema.defaults[draft.method] || {};
 
-      fieldNames.forEach(function (fieldName) {
+      methodFieldNames.forEach(function (fieldName) {
         const row = document.createElement("div");
         row.className = "proton-l7-editor-row";
 
@@ -2547,7 +2411,6 @@ function renderDetailGraph(box, serviceName, container) {
         input.id = fieldId;
         input.className = "cbi-input-text proton-l7-editor-input";
 
-        // Приоритет: сохранённое значение → дефолт по схеме → пусто
         let value = draft.fields[fieldName];
         if (value == null || value === "") {
           value = defaults[fieldName] != null ? String(defaults[fieldName]) : "";
@@ -2570,23 +2433,12 @@ function renderDetailGraph(box, serviceName, container) {
       const newMethod = methodSelect.value;
       if (newMethod === draft.method) return;
 
-      // Смена метода — сбрасываем fields, но сохраняем общие поля
-      // (timeout), если они есть в новом методе.
-      const oldFields = draft.fields;
-      const newFieldNames = schema.fields[newMethod] || [];
-      const newFields = {};
-
-      // Если timeout общий для старого и нового — переносим значение.
-      if (oldFields.timeout != null && newFieldNames.indexOf("timeout") >= 0) {
-        newFields.timeout = oldFields.timeout;
-      }
-
       draft.method = newMethod;
-      draft.fields = newFields;
+      draft.fields = {};
       renderFields();
     });
 
-    // === Кнопки действий ===
+    // ===== Actions =====
     const actionsRow = document.createElement("div");
     actionsRow.className = "proton-l7-editor-actions";
 
@@ -2603,34 +2455,37 @@ function renderDetailGraph(box, serviceName, container) {
     saveBtn.className = "cbi-button cbi-button-positive";
     saveBtn.textContent = t("Save");
     saveBtn.addEventListener("click", function () {
-      // Валидация: метод выбран
       if (!draft.method) {
         showToast(t("Select a method first"), "warning");
         return;
       }
 
-      // Обязательные поля по методу: должен быть хоть один заполненный
-      // (кроме timeout). Это мягкая проверка.
-      const fields = schema.fields[draft.method] || [];
-      const required = fields.filter(function (f) { return f !== "timeout"; });
-      const hasAny = required.some(function (f) {
+      if (draft.timeout > draft.interval) {
+        showToast(t("Timeout must be ≤ interval"), "warning");
+        return;
+      }
+
+      const methodFieldNames = (schema.fields[draft.method] || []).filter(function (f) {
+        return !commonSet[f];
+      });
+      const hasAny = methodFieldNames.some(function (f) {
         return String(draft.fields[f] || "").trim() !== "";
       });
 
-      if (required.length > 0 && !hasAny) {
+      if (methodFieldNames.length > 0 && !hasAny) {
         showToast(t("Fill in at least one target field"), "warning");
         return;
       }
 
-      // Пишем в state.
       cfg.method = draft.method;
+      cfg.interval = draft.interval;
+      cfg.timeout = draft.timeout;
+      cfg.failures_threshold = draft.failures_threshold;
+      cfg.log_to_syslog = draft.log_to_syslog;
       cfg.fields = Object.assign({}, draft.fields);
 
-      // Автовключение: если метод настроен и сервис ещё не включён — включим.
-      // Так пользователь получает рабочий L7 сразу после настройки.
       if (!cfg.enabled) {
         cfg.enabled = true;
-        // Обновим чекбокс в строке списка.
         const row = editor.previousElementSibling;
         if (row) {
           const check = row.querySelector(".proton-l7-service-check");
@@ -2638,7 +2493,6 @@ function renderDetailGraph(box, serviceName, container) {
         }
       }
 
-      // Обновим превью в строке.
       const row = editor.previousElementSibling;
       if (row) {
         const meta = row.querySelector(".proton-l7-service-meta");
@@ -2656,22 +2510,14 @@ function renderDetailGraph(box, serviceName, container) {
     editor.appendChild(actionsRow);
   }
 
-  /**
-   * Преобразует имя сервиса в безопасный для id суффикс.
-   */
   function slug(s) {
     return String(s || "").replace(/[^a-zA-Z0-9_-]+/g, "-");
   }
 
-  /**
-   * Человекочитаемое имя поля: expected_code → "Expected code".
-   */
   function humanizeField(name) {
-    // Уже переведённые в i18n — берём напрямую.
     const map = {
       "host":         "Host",
       "server":       "Server",
-      "timeout":      "Timeout",
       "url":          "URL",
       "expected_code": "Expected code",
       "port":         "Port",
@@ -2689,7 +2535,6 @@ function renderDetailGraph(box, serviceName, container) {
   // Lifecycle
   // ---------------------------------------------------------------------------
 
-  // Период графика по умолчанию (в секундах)
   let summaryGraphPeriodSec = 3600;
   let detailGraphPeriodSec = 3600;
 
@@ -2714,15 +2559,12 @@ function renderDetailGraph(box, serviceName, container) {
       settingsBtn.addEventListener("click", openSettingsModal);
     }
 
-    // === Этап 4.1: Health-график ===
     initSummaryGraph(card);
 
     if (pollTimer) return true;
     pollStatuses();
     pollTimer = setInterval(pollStatuses, POLL_INTERVAL);
 
-    // Перерисовываем графики, если история догрузилась позже
-    // (демон мог ещё не записать файлы на момент первого чтения).
     window.addEventListener("proton-services-history-updated", function () {
       const c = document.getElementById("proton-dashboard-apps");
       if (!c) return;
@@ -2731,285 +2573,255 @@ function renderDetailGraph(box, serviceName, container) {
     });
 
     if (window.__protonAppsHistoryRefreshTimer) {
-  clearInterval(window.__protonAppsHistoryRefreshTimer);
-  window.__protonAppsHistoryRefreshTimer = null;
-}
-
-function startHistoryRefreshTimer() {
-  if (window.__protonAppsHistoryRefreshTimer) {
-    clearInterval(window.__protonAppsHistoryRefreshTimer);
-    window.__protonAppsHistoryRefreshTimer = null;
-  }
-
-  const h = window.ProtonServicesHistory;
-  const si = (h && typeof h.getSampleInterval === "function")
-    ? h.getSampleInterval()
-    : 10;
-  const intervalMs = Math.max(si, 5) * 1000;
-
-  window.__protonAppsHistoryRefreshTimer = setInterval(async function () {
-    const c = document.getElementById("proton-dashboard-apps");
-    if (!c || document.hidden) return;
-
-    const hist = window.ProtonServicesHistory;
-    if (!hist || typeof hist.loadService !== "function") return;
-
-    const services = readAppsList();
-    if (!services.length) return;
-
-    try {
-      await Promise.all(
-        services.map(function (name) {
-          return hist.loadService(name, { force: true }).catch(function () {
-            return null;
-          });
-        })
-      );
-      if (selectedService) {
-        const slot = c.querySelector('[data-role="detail-slot"]');
-        const graphContainer = slot
-          ? slot.querySelector('[data-role="service-graph-container"]')
-          : null;
-        if (graphContainer) {
-          renderDetailGraph(
-            slot.querySelector(".proton-apps-detail"),
-            selectedService,
-            graphContainer
-          );
-        }
-      } else {
-        renderSummaryGraph(c);
-      }
-    } catch (e) {
-      // следующая попытка через intervalMs
+      clearInterval(window.__protonAppsHistoryRefreshTimer);
+      window.__protonAppsHistoryRefreshTimer = null;
     }
-  }, intervalMs);
-}
 
-startHistoryRefreshTimer();
-window.__protonAppsStartHistoryRefreshTimer = startHistoryRefreshTimer;
+    function startHistoryRefreshTimer() {
+      if (window.__protonAppsHistoryRefreshTimer) {
+        clearInterval(window.__protonAppsHistoryRefreshTimer);
+        window.__protonAppsHistoryRefreshTimer = null;
+      }
 
-window.addEventListener("proton-settings-synced", function () {
-  if (typeof window.__protonAppsStartHistoryRefreshTimer === "function") {
-    window.__protonAppsStartHistoryRefreshTimer();
-  }
-});
+      const h = window.ProtonServicesHistory;
+      const si = (h && typeof h.getSampleInterval === "function")
+        ? h.getSampleInterval()
+        : 10;
+      const intervalMs = Math.max(si, 5) * 1000;
+
+      window.__protonAppsHistoryRefreshTimer = setInterval(async function () {
+        const c = document.getElementById("proton-dashboard-apps");
+        if (!c || document.hidden) return;
+
+        const hist = window.ProtonServicesHistory;
+        if (!hist || typeof hist.loadService !== "function") return;
+
+        const services = readAppsList();
+        if (!services.length) return;
+
+        try {
+          await Promise.all(
+            services.map(function (name) {
+              return hist.loadService(name, { force: true }).catch(function () {
+                return null;
+              });
+            })
+          );
+          if (selectedService) {
+            const slot = c.querySelector('[data-role="detail-slot"]');
+            const graphContainer = slot
+              ? slot.querySelector('[data-role="service-graph-container"]')
+              : null;
+            if (graphContainer) {
+              renderDetailGraph(
+                slot.querySelector(".proton-apps-detail"),
+                selectedService,
+                graphContainer
+              );
+            }
+          } else {
+            renderSummaryGraph(c);
+          }
+        } catch (e) {
+          // следующая попытка через intervalMs
+        }
+      }, intervalMs);
+    }
+
+    startHistoryRefreshTimer();
+    window.__protonAppsStartHistoryRefreshTimer = startHistoryRefreshTimer;
+
+    window.addEventListener("proton-settings-synced", function () {
+      if (typeof window.__protonAppsStartHistoryRefreshTimer === "function") {
+        window.__protonAppsStartHistoryRefreshTimer();
+      }
+    });
 
     visibilityHandler = function () {
       if (!document.hidden) pollStatuses();
     };
-      document.addEventListener("visibilitychange", visibilityHandler);
-      // Реагируем на изменение размера окна — перерисовываем график
-      window.addEventListener("resize", function () {
-        const c = document.getElementById("proton-dashboard-apps");
-        if (!c) return;
-        if (selectedService) return;
-        renderSummaryGraph(c);
-      });
+    document.addEventListener("visibilitychange", visibilityHandler);
+    window.addEventListener("resize", function () {
+      const c = document.getElementById("proton-dashboard-apps");
+      if (!c) return;
+      if (selectedService) return;
+      renderSummaryGraph(c);
+    });
 
-      return true;
+    return true;
   }
 
-  /**
-   * Инициализация health-графика: кнопки периодов + первый рендер.
-   */
-  function initSummaryGraph(card){
+  function initSummaryGraph(card) {
     const toolbar = card.querySelector('[data-role="summary-graph-toolbar"]');
     if (!toolbar) return;
 
     updateGraphPeriodButtons(toolbar, summaryGraphPeriodSec);
 
-    toolbar.addEventListener("click", function(e){
-        const btn = e.target.closest(".proton-apps-graph-period");
-        if (!btn) return;
-        const period = parseInt(btn.dataset.period, 10);
-        if (!period || period === summaryGraphPeriodSec) return;
-        summaryGraphPeriodSec = period;
-        updateGraphPeriodButtons(toolbar, period);
+    toolbar.addEventListener("click", function (e) {
+      const btn = e.target.closest(".proton-apps-graph-period");
+      if (!btn) return;
+      const period = parseInt(btn.dataset.period, 10);
+      if (!period || period === summaryGraphPeriodSec) return;
+      summaryGraphPeriodSec = period;
+      updateGraphPeriodButtons(toolbar, period);
 
-        // Перед рендером подгружаем события за выбранное окно.
-        if (window.ProtonServicesHistory
-            && typeof window.ProtonServicesHistory.loadEvents === "function") {
-            window.ProtonServicesHistory.loadEvents(period * 1000)
-                .then(function(){ renderSummaryGraph(card); })
-                .catch(function(){ renderSummaryGraph(card); });
-        } else {
-            renderSummaryGraph(card);
-        }
+      if (window.ProtonServicesHistory
+        && typeof window.ProtonServicesHistory.loadEvents === "function") {
+        window.ProtonServicesHistory.loadEvents(period * 1000)
+          .then(function () { renderSummaryGraph(card); })
+          .catch(function () { renderSummaryGraph(card); });
+      } else {
+        renderSummaryGraph(card);
+      }
     });
 
-    // Первичная загрузка событий, затем рендер.
     if (window.ProtonServicesHistory
-        && typeof window.ProtonServicesHistory.loadEvents === "function") {
-        window.ProtonServicesHistory.loadEvents(summaryGraphPeriodSec * 1000)
-            .then(function(){ renderSummaryGraph(card); })
-            .catch(function(){ renderSummaryGraph(card); });
+      && typeof window.ProtonServicesHistory.loadEvents === "function") {
+      window.ProtonServicesHistory.loadEvents(summaryGraphPeriodSec * 1000)
+        .then(function () { renderSummaryGraph(card); })
+        .catch(function () { renderSummaryGraph(card); });
     } else {
-        renderSummaryGraph(card);
+      renderSummaryGraph(card);
     }
 
-    // Периодическая перезагрузка событий (раз в 30 сек), пока виджет жив.
     if (!summaryEventsTimer) {
-        summaryEventsTimer = setInterval(function(){
-            if (!document.body.contains(card)) {
-                clearInterval(summaryEventsTimer);
-                summaryEventsTimer = null;
-                return;
-            }
-            if (document.hidden) return;
-            if (selectedService) return;
-            if (!window.ProtonServicesHistory
-                || typeof window.ProtonServicesHistory.loadEvents !== "function") {
-                return;
-            }
-            window.ProtonServicesHistory.loadEvents(summaryGraphPeriodSec * 1000)
-                .then(function(){ renderSummaryGraph(card); })
-                .catch(function(){});
-        }, 30000);
+      summaryEventsTimer = setInterval(function () {
+        if (!document.body.contains(card)) {
+          clearInterval(summaryEventsTimer);
+          summaryEventsTimer = null;
+          return;
+        }
+        if (document.hidden) return;
+        if (selectedService) return;
+        if (!window.ProtonServicesHistory
+          || typeof window.ProtonServicesHistory.loadEvents !== "function") {
+          return;
+        }
+        window.ProtonServicesHistory.loadEvents(summaryGraphPeriodSec * 1000)
+          .then(function () { renderSummaryGraph(card); })
+          .catch(function () {});
+      }, 30000);
     }
-}
+  }
 
-  /**
-   * Обновляет active-класс на кнопках панели.
-   */
   function updateGraphPeriodButtons(toolbar, activePeriodSec) {
     toolbar.querySelectorAll(".proton-apps-graph-period").forEach(function (btn) {
       const period = parseInt(btn.dataset.period, 10);
       btn.classList.toggle("active", period === activePeriodSec);
     });
   }
-  
+
   function handleSummaryEventClick(columnIndex, events) {
     const card = document.getElementById("proton-dashboard-apps");
     if (!card) return;
 
-    // Повторный клик на тот же штрих — сворачиваем.
     if (
-        summarySelectedEventGroup &&
-        summarySelectedEventGroup.columnIndex === columnIndex
+      summarySelectedEventGroup &&
+      summarySelectedEventGroup.columnIndex === columnIndex
     ) {
-        summarySelectedEventGroup = null;
+      summarySelectedEventGroup = null;
     } else {
-        summarySelectedEventGroup = { columnIndex, events };
+      summarySelectedEventGroup = { columnIndex, events };
     }
 
     renderSummaryGraph(card);
-}
+  }
 
-function getEventTypeLabel(type) {
+  function getEventTypeLabel(type) {
     if (
-        window.ProtonServicesGraph &&
-        window.ProtonServicesGraph.EVENT_TYPE_LABEL
+      window.ProtonServicesGraph &&
+      window.ProtonServicesGraph.EVENT_TYPE_LABEL
     ) {
-        return window.ProtonServicesGraph.EVENT_TYPE_LABEL[type] || type;
+      return window.ProtonServicesGraph.EVENT_TYPE_LABEL[type] || type;
     }
     return type;
-}
+  }
 
-function renderSummaryEventDetails(card) {
+  function renderSummaryEventDetails(card) {
     if (!card) return;
 
     let details = card.querySelector('[data-role="summary-event-details"]');
 
-    // Если контейнера ещё нет — создаём и вставляем после timeline,
-    // но перед footer.
     if (!details) {
-        details = document.createElement("div");
-        details.className = "proton-apps-event-details";
-        details.dataset.role = "summary-event-details";
+      details = document.createElement("div");
+      details.className = "proton-apps-event-details";
+      details.dataset.role = "summary-event-details";
 
-        const eventsContainer = card.querySelector('[data-role="summary-events"]');
-        const footer = card.querySelector('[data-role="summary-footer"]');
+      const eventsContainer = card.querySelector('[data-role="summary-events"]');
+      const footer = card.querySelector('[data-role="summary-footer"]');
 
-        if (eventsContainer && eventsContainer.parentNode) {
-            eventsContainer.parentNode.insertBefore(
-                details,
-                eventsContainer.nextSibling,
-            );
-        } else if (footer && footer.parentNode) {
-            footer.parentNode.insertBefore(details, footer);
-        } else {
-            return;
-        }
+      if (eventsContainer && eventsContainer.parentNode) {
+        eventsContainer.parentNode.insertBefore(
+          details,
+          eventsContainer.nextSibling,
+        );
+      } else if (footer && footer.parentNode) {
+        footer.parentNode.insertBefore(details, footer);
+      } else {
+        return;
+      }
     }
 
-    // Если ничего не выбрано — пусто, контейнер схлопнут через :empty.
     if (!summarySelectedEventGroup) {
-        details.innerHTML = "";
-        return;
+      details.innerHTML = "";
+      return;
     }
 
     const events = summarySelectedEventGroup.events;
     if (!Array.isArray(events) || events.length === 0) {
-        details.innerHTML = "";
-        return;
+      details.innerHTML = "";
+      return;
     }
 
-    // Заголовок: время первого события + количество.
     const firstTs = Number(events[0][0]) || 0;
     const timeStr = formatEventTime(firstTs);
     const headerText = timeStr + " · ℹ️ " + events.length;
 
     let html = '<div class="proton-apps-event-details-header">' +
-        escapeHtml(headerText) +
-        "</div>";
+      escapeHtml(headerText) +
+      "</div>";
 
     for (const e of events) {
-        if (!Array.isArray(e) || e.length < 5) continue;
-        const type = String(e[2] || "unknown");
-        const service = String(e[1] || "");
-        const details = String(e[4] || "");
+      if (!Array.isArray(e) || e.length < 5) continue;
+      const type = String(e[2] || "unknown");
+      const service = String(e[1] || "");
+      const details = String(e[4] || "");
 
-        html +=
-            '<div class="proton-apps-event-row">' +
-            '<span class="proton-apps-event-type" data-type="' +
-            escapeHtml(type) +
-            '">' +
-            escapeHtml(getEventTypeLabel(type)) +
-            "</span>" +
-            '<span class="proton-apps-event-service">' +
-            escapeHtml(service) +
-            "</span>" +
-            '<span class="proton-apps-event-msg" title="' +
-            escapeHtml(details) +
-            '">' +
-            escapeHtml(details) +
-            "</span>" +
-            "</div>";
+      html +=
+        '<div class="proton-apps-event-row">' +
+        '<span class="proton-apps-event-type" data-type="' +
+        escapeHtml(type) +
+        '">' +
+        escapeHtml(getEventTypeLabel(type)) +
+        "</span>" +
+        '<span class="proton-apps-event-service">' +
+        escapeHtml(service) +
+        "</span>" +
+        '<span class="proton-apps-event-msg" title="' +
+        escapeHtml(details) +
+        '">' +
+        escapeHtml(details) +
+        "</span>" +
+        "</div>";
     }
 
     details.innerHTML = html;
-}
+  }
 
-function formatEventTime(ts) {
+  function formatEventTime(ts) {
     if (!Number.isFinite(ts) || ts <= 0) return "—";
     const d = new Date(ts * 1000);
     const pad = (n) => String(n).padStart(2, "0");
     return (
-        pad(d.getHours()) +
-        ":" +
-        pad(d.getMinutes()) +
-        ":" +
-        pad(d.getSeconds())
+      pad(d.getHours()) +
+      ":" +
+      pad(d.getMinutes()) +
+      ":" +
+      pad(d.getSeconds())
     );
-}
+  }
 
-function escapeHtml(str) {
-    return String(str == null ? "" : str).replace(/[&<>"']/g, function (c) {
-        return ({
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            '"': "&quot;",
-            "'": "&#39;",
-        })[c];
-    });
-}
-
-  /**
-   * Рендер health-графика.
-   */
-  function renderSummaryGraph(card)	{
+  function renderSummaryGraph(card) {
     const container = card.querySelector('[data-role="summary-graph"]');
     const eventsContainer = card.querySelector('[data-role="summary-events"]');
     const footer = card.querySelector('[data-role="summary-footer"]');
@@ -3017,118 +2829,106 @@ function escapeHtml(str) {
     if (selectedService) return;
 
     if (!window.ProtonServicesHistory || !window.ProtonServicesGraph) {
-        container.innerHTML = '<div class="proton-apps-graph-empty">' + t("Loading...") + '</div>';
-        if (eventsContainer) eventsContainer.innerHTML = "";
-        return;
+      container.innerHTML = '<div class="proton-apps-graph-empty">' + t("Loading...") + '</div>';
+      if (eventsContainer) eventsContainer.innerHTML = "";
+      return;
     }
 
     const windowMs = summaryGraphPeriodSec * 1000;
     let points = [];
     try {
-        points = window.ProtonServicesHistory.getWorstStatusTimeline(windowMs, {
-            targetCount: 200,
-        });
+      points = window.ProtonServicesHistory.getWorstStatusTimeline(windowMs, {
+        targetCount: 200,
+      });
     } catch (e) {
-        console.warn("[Proton2025] Failed to get worst status timeline:", e);
-        points = [];
+      console.warn("[Proton2025] Failed to get worst status timeline:", e);
+      points = [];
     }
 
     const width = container.clientWidth || 400;
     const height = container.clientHeight || 120;
 
     if (!points.length) {
-        container.innerHTML = '<div class="proton-apps-graph-empty">' + t("No data") + '</div>';
+      container.innerHTML = '<div class="proton-apps-graph-empty">' + t("No data") + '</div>';
     } else {
-        window.ProtonServicesGraph.renderWorstStatusGraph(container, points, {
-            width: width,
-            height: height,
-            windowMs: windowMs,
-        });
+      window.ProtonServicesGraph.renderWorstStatusGraph(container, points, {
+        width: width,
+        height: height,
+        windowMs: windowMs,
+      });
     }
 
-    // === Таймлайн событий (Этап 6.7) ===
-    // Считаем visibleEvents один раз — он нужен и для timeline, и для сводки.
     let visibleEvents = [];
     try {
-        if (window.ProtonServicesHistory
-            && typeof window.ProtonServicesHistory.getCachedEvents === "function") {
-            const allEvents = window.ProtonServicesHistory.getCachedEvents();
-            const nowSec = Math.floor(Date.now() / 1000);
-            const startSec = nowSec - Math.floor(windowMs / 1000);
-            visibleEvents = allEvents.filter((e) => {
-                if (!Array.isArray(e) || e.length < 3) return false;
-                const ts = Number(e[0]);
-                return Number.isFinite(ts) && ts >= startSec && ts <= nowSec;
-            });
-        }
+      if (window.ProtonServicesHistory
+        && typeof window.ProtonServicesHistory.getCachedEvents === "function") {
+        const allEvents = window.ProtonServicesHistory.getCachedEvents();
+        const nowSec = Math.floor(Date.now() / 1000);
+        const startSec = nowSec - Math.floor(windowMs / 1000);
+        visibleEvents = allEvents.filter((e) => {
+          if (!Array.isArray(e) || e.length < 3) return false;
+          const ts = Number(e[0]);
+          return Number.isFinite(ts) && ts >= startSec && ts <= nowSec;
+        });
+      }
     } catch (e) {
-        visibleEvents = [];
+      visibleEvents = [];
     }
 
     if (eventsContainer) {
-        const eventsWidth = eventsContainer.clientWidth || width;
-        window.ProtonServicesGraph.renderEventTimeline(
-            eventsContainer,
-            visibleEvents,
-            {
-                width: eventsWidth,
-                height: summarySelectedEventGroup ? 32 : 100,
-                windowMs: windowMs,
-                selectedGroupKey: summarySelectedEventGroup
-                    ? String(summarySelectedEventGroup.columnIndex)
-                    : null,
-                onEventClick: handleSummaryEventClick,
-            },
-        );
+      const eventsWidth = eventsContainer.clientWidth || width;
+      window.ProtonServicesGraph.renderEventTimeline(
+        eventsContainer,
+        visibleEvents,
+        {
+          width: eventsWidth,
+          height: summarySelectedEventGroup ? 32 : 100,
+          windowMs: windowMs,
+          selectedGroupKey: summarySelectedEventGroup
+            ? String(summarySelectedEventGroup.columnIndex)
+            : null,
+          onEventClick: handleSummaryEventClick,
+        },
+      );
 
-        eventsContainer.classList.toggle(
-            "is-compact",
-            !!summarySelectedEventGroup,
-        );
+      eventsContainer.classList.toggle(
+        "is-compact",
+        !!summarySelectedEventGroup,
+      );
 
-        renderSummaryEventDetails(card);
+      renderSummaryEventDetails(card);
     }
 
     if (footer) {
-        updateSummaryGraphFooter(footer, visibleEvents);
+      updateSummaryGraphFooter(footer, visibleEvents);
     }
-}
+  }
 
-    /**
-   * Обновляет подпись под health-графиком.
-   * Формат: ● 8/9 · ⚠ 2 · ⏸ 1 · ⏹ 2 · ⟳ 3 · ✓ 4
-   * Нулевые счётчики не показываются.
-   */
   function updateSummaryGraphFooter(footer, events) {
     if (!footer) return;
 
-    // === 1. Running / total из _statusCache ===
     let running = 0;
     let total = 0;
     const widget = window.protonServicesWidget;
     if (widget && widget._statusCache) {
-        for (const [, status] of widget._statusCache) {
-            total++;
-            if (status === "running") running++;
-        }
+      for (const [, status] of widget._statusCache) {
+        total++;
+        if (status === "running") running++;
+      }
     }
 
-    // Fallback: если _statusCache пуст (например, демон жив и
-    // updateAllStatuses не вызывается), берём список сервисов из
-    // proton-apps-widget и статусы из чипов.
     if (total === 0) {
-        const services = readAppsList();
-        total = services.length;
-        const card = document.getElementById("proton-dashboard-apps");
-        if (card) {
-            const chips = card.querySelectorAll(".proton-apps-chip");
-            chips.forEach(function (chip) {
-                if (chip.dataset.status === "running") running++;
-            });
-        }
+      const services = readAppsList();
+      total = services.length;
+      const card = document.getElementById("proton-dashboard-apps");
+      if (card) {
+        const chips = card.querySelectorAll(".proton-apps-chip");
+        chips.forEach(function (chip) {
+          if (chip.dataset.status === "running") running++;
+        });
+      }
     }
 
-    // === 2. Счётчики из событий за окно ===
     let incidents = 0;
     let worstIncident = null;
     let userStops = 0;
@@ -3167,7 +2967,6 @@ function escapeHtml(str) {
       }
     }
 
-    // === 3. Цвет точки "running" ===
     let dotColor = "#34d399";
     if (worstIncident === "crash") {
       dotColor = "#ef4444";
@@ -3179,9 +2978,6 @@ function escapeHtml(str) {
       dotColor = "#fbbf24";
     }
 
-    // === 4. Сборка строки ===
-    // Все счётчики показываем всегда. Нули — с классом is-zero
-    // (приглушённый цвет через CSS).
     const parts = [];
 
     if (total > 0) {

@@ -11,7 +11,6 @@ import { cursor } from 'uci';
 // --- Константы --------------------------------------------------------------
 
 const UCI_CONFIG = 'proton2025';
-const UCI_SECTION_SETTINGS = 'settings';
 const UCI_SECTION_HC = 'health_check';
 const LOGGER_TAG = 'proton-healthcheck';
 
@@ -26,31 +25,47 @@ const VALID_METHODS = [
 	'custom'
 ];
 
-// Все возможные поля target по методам. Используется для валидации.
-const METHOD_FIELDS = {
-	dns:          ['host', 'server', 'timeout'],
-	http:         ['url', 'expected_code', 'timeout'],
+// Общие поля, присутствующие у каждого метода.
+const COMMON_FIELDS = ['interval', 'timeout', 'failures_threshold', 'log_to_syslog'];
+
+// Method-specific поля (БЕЗ общих — они добавляются автоматически).
+const METHOD_SPECIFIC_FIELDS = {
+	dns:          ['host', 'server'],
+	http:         ['url', 'expected_code'],
 	local_port:   ['port', 'proto', 'addr'],
-	proxy_socks5: ['url', 'proxy_port', 'expected_code', 'timeout'],
-	proxy_http:   ['url', 'proxy_port', 'expected_code', 'timeout'],
+	proxy_socks5: ['url', 'proxy_port', 'expected_code'],
+	proxy_http:   ['url', 'proxy_port', 'expected_code'],
 	wireguard:    ['iface', 'max_age_sec'],
-	tunnel_ping:  ['iface', 'host', 'timeout'],
-	custom:       ['command', 'timeout']
+	tunnel_ping:  ['iface', 'host'],
+	custom:       ['command']
 };
 
-// Дефолты для per-service полей.
-const METHOD_DEFAULTS = {
-	dns:          { server: '127.0.0.1', timeout: 5 },
-	http:         { expected_code: 200, timeout: 5 },
+// Дефолты общих полей.
+const COMMON_DEFAULTS = {
+	interval:           60,
+	timeout:            5,
+	failures_threshold: 2,
+	log_to_syslog:      1
+};
+
+// Дефолты method-specific полей.
+const METHOD_SPECIFIC_DEFAULTS = {
+	dns:          { server: '127.0.0.1' },
+	http:         { expected_code: 200 },
 	local_port:   { proto: 'tcp', addr: 'any' },
-	proxy_socks5: { proxy_port: 1080, expected_code: 200, timeout: 5 },
-	proxy_http:   { proxy_port: 8080, expected_code: 200, timeout: 5 },
+	proxy_socks5: { proxy_port: 1080, expected_code: 200 },
+	proxy_http:   { proxy_port: 8080, expected_code: 200 },
 	wireguard:    { max_age_sec: 180 },
-	tunnel_ping:  { timeout: 5 },
-	custom:       { timeout: 5 }
+	tunnel_ping:  {},
+	custom:       {}
 };
 
-const MAX_TIMEOUT = 30;
+const MIN_INTERVAL = 10;
+const MAX_INTERVAL = 3600;
+const MIN_TIMEOUT = 1;
+const MAX_TIMEOUT = 60;
+const MIN_FAILURES = 1;
+const MAX_FAILURES = 10;
 const MAX_MAX_AGE_SEC = 3600;
 const MAX_CODE = 599;
 const MAX_STR_LEN = 255;
@@ -102,7 +117,7 @@ function isSafePort(value) {
 function isSafeTimeout(value) {
 	let t = +value;
 	if (t != t) return false;
-	if (t < 1 || t > MAX_TIMEOUT) return false;
+	if (t < MIN_TIMEOUT || t > MAX_TIMEOUT) return false;
 	return t == int(t);
 }
 
@@ -129,9 +144,47 @@ function isSafeCustomCommand(value) {
 	return true;
 }
 
+// --- Валидация общих полей -------------------------------------------------
+
+function validateCommonFields(input) {
+	let interval = +(input.interval != null ? input.interval : COMMON_DEFAULTS.interval);
+	let timeout = +(input.timeout != null ? input.timeout : COMMON_DEFAULTS.timeout);
+	let failures = +(input.failures_threshold != null ? input.failures_threshold : COMMON_DEFAULTS.failures_threshold);
+	let logSyslog = (input.log_to_syslog != null) ? input.log_to_syslog : COMMON_DEFAULTS.log_to_syslog;
+
+	if (interval != interval || interval < MIN_INTERVAL || interval > MAX_INTERVAL) {
+		return { ok: false, error: 'invalid interval (must be ' + MIN_INTERVAL + '..' + MAX_INTERVAL + ')' };
+	}
+	if (interval != int(interval)) return { ok: false, error: 'interval must be integer' };
+
+	if (timeout != timeout || timeout < MIN_TIMEOUT || timeout > MAX_TIMEOUT) {
+		return { ok: false, error: 'invalid timeout (must be ' + MIN_TIMEOUT + '..' + MAX_TIMEOUT + ')' };
+	}
+	if (timeout != int(timeout)) return { ok: false, error: 'timeout must be integer' };
+
+	if (timeout > interval) {
+		return { ok: false, error: 'timeout must be <= interval' };
+	}
+
+	if (failures != failures || failures < MIN_FAILURES || failures > MAX_FAILURES) {
+		return { ok: false, error: 'invalid failures_threshold (must be ' + MIN_FAILURES + '..' + MAX_FAILURES + ')' };
+	}
+	if (failures != int(failures)) return { ok: false, error: 'failures_threshold must be integer' };
+
+	let logBool = (logSyslog === true || logSyslog == '1' || logSyslog == 1 || logSyslog == 'true');
+
+	return {
+		ok: true,
+		fields: {
+			interval: '' + interval,
+			timeout: '' + timeout,
+			failures_threshold: '' + failures,
+			log_to_syslog: logBool ? '1' : '0'
+		}
+	};
+}
+
 // --- Probe утилит -----------------------------------------------------------
-//
-// Один раз за сессию rpcd. Кэш в глобальной переменной модуля.
 
 let _probeCache = null;
 
@@ -150,7 +203,7 @@ function probeCapabilities() {
 		dns: false,
 		http: false,
 		http_backend: '',
-		local_port: true,   // всегда доступно — читаем /proc/net/tcp
+		local_port: true,
 		proxy_socks5: false,
 		proxy_http: false,
 		wireguard: false,
@@ -158,11 +211,8 @@ function probeCapabilities() {
 		custom: true
 	};
 
-	// DNS: busybox nslookup.
 	cap.dns = hasCommand('nslookup');
 
-	// HTTP / proxy: только curl. uclient-fetch и wget не дают код ответа,
-	// поэтому их использовать для проверки нельзя.
 	if (hasCommand('curl')) {
 		cap.http = true;
 		cap.http_backend = 'curl';
@@ -170,10 +220,7 @@ function probeCapabilities() {
 		cap.proxy_http = true;
 	}
 
-	// WireGuard: wg ставится с wireguard-tools.
 	cap.wireguard = hasCommand('wg');
-
-	// Tunnel ping: ping есть всегда (busybox).
 	cap.tunnel_ping = hasCommand('ping');
 
 	_probeCache = cap;
@@ -181,25 +228,6 @@ function probeCapabilities() {
 }
 
 // --- UCI helpers ------------------------------------------------------------
-
-function getGlobalConfig() {
-	let uci = cursor();
-	uci.load(UCI_CONFIG);
-
-	let enabled = uci.get(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_enabled') ?? '0';
-	let interval = uci.get(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_interval') ?? '60';
-	let timeout = uci.get(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_timeout') ?? '5';
-	let threshold = uci.get(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_failures_threshold') ?? '2';
-	let logSyslog = uci.get(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_log_to_syslog') ?? '1';
-
-	return {
-		enabled: enabled == '1',
-		interval: +interval || 60,
-		timeout: +timeout || 5,
-		failures_threshold: +threshold || 2,
-		log_to_syslog: logSyslog == '1'
-	};
-}
 
 function readHealthCheckSections() {
 	let uci = cursor();
@@ -225,13 +253,10 @@ function getServiceConfig(service) {
 	let uci = cursor();
 	uci.load(UCI_CONFIG);
 
-	// uci.get(cfg, section) без option возвращает не объект-секции.
-	// Читаем через foreach, как в readHealthCheckSections.
 	let found = null;
 	uci.foreach(UCI_CONFIG, UCI_SECTION_HC, function(s) {
 		if (s == null || type(s) != 'object') return;
 		if (s['.name'] != service) return;
-
 		found = {
 			name: service,
 			enabled: (s.enabled ?? '0') == '1',
@@ -248,9 +273,6 @@ function getServiceConfig(service) {
 }
 
 // --- Runner: DNS ------------------------------------------------------------
-//
-// nslookup <host> <server> — busybox-версия. Внешний таймаут не применяется,
-// nslookup завершается сам по системному resolv timeout.
 
 function runDns(fields, timeout) {
 	let host = trimSafe(fields.host);
@@ -294,9 +316,6 @@ function runDns(fields, timeout) {
 }
 
 // --- Runner: HTTP -----------------------------------------------------------
-//
-// Только curl. --max-time задаёт жёсткий таймаут.
-// -w "%{http_code}" печатает код ответа в stdout (независимо от тела).
 
 function runHttp(fields, timeout) {
 	let url = trimSafe(fields.url);
@@ -333,15 +352,6 @@ function runHttp(fields, timeout) {
 }
 
 // --- Runner: local_port -----------------------------------------------------
-//
-// Проверяет, открыт ли локальный TCP-порт, читая /proc/net/tcp (и tcp6).
-//
-// Формат строки:
-//   sl  local_address rem_address   st tx_queue:rx_queue  ...
-//   0:  0100007F:1F90 00000000:0000 0A ...
-//
-// local_address: <hex-ip>:<hex-port>. 0100007F = 127.0.0.1 (little-endian).
-// st == 0A (LISTEN) — порт слушается.
 
 function hexCharToInt(c) {
 	if (c == null || length(c) == 0) return -1;
@@ -444,8 +454,6 @@ function runLocalPort(fields) {
 }
 
 // --- Runner: Proxy SOCKS5 / HTTP --------------------------------------------
-//
-// Только если установлен curl.
 
 function runProxy(fields, timeout, scheme) {
 	let url = trimSafe(fields.url);
@@ -487,9 +495,6 @@ function runProxy(fields, timeout, scheme) {
 }
 
 // --- Runner: WireGuard ------------------------------------------------------
-//
-// wg show <iface> latest-handshakes
-// Формат: <peer-pubkey>\t<unix-timestamp>
 
 function runWireguard(fields) {
 	let iface = trimSafe(fields.iface);
@@ -574,18 +579,6 @@ function runTunnelPing(fields, timeout) {
 }
 
 // --- Runner: Custom ---------------------------------------------------------
-//
-// Реализуем таймаут вручную через фоновой watcher + kill.
-// busybox `timeout` в базовой сборке отсутствует.
-//
-// Логика:
-//   1. Запускаем CMD в фоне, получаем PID.
-//   2. Запускаем watcher: спит N секунд, потом kill -9 PID. Watcher
-//      перенаправлен в /dev/null, чтобы не держать родительские fd
-//      и не задерживать завершение sh.
-//   3. wait PID — ждём завершения CMD (либо оно само, либо его убил watcher).
-//   4. kill WATCHER — если CMD завершился раньше, watcher уже не нужен.
-//   5. exit RC — пробрасываем код возврата CMD.
 
 function runCustom(fields, timeout) {
 	let command = trimSafe(fields.command);
@@ -596,7 +589,6 @@ function runCustom(fields, timeout) {
 		return { ok: false, error: 'invalid timeout', details: '' };
 	}
 
-	// Экранируем одинарные кавычки для вставки в sh -c '...'.
 	let escaped = replace(command, /'/g, "'\\''");
 
 	let inner = "( " + escaped + " ) 2>&1 & PID=$!; ( sleep " + timeout + "; kill -9 $PID ) >/dev/null 2>&1 & WATCHER=$!; wait $PID; RC=$?; kill $WATCHER >/dev/null 2>&1; exit $RC";
@@ -671,18 +663,14 @@ function logHealthCheck(service, message) {
 	if (h) h.close();
 }
 
-// --- Валидация входных данных setService -----------------------------------
+// --- Валидация method-specific полей ---------------------------------------
 
-function validateServiceFields(method, input) {
-	if (index(VALID_METHODS, method) < 0) {
-		return { ok: false, error: 'invalid method: ' + method };
-	}
-
-	let allowed = METHOD_FIELDS[method] || [];
-	let defaults = METHOD_DEFAULTS[method] || {};
+function validateMethodFields(method, input) {
+	let specific = METHOD_SPECIFIC_FIELDS[method] || [];
+	let defaults = METHOD_SPECIFIC_DEFAULTS[method] || {};
 	let fields = {};
 
-	for (let key in allowed) {
+	for (let key in specific) {
 		let v = input[key];
 		if (v == null || v == '') v = defaults[key];
 		if (v == null) v = '';
@@ -692,11 +680,9 @@ function validateServiceFields(method, input) {
 	if (method == 'dns') {
 		if (!isSafeHost(fields.host)) return { ok: false, error: 'invalid host' };
 		if (!isSafeHost(fields.server)) return { ok: false, error: 'invalid server' };
-		if (!isSafeTimeout(fields.timeout)) return { ok: false, error: 'invalid timeout' };
 	} else if (method == 'http') {
 		if (!isSafeUrl(fields.url)) return { ok: false, error: 'invalid url' };
 		if (!isSafeExpectedCode(fields.expected_code)) return { ok: false, error: 'invalid expected_code' };
-		if (!isSafeTimeout(fields.timeout)) return { ok: false, error: 'invalid timeout' };
 	} else if (method == 'local_port') {
 		if (!isSafePort(fields.port)) return { ok: false, error: 'invalid port' };
 		if (fields.proto != 'tcp' && fields.proto != 'udp') return { ok: false, error: 'invalid proto' };
@@ -705,17 +691,14 @@ function validateServiceFields(method, input) {
 		if (!isSafeUrl(fields.url)) return { ok: false, error: 'invalid url' };
 		if (!isSafePort(fields.proxy_port)) return { ok: false, error: 'invalid proxy_port' };
 		if (!isSafeExpectedCode(fields.expected_code)) return { ok: false, error: 'invalid expected_code' };
-		if (!isSafeTimeout(fields.timeout)) return { ok: false, error: 'invalid timeout' };
 	} else if (method == 'wireguard') {
 		if (!isSafeIface(fields.iface)) return { ok: false, error: 'invalid iface' };
 		if (!isSafeMaxAge(fields.max_age_sec)) return { ok: false, error: 'invalid max_age_sec' };
 	} else if (method == 'tunnel_ping') {
 		if (!isSafeIface(fields.iface)) return { ok: false, error: 'invalid iface' };
 		if (!isSafeHost(fields.host)) return { ok: false, error: 'invalid host' };
-		if (!isSafeTimeout(fields.timeout)) return { ok: false, error: 'invalid timeout' };
 	} else if (method == 'custom') {
 		if (!isSafeCustomCommand(fields.command)) return { ok: false, error: 'invalid command' };
-		if (!isSafeTimeout(fields.timeout)) return { ok: false, error: 'invalid timeout' };
 	}
 
 	return { ok: true, fields: fields };
@@ -740,14 +723,42 @@ function rpcGetMethods() {
 	};
 }
 
+function getMethodFields(method) {
+	let specific = METHOD_SPECIFIC_FIELDS[method] || [];
+	let out = [];
+	for (let f in COMMON_FIELDS) push(out, f);
+	for (let f in specific) push(out, f);
+	return out;
+}
+
 function rpcGetSchema() {
+	let fields = {};
+	for (let m in VALID_METHODS) {
+		fields[m] = getMethodFields(m);
+	}
+
+	let defaults = {};
+	for (let m in VALID_METHODS) {
+		let d = {};
+		for (let k in COMMON_DEFAULTS) d[k] = COMMON_DEFAULTS[k];
+		let spec = METHOD_SPECIFIC_DEFAULTS[m] || {};
+		for (let k in spec) d[k] = spec[k];
+		defaults[m] = d;
+	}
+
 	return {
 		success: true,
 		methods: VALID_METHODS,
-		fields: METHOD_FIELDS,
-		defaults: METHOD_DEFAULTS,
+		fields: fields,
+		defaults: defaults,
+		common_fields: COMMON_FIELDS,
 		limits: {
+			min_interval: MIN_INTERVAL,
+			max_interval: MAX_INTERVAL,
+			min_timeout: MIN_TIMEOUT,
 			max_timeout: MAX_TIMEOUT,
+			min_failures: MIN_FAILURES,
+			max_failures: MAX_FAILURES,
 			max_max_age_sec: MAX_MAX_AGE_SEC,
 			max_code: MAX_CODE,
 			max_str_len: MAX_STR_LEN
@@ -756,62 +767,30 @@ function rpcGetSchema() {
 }
 
 function rpcGetConfig() {
-	let global = getGlobalConfig();
 	let sections = readHealthCheckSections();
 
 	let services = [];
 	for (let s in sections) {
-		let v = validateServiceFields(s.method, s.fields);
+		let common = validateCommonFields(s.fields);
+		let spec = validateMethodFields(s.method, s.fields);
+
+		let combinedFields = {};
+		if (common.ok) {
+			for (let k in common.fields) combinedFields[k] = common.fields[k];
+		}
+		if (spec.ok) {
+			for (let k in spec.fields) combinedFields[k] = spec.fields[k];
+		}
+
 		push(services, {
 			name: s.name,
 			enabled: s.enabled,
 			method: s.method,
-			fields: v.ok ? v.fields : {}
+			fields: combinedFields
 		});
 	}
 
-	return {
-		success: true,
-		global: global,
-		services: services
-	};
-}
-
-function rpcSetGlobal(input) {
-	let uci = cursor();
-	uci.load(UCI_CONFIG);
-
-	if (!uci.get(UCI_CONFIG, UCI_SECTION_SETTINGS))
-		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'theme');
-
-	if (input.enabled != null) {
-		let v = input.enabled;
-		let enabledBool = (v === true || v == '1' || v == 1 || v == 'true');
-		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_enabled', enabledBool ? '1' : '0');
-	}
-	if (input.interval != null) {
-		let v = +input.interval;
-		if (v != v || v < 30 || v > 300) return { success: false, error: 'invalid interval' };
-		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_interval', '' + v);
-	}
-	if (input.timeout != null) {
-		let v = +input.timeout;
-		if (v != v || v < 2 || v > 10) return { success: false, error: 'invalid timeout' };
-		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_timeout', '' + v);
-	}
-	if (input.failures_threshold != null) {
-		let v = +input.failures_threshold;
-		if (v != v || v < 1 || v > 3) return { success: false, error: 'invalid failures_threshold' };
-		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_failures_threshold', '' + v);
-	}
-	if (input.log_to_syslog != null) {
-		let v = input.log_to_syslog;
-		let logBool = (v === true || v == '1' || v == 1 || v == 'true');
-		uci.set(UCI_CONFIG, UCI_SECTION_SETTINGS, 'health_check_log_to_syslog', logBool ? '1' : '0');
-	}
-
-	uci.commit(UCI_CONFIG);
-	return { success: true, global: getGlobalConfig() };
+	return { success: true, services: services };
 }
 
 function rpcSetService(input) {
@@ -821,7 +800,6 @@ function rpcSetService(input) {
 			return { success: false, error: 'invalid service name' };
 		}
 
-		// config — JSON-строка со всеми остальными полями.
 		let config = input.config;
 		if (config == null || type(config) != 'string' || length(config) == 0) {
 			return { success: false, error: 'missing config' };
@@ -846,10 +824,19 @@ function rpcSetService(input) {
 		if (enabled == null && parsed.enabled != null) enabled = parsed.enabled;
 		let enabledBool = (enabled === true || enabled == '1' || enabled == 1 || enabled == 'true');
 
-		let v = validateServiceFields(method, parsed);
-		if (!v.ok) {
-			return { success: false, error: v.error };
+		let common = validateCommonFields(parsed);
+		if (!common.ok) {
+			return { success: false, error: common.error };
 		}
+
+		let spec = validateMethodFields(method, parsed);
+		if (!spec.ok) {
+			return { success: false, error: spec.error };
+		}
+
+		let allFields = {};
+		for (let k in common.fields) allFields[k] = common.fields[k];
+		for (let k in spec.fields) allFields[k] = spec.fields[k];
 
 		let uci = cursor();
 		uci.load(UCI_CONFIG);
@@ -862,19 +849,21 @@ function rpcSetService(input) {
 		uci.set(UCI_CONFIG, name, 'enabled', enabledBool ? '1' : '0');
 		uci.set(UCI_CONFIG, name, 'method', method);
 
-		for (let key, val in v.fields) {
+		for (let key in allFields) {
+			let val = allFields[key];
 			if (length('' + val) == 0) continue;
 			uci.set(UCI_CONFIG, name, key, '' + val);
 		}
 
 		uci.commit(UCI_CONFIG);
+
 		return {
 			success: true,
 			service: {
 				name: name,
 				enabled: enabledBool,
 				method: method,
-				fields: v.fields
+				fields: allFields
 			}
 		};
 	} catch (e) {
@@ -921,17 +910,21 @@ function rpcRunCheck(req) {
 			return { success: false, error: 'no method configured' };
 		}
 
-		let global = getGlobalConfig();
-
 		let timeout = +cfg.fields.timeout;
-		if (timeout != timeout || timeout < 1 || timeout > MAX_TIMEOUT) timeout = global.timeout;
+		if (timeout != timeout || timeout < MIN_TIMEOUT || timeout > MAX_TIMEOUT) {
+			timeout = COMMON_DEFAULTS.timeout;
+		}
+
+		let logToSyslog = (cfg.fields.log_to_syslog != null)
+			? ('' + cfg.fields.log_to_syslog) == '1'
+			: true;
 
 		let startMs = time() * 1000;
 		let result = dispatchMethod(cfg.method, cfg.fields, timeout);
 		let elapsedMs = time() * 1000 - startMs;
 
 		let logged = false;
-		if (!result.ok && global.log_to_syslog) {
+		if (!result.ok && logToSyslog) {
 			let msg = result.error || 'check failed';
 			if (result.details) msg += ' (' + result.details + ')';
 			logHealthCheck(name, msg);
@@ -957,7 +950,6 @@ function rpcRunCheck(req) {
 function sendTelegramMessage(token, chatId, text) {
 	if (!token || !chatId || !text) return false;
 
-	// Экранируем кавычки и спецсимволы для JSON
 	let safeText = replace(text, /\\/g, '\\\\');
 	safeText = replace(safeText, /"/g, '\\"');
 	safeText = replace(safeText, /\n/g, '\\n');
@@ -965,8 +957,6 @@ function sendTelegramMessage(token, chatId, text) {
 	let payload = '{"chat_id":"' + chatId + '","text":"' + safeText + '","parse_mode":"HTML"}';
 	let url = "https://api.telegram.org/bot" + token + "/sendMessage";
 
-	// Используем popen, так как curl может долго висеть, если нет сети
-	// Ограничиваем время выполнения 10 секундами
 	let cmd = "curl -s -m 10 -X POST " + url + " -H 'Content-Type: application/json' -d '" + payload + "'";
 	let h = popen(cmd, 'r');
 	if (!h) return false;
@@ -974,13 +964,11 @@ function sendTelegramMessage(token, chatId, text) {
 	let out = h.read('all') ?? '';
 	let code = h.close();
 
-	// Код 0 у curl означает успешное соединение, но Telegram может вернуть ошибку в JSON
 	if (code != 0) {
 		logHealthCheck('telegram', 'send failed, curl exit ' + code);
 		return false;
 	}
 
-	// Проверяем, что ответ содержит "ok":true
 	if (index(out, '"ok":true') < 0) {
 		let cleanOut = replace(trim(out), /\s+/g, ' ');
 		if (length(cleanOut) > 150) cleanOut = substr(cleanOut, 0, 147) + '...';
@@ -1002,10 +990,6 @@ const methods = {
 	},
 	getSchema: {
 		call: function() { return rpcGetSchema(); }
-	},
-	setGlobal: {
-		args: { enabled: '', interval: '', timeout: '', failures_threshold: '', log_to_syslog: '' },
-		call: function(req) { return rpcSetGlobal(req.args ?? {}); }
 	},
 	setService: {
 		args: { name: '', enabled: '', config: '' },

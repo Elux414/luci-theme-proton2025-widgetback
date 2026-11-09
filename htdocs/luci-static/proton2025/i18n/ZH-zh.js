@@ -711,4 +711,10 @@ window.ProtonTranslations = {
   "Clear all custom device names?": "清除所有自定义设备名称？",
   "Total RX": "总下载",
   "Total TX": "总上传",
+  "Common settings": "通用设置",
+  "Check method": "检查方法",
+  "Log health check to syslog": "记录健康检查到 syslog",
+  "Configure interval, timeout and failure threshold individually for each service.":
+    "为每个服务单独配置间隔、超时和失败阈值。",
+  "Timeout must be ≤ interval": "超时必须 ≤ 间隔",
 };
