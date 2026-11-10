@@ -746,4 +746,9 @@ window.ProtonTranslations = {
   "Configure interval, timeout and failure threshold individually for each service.":
     "Skonfiguruj interwał, limit czasu i próg błędów indywidualnie dla każdej usługi.",
   "Timeout must be ≤ interval": "Limit czasu musi być ≤ interwał",
+  "Edit mode": "Tryb edycji",
+  "Reset to default": "Przywróć domyślne",
+  "Done": "Gotowe",
+  "Reset layout to default?": "Przywrócić domyślny układ?",
+  "Allowed range": "Dozwolony zakres",
 };

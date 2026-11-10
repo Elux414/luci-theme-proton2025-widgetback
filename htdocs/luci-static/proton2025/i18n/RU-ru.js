@@ -763,4 +763,9 @@ window.ProtonTranslations = {
   "Configure interval, timeout and failure threshold individually for each service.":
     "Настройте интервал, таймаут и порог провалов отдельно для каждого сервиса.",
   "Timeout must be ≤ interval": "Таймаут должен быть ≤ интервала",
+  "Edit mode": "Режим редактирования",
+  "Reset to default": "Сбросить к дефолту",
+  "Done": "Готово",
+  "Reset layout to default?": "Сбросить раскладку к дефолту?",
+  "Allowed range": "Допустимо",
 };

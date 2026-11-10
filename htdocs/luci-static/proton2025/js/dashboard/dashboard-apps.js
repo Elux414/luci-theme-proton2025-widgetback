@@ -2162,7 +2162,10 @@
   /**
    * Строит строку "label + select(preset | custom) + [input]".
    */
-  function buildSelectOrCustomRow(opts) {
+    function buildSelectOrCustomRow(opts) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "proton-l7-editor-field";
+
     const row = document.createElement("div");
     row.className = "proton-l7-editor-row";
 
@@ -2171,14 +2174,12 @@
     label.textContent = opts.label;
     label.setAttribute("for", opts.id);
 
-    const selectWrap = document.createElement("div");
-    selectWrap.style.cssText = "display:flex;flex:1 1 auto;min-width:0;gap:6px;align-items:center;";
-
     const select = document.createElement("select");
     select.id = opts.id;
     select.className = "cbi-input-select proton-l7-editor-select";
-    select.style.flex = "0 0 auto";
-    select.style.minWidth = "140px";
+    select.style.flex = "1 1 auto";
+    select.style.width = "100%";
+    select.style.minWidth = "0";
 
     const isPreset = opts.presets.indexOf(opts.value) !== -1;
 
@@ -2196,16 +2197,32 @@
     if (!isPreset) customOpt.selected = true;
     select.appendChild(customOpt);
 
+    row.appendChild(label);
+    row.appendChild(select);
+    wrapper.appendChild(row);
+
+    // Input для «Своего» значения — отдельной строкой под селектом.
+    const inputRow = document.createElement("div");
+    inputRow.className = "proton-l7-editor-row proton-l7-editor-custom-row";
+    inputRow.style.display = isPreset ? "none" : "";
+    inputRow.style.marginTop = "6px";
+
+    const spacer = document.createElement("div");
+    spacer.className = "proton-l7-editor-label";
+
     const customInput = document.createElement("input");
-    customInput.type = "number";
-    customInput.min = String(opts.min);
-    customInput.max = String(opts.max);
-    customInput.step = "1";
+    customInput.type = "text";
+    customInput.inputMode = "numeric";
     customInput.className = "cbi-input-text proton-l7-editor-input";
     customInput.style.flex = "1 1 auto";
-    customInput.style.minWidth = "80px";
-    customInput.style.display = isPreset ? "none" : "";
+    customInput.style.width = "100%";
+    customInput.style.minWidth = "0";
     customInput.value = String(opts.value);
+    customInput.placeholder = opts.min + "–" + opts.max;
+
+    inputRow.appendChild(spacer);
+    inputRow.appendChild(customInput);
+    wrapper.appendChild(inputRow);
 
     function clampValue(raw) {
       let v = parseInt(raw, 10);
@@ -2217,19 +2234,18 @@
 
     select.addEventListener("change", function () {
       if (select.value === "custom") {
-        customInput.style.display = "";
+        inputRow.style.display = "";
         customInput.focus();
         customInput.select();
         opts.onChange(clampValue(customInput.value));
       } else {
-        customInput.style.display = "none";
+        inputRow.style.display = "none";
         opts.onChange(parseInt(select.value, 10));
       }
     });
 
     customInput.addEventListener("input", function () {
-      const v = clampValue(customInput.value);
-      opts.onChange(v);
+      opts.onChange(clampValue(customInput.value));
     });
 
     customInput.addEventListener("blur", function () {
@@ -2238,12 +2254,21 @@
       opts.onChange(v);
     });
 
-    selectWrap.appendChild(select);
-    selectWrap.appendChild(customInput);
+    // Подсказка с диапазоном — под полем, слева.
+    const hint = document.createElement("div");
+    hint.className = "proton-l7-editor-hint";
+    hint.style.marginLeft = "142px";
+    hint.style.marginRight = "12px";
+    hint.style.marginTop = "2px";
+    hint.style.textAlign = "left";
+    hint.style.whiteSpace = "normal";
+    hint.style.fontSize = "0.75rem";
+    hint.style.color = "var(--proton-muted)";
+    const rangeText = opts.min + "–" + opts.max + (opts.unit ? " " + opts.unit : "");
+    hint.textContent = t("Allowed range") + ": " + rangeText;
+    wrapper.appendChild(hint);
 
-    row.appendChild(label);
-    row.appendChild(selectWrap);
-    return row;
+    return wrapper;
   }
 
   // =========================================================================

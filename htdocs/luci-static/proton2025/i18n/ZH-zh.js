@@ -717,4 +717,9 @@ window.ProtonTranslations = {
   "Configure interval, timeout and failure threshold individually for each service.":
     "为每个服务单独配置间隔、超时和失败阈值。",
   "Timeout must be ≤ interval": "超时必须 ≤ 间隔",
+  "Edit mode": "编辑模式",
+  "Reset to default": "恢复默认",
+  "Done": "完成",
+  "Reset layout to default?": "恢复默认布局？",
+  "Allowed range": "允许范围",
 };

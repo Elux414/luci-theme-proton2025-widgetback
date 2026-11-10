@@ -1144,8 +1144,8 @@
     const observer = new MutationObserver(detach);
     observer.observe(document.body, { childList: true, subtree: true });
 
-    container.appendChild(btn);
-    container.appendChild(popup);
+    btn.appendChild(popup);
+	container.appendChild(btn);
 
     return btn;
 }

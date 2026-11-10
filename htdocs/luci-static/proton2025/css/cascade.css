@@ -15810,8 +15810,8 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 /* Всплывающее окно легенды */
 .proton-events-legend-popup {
     position: absolute;
-    left: 6px;
-    bottom: calc(100% - 22px);
+    left: 0;
+    bottom: calc(100% + 6px); /* 6px над кнопкой */
     width: 240px;
     padding: 8px 10px;
     border: 1px solid var(--proton-border);
@@ -15843,17 +15843,25 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 
 .proton-events-legend-row {
     display: grid;
-    grid-template-columns: 12px 48px 1fr;
+    /* 1-я колонка: свотч 12px
+       2-я: под содержимое (max-content)
+       3-я: остальное */
+    grid-template-columns: 12px max-content 1fr;
+    column-gap: 8px;
     align-items: center;
-    gap: 8px;
-    padding: 2px 0;
+    padding: 3px 0;
+}
+
+.proton-events-legend-row-summary {
+    grid-template-columns: 12px 1fr;
 }
 
 .proton-events-legend-swatch {
     display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    justify-self: center;
 }
 
 .proton-events-legend-label {
@@ -15863,6 +15871,8 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
     color: var(--proton-text-primary);
     text-transform: uppercase;
     letter-spacing: 0.02em;
+    white-space: nowrap;
+    text-align: left;
 }
 
 .proton-events-legend-desc {
@@ -15871,6 +15881,7 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+    text-align: left;
 }
 
 /* Второй раздел легенды — Сводка */
@@ -15887,12 +15898,17 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 }
 
 .proton-events-legend-symbol {
-    display: inline-block;
-    font-size: 1em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 12px;
+    height: 12px;
+    font-size: 0.72rem;
     font-weight: 700;
     line-height: 1;
     text-align: center;
     -webkit-font-smoothing: antialiased;
+    justify-self: center;
 }
 
 /* Цвета совпадают с символами в сводке footer'а */
@@ -15921,11 +15937,11 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 }
 
 .proton-events-legend-desc-summary {
-    /* вторая колонка — на всю ширину, без обрезки */
     color: var(--proton-text-secondary);
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
 }
 
 /* Легенда не должна мешать overflow:hidden у контейнера таймлайна */

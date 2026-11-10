@@ -750,4 +750,9 @@ window.ProtonTranslations = {
   "Configure interval, timeout and failure threshold individually for each service.":
     "Configura intervallo, timeout e soglia di errore singolarmente per ogni servizio.",
   "Timeout must be ≤ interval": "Il timeout deve essere ≤ intervallo",
+  "Edit mode": "Modalità modifica",
+  "Reset to default": "Ripristina predefiniti",
+  "Done": "Fatto",
+  "Reset layout to default?": "Ripristinare il layout predefinito?",
+  "Allowed range": "Intervallo consentito",
 };
