@@ -14551,7 +14551,7 @@ body.login-page .login-password-toggle:focus-visible {
 }
 
 /* =====================================================
-   Proton2025 Overview Layout v8.0
+   Proton2025 Overview Layout v8.3 (финальный)
    ===================================================== */
 
 .proton-overview-grid {
@@ -14653,39 +14653,101 @@ body.login-page .login-password-toggle:focus-visible {
     outline-offset: 2px;
 }
 
-/* Режим редактирования */
+/* ===== РЕЖИМ РЕДАКТИРОВАНИЯ ===== */
+
 .proton-overview-grid.is-editing .proton-overview-cell {
-    outline: 2px dashed rgba(var(--proton-accent-rgb), 0.35);
-    outline-offset: -2px;
+    outline: none !important;
+    box-shadow: none !important;
+    border: 2px dashed rgba(var(--proton-accent-rgb), 0.35) !important;
     border-radius: var(--proton-radius);
-    transition: outline-color 0.15s ease;
+    transition: border-color 0.15s ease;
+    position: relative;
 }
 
 .proton-overview-grid.is-editing .proton-overview-cell:hover {
-    outline-color: rgba(var(--proton-accent-rgb), 0.7);
+    border-color: rgba(var(--proton-accent-rgb), 0.7) !important;
 }
 
-/* Drag-handle (desktop) */
+/* Контролы: базово скрыты */
 .proton-overview-drag-handle {
-    position: absolute;
-    top: 6px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 32px;
-    height: 6px;
+    position: absolute !important;
+    top: 6px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 40px !important;
+    height: 8px !important;
     border-radius: 3px;
-    background: rgba(var(--proton-accent-rgb), 0.4);
+    background: rgba(var(--proton-accent-rgb), 0.8) !important;
     cursor: grab;
-    z-index: 10;
+    z-index: 100 !important;
     display: none;
 }
 
-.proton-overview-grid.is-editing .proton-overview-drag-handle {
-    display: block;
+.proton-overview-resize-handle {
+    position: absolute !important;
+    top: 0 !important;
+    right: -6px !important;
+    bottom: 0 !important;
+    width: 12px !important;
+    cursor: ew-resize;
+    z-index: 100 !important;
+    display: none;
 }
 
-.proton-overview-drag-handle:active {
-    cursor: grabbing;
+.proton-overview-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 4px;
+    height: 40px;
+    border-radius: 2px;
+    background: rgba(var(--proton-accent-rgb), 0.6);
+}
+
+.proton-overview-hide-btn {
+    position: absolute !important;
+    top: 10px !important;
+    right: 10px !important;
+    width: 26px !important;
+    height: 26px !important;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(var(--proton-accent-rgb), 0.15);
+    color: var(--proton-accent);
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100 !important;
+}
+
+.proton-overview-hide-btn:hover {
+    background: var(--proton-danger, #ef4444);
+    color: #fff;
+}
+
+.proton-overview-mobile-controls {
+    display: none;
+}
+
+/* Показываем контролы только в edit-режиме */
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-drag-handle {
+    display: block !important;
+}
+
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle {
+    display: block !important;
+}
+
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-hide-btn {
+    display: flex !important;
+}
+
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-mobile-controls {
+    display: flex !important;
 }
 
 .proton-overview-cell.is-dragging {
@@ -14708,116 +14770,27 @@ body.login-page .login-password-toggle:focus-visible {
 .proton-overview-cell.drop-target-before::before { left: -10px; }
 .proton-overview-cell.drop-target-after::after  { right: -10px; }
 
-/* Resize-handle (desktop) */
-.proton-overview-resize-handle {
-    position: absolute;
-    top: 0;
-    right: -9px;
-    bottom: 0;
-    width: 18px;
-    cursor: ew-resize;
-    z-index: 10;
-    display: none;
-}
+/* ===== УБИВАЕМ ТУЛТИПЫ ВНУТРИ СЕТКИ (баг с красным овалом) ===== */
 
-.proton-overview-grid.is-editing .proton-overview-resize-handle {
-    display: block;
-}
-
-.proton-overview-resize-handle::after {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 4px;
-    height: 40px;
-    border-radius: 2px;
-    background: rgba(var(--proton-accent-rgb), 0.5);
-    transition: background 0.15s ease;
-}
-
-.proton-overview-resize-handle:hover::after {
-    background: var(--proton-accent);
-}
-
-/* Кнопка-глаз «скрыть» */
-.proton-overview-hide-btn {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    width: 26px;
-    height: 26px;
-    padding: 0;
-    border: none;
-    border-radius: 50%;
-    background: rgba(var(--proton-accent-rgb), 0.15);
-    color: var(--proton-accent);
-    cursor: pointer;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 15;
-    transition: var(--proton-transition);
-}
-
-.proton-overview-grid.is-editing .proton-overview-hide-btn {
-    display: flex;
-}
-
-.proton-overview-hide-btn:hover {
-    background: var(--proton-danger, #ef4444);
-    color: #fff;
-}
-
-/* Mobile ↑/↓ */
-.proton-overview-mobile-controls {
-    display: none;
-}
-
-@media (max-width: 800px) {
-    .proton-overview-grid.is-editing .proton-overview-mobile-controls {
-        display: flex;
-        justify-content: flex-end;
-        gap: 6px;
-        position: absolute;
-        bottom: 6px;
-        right: 6px;
-        z-index: 15;
-    }
-    .proton-overview-mobile-controls button {
-        width: 34px;
-        height: 34px;
-        border-radius: 6px;
-        border: 1px solid var(--proton-border);
-        background: var(--proton-bg-tertiary);
-        color: var(--proton-fg);
-        font-size: 16px;
-        cursor: pointer;
-        padding: 0;
-    }
-    .proton-overview-mobile-controls button:hover {
-        border-color: var(--proton-accent);
-        color: var(--proton-accent);
-    }
-    .proton-overview-grid.is-editing .proton-overview-drag-handle,
-    .proton-overview-grid.is-editing .proton-overview-resize-handle {
-        display: none !important;
-    }
+.proton-overview-cell .cbi-tooltip {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
 }
 
 /* Панель «Сбросить» */
 .proton-overview-reset-bar {
     position: fixed;
-    bottom: 16px;
+    bottom: 24px !important;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 9999;
+    z-index: 99999 !important;
     padding: 8px 16px;
     border-radius: var(--proton-radius);
     background: var(--proton-bg-solid);
     border: 1px solid var(--proton-border);
-    box-shadow: var(--proton-shadow-lg);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
     display: flex;
     gap: 12px;
     align-items: center;
@@ -14836,6 +14809,34 @@ body.login-page .login-password-toggle:focus-visible {
     }
 }
 
+/* Мобилка: ↑/↓ */
+@media (max-width: 800px) {
+    .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-mobile-controls {
+        display: flex !important;
+        justify-content: flex-end;
+        gap: 6px;
+        position: absolute;
+        bottom: 6px;
+        right: 6px;
+        z-index: 100 !important;
+    }
+    .proton-overview-mobile-controls button {
+        width: 34px;
+        height: 34px;
+        border-radius: 6px;
+        border: 1px solid var(--proton-border);
+        background: var(--proton-bg-tertiary);
+        color: var(--proton-fg);
+        font-size: 16px;
+        cursor: pointer;
+        padding: 0;
+    }
+    .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-drag-handle,
+    .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle {
+        display: none !important;
+    }
+}
+
 /* Отключение анимаций */
 @media (prefers-reduced-motion: reduce) {
     .proton-overview-grid,
@@ -14846,15 +14847,6 @@ body.login-page .login-password-toggle:focus-visible {
     .proton-overview-edit-btn {
         transition: none !important;
     }
-}
-
-.proton-no-animations .proton-overview-grid,
-.proton-no-animations .proton-overview-cell,
-.proton-no-animations .proton-overview-drag-handle,
-.proton-no-animations .proton-overview-resize-handle,
-.proton-no-animations .proton-overview-hide-btn,
-.proton-no-animations .proton-overview-edit-btn {
-    transition: none !important;
 }
 
 /* Package architecture pill in System card */
@@ -15938,7 +15930,7 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 
 /* Легенда не должна мешать overflow:hidden у контейнера таймлайна */
 .proton-apps-events-timeline {
-    overflow: visible;
+    overflow: visible !important;
 }
 
 :root[data-theme="light"] .proton-apps-events-timeline {
