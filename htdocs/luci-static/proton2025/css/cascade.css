@@ -14708,25 +14708,29 @@ body.login-page .login-password-toggle:focus-visible {
 
 .proton-overview-hide-btn {
     position: absolute !important;
-    top: 10px !important;
-    right: 10px !important;
-    width: 26px !important;
-    height: 26px !important;
+    top: 8px !important;
+    right: 8px !important;
+    width: 28px !important;
+    height: 28px !important;
     padding: 0;
-    border: none;
+    border: 1px solid rgba(var(--proton-accent-rgb), 0.4) !important;
     border-radius: 50%;
-    background: rgba(var(--proton-accent-rgb), 0.15);
+    background: var(--proton-bg-solid, #161c26) !important; /* Принудительно непрозрачный */
     color: var(--proton-accent);
     cursor: pointer;
     display: none;
     align-items: center;
     justify-content: center;
-    z-index: 100 !important;
+    z-index: 9999 !important; /* Поверх всего контента карточки */
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4) !important;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 
 .proton-overview-hide-btn:hover {
-    background: var(--proton-danger, #ef4444);
-    color: #fff;
+    background: var(--proton-danger, #ef4444) !important;
+    color: #fff !important;
+    border-color: transparent !important;
+    transform: scale(1.05);
 }
 
 .proton-overview-mobile-controls {
@@ -14744,6 +14748,23 @@ body.login-page .login-password-toggle:focus-visible {
 
 .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-hide-btn {
     display: flex !important;
+}
+
+/* Блокировка кликов по содержимому карточки в режиме редактирования */
+.proton-overview-grid.is-editing .proton-overview-cell > *:not(.proton-overview-hide-btn):not(.proton-overview-drag-handle):not(.proton-overview-resize-handle):not(.proton-overview-mobile-controls) {
+    pointer-events: none !important;
+    opacity: 0.5 !important;
+    filter: grayscale(0.5) !important; /* Визуально приглушаем контент */
+    user-select: none !important;
+}
+
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-hide-btn,
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-drag-handle,
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle,
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-mobile-controls {
+    pointer-events: auto !important;
+    opacity: 1 !important;
+    filter: none !important;
 }
 
 .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-mobile-controls {
