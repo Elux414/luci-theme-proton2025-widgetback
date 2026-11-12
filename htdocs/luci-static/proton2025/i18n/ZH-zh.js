@@ -717,9 +717,18 @@ window.ProtonTranslations = {
   "Configure interval, timeout and failure threshold individually for each service.":
     "为每个服务单独配置间隔、超时和失败阈值。",
   "Timeout must be ≤ interval": "超时必须 ≤ 间隔",
+  
   "Edit mode": "编辑模式",
   "Reset to default": "恢复默认",
   "Done": "完成",
   "Reset layout to default?": "恢复默认布局？",
   "Allowed range": "允许范围",
+  "Drag to reorder": "拖动以重新排序",
+  "Hide card": "隐藏卡片",
+  "Move up": "上移",
+  "Move down": "下移",
+  "Control Panel": "控制面板",
+  "Drag to resize width": "拖动以调整宽度",
+  "Drag to resize height": "拖动以调整高度",
+  "Hidden cards": "已隐藏的卡片",
 };

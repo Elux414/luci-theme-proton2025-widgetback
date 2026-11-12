@@ -744,9 +744,18 @@ window.ProtonTranslations = {
   "Configure interval, timeout and failure threshold individually for each service.":
     "Intervall, Timeout und Fehlerschwelle für jeden Dienst separat konfigurieren.",
   "Timeout must be ≤ interval": "Timeout muss ≤ Intervall sein",
+  
   "Edit mode": "Bearbeitungsmodus",
   "Reset to default": "Auf Standard zurücksetzen",
   "Done": "Fertig",
   "Reset layout to default?": "Layout auf Standard zurücksetzen?",
   "Allowed range": "Zulässiger Bereich",
+  "Drag to reorder": "Zum Neuanordnen ziehen",
+  "Hide card": "Karte ausblenden",
+  "Move up": "Nach oben",
+  "Move down": "Nach unten",
+  "Control Panel": "Systemsteuerung",
+  "Drag to resize width": "Zum Ändern der Breite ziehen",
+  "Drag to resize height": "Zum Ändern der Höhe ziehen",
+  "Hidden cards": "Ausgeblendete Karten",
 };

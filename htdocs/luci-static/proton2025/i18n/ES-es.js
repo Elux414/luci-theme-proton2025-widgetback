@@ -753,9 +753,18 @@ window.ProtonTranslations = {
   "Configure interval, timeout and failure threshold individually for each service.":
     "Configure el intervalo, el tiempo de espera y el umbral de fallos individualmente para cada servicio.",
   "Timeout must be ≤ interval": "El tiempo de espera debe ser ≤ el intervalo",
+  
   "Edit mode": "Modo edición",
   "Reset to default": "Restablecer valores predeterminados",
   "Done": "Hecho",
   "Reset layout to default?": "¿Restablecer el diseño predeterminado?",
   "Allowed range": "Rango permitido",
+  "Drag to reorder": "Arrastrar para reordenar",
+  "Hide card": "Ocultar tarjeta",
+  "Move up": "Mover arriba",
+  "Move down": "Mover abajo",
+  "Control Panel": "Panel de control",
+  "Drag to resize width": "Arrastrar para cambiar el ancho",
+  "Drag to resize height": "Arrastrar para cambiar la altura",
+  "Hidden cards": "Tarjetas ocultas",
 };

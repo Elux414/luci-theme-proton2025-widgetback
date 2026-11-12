@@ -763,9 +763,17 @@ window.ProtonTranslations = {
   "Configure interval, timeout and failure threshold individually for each service.":
     "Настройте интервал, таймаут и порог провалов отдельно для каждого сервиса.",
   "Timeout must be ≤ interval": "Таймаут должен быть ≤ интервала",
+  "Drag to reorder": "Перетащите для изменения порядка",
+  "Hide card": "Скрыть карточку",
+  "Move up": "Вверх",
+  "Move down": "Вниз",
   "Edit mode": "Режим редактирования",
   "Reset to default": "Сбросить к дефолту",
   "Done": "Готово",
   "Reset layout to default?": "Сбросить раскладку к дефолту?",
   "Allowed range": "Допустимо",
+  "Control Panel": "Панель управления",
+  "Drag to resize width": "Потяните для изменения ширины",
+  "Drag to resize height": "Потяните для изменения высоты",
+  "Hidden cards": "Скрытые карточки",
 };

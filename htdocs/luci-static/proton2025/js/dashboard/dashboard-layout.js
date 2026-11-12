@@ -1,29 +1,5 @@
 /**
- * Proton2025 Dashboard - Overview Layout Orchestrator v8.0
- * Copyright 2025-2026 ChesterGoodiny
- * Licensed under the Apache License, Version 2.0
- * See LICENSE and NOTICE for details.
- *
- * Модель B' (ТЗ п.13.4):
- *   layout = {
- *     version: 2,
- *     rows: [ [ {id, w}, ... ], ... ],
- *     hidden: [id, ...]
- *   }
- *   w = целое 1..12, строка = CSS Grid с fr по весам.
- *
- * Identity карточек: узлы LuCI-секций и наших виджетов НИКОГДА не
- * отвязываются от DOM. Перемещение — только cell.appendChild(node),
- * если node.parentNode !== cell.
- *
- * Проблема height: 100% у LuCI-секций (ТЗ п.16) решена CSS:
- * строка — display: grid, ячейка — height: 100%, карточка — height: 100%.
- * Никаких flex-basis, которые ломают высоту.
- *
- * Режим редактирования (кнопка-карандаш в header.ut):
- *   Desktop: drag карточек + resize мышью за правый край + 👁 скрыть.
- *   Mobile:  ↑/↓ для порядка (drag отключён) + 👁 скрыть.
- *   Панель «Сбросить к дефолту» — фиксированная плашка внизу.
+ * Proton2025 Dashboard - Overview Layout Orchestrator v9.0 (Masonry Grid)
  */
 
 (function () {
@@ -35,24 +11,25 @@
   const STORAGE_KEY = "proton-overview-layout";
   const EDIT_BTN_ID = "proton-overview-edit-btn";
 
-  const W_MIN = 1;
-  const W_MAX = 12;
-
   const CARD_IDS = [
     "internet", "hosts", "ports", "system", "apps",
-    "temperature", "ram", "storage", "network", "dhcp"
+    "temperature", "ram", "storage", "network", "dhcp",
+    "wireless"
   ];
 
   const DEFAULT_LAYOUT = {
-    version: 2,
-    rows: [
-      [ { id: "internet", w: 2 }, { id: "hosts", w: 3 } ],
-      [ { id: "ports", w: 1 } ],
-      [ { id: "system", w: 1 }, { id: "apps", w: 1 } ],
-      [ { id: "temperature", w: 1 } ],
-      [ { id: "ram", w: 1 }, { id: "storage", w: 1 } ],
-      [ { id: "network", w: 1 } ],
-      [ { id: "dhcp", w: 1 } ],
+    version: 3,
+    cards: [
+      { id: "internet", w: 5, h: 2 },
+      { id: "hosts", w: 7, h: 2 },
+      { id: "ports", w: 12, h: 1 },
+      { id: "system", w: 6, h: 3 },
+      { id: "apps", w: 6, h: 3 },
+      { id: "temperature", w: 12, h: 1 },
+      { id: "ram", w: 6, h: 2 },
+      { id: "storage", w: 6, h: 2 },
+      { id: "network", w: 12, h: 2 },
+      { id: "dhcp", w: 12, h: 1 }
     ],
     hidden: [],
   };
@@ -61,6 +38,7 @@
     ram:     ["память", "memory", "оперативная память"],
     storage: ["хранилище", "storage"],
     network: ["сеть", "network"],
+    wireless: ["беспроводная сеть", "wireless", "wi-fi", "wifi"],
     ports:   ["состояние портов", "port status", "ports", "network ports"],
     dhcp:    ["аренды dhcp", "dhcp leases", "dhcp"],
   };
@@ -75,6 +53,32 @@
   let resizeState = null;
   let resetBar = null;
   let editBtn = null;
+  let lastRenderedSignature = "";
+
+  function computeLayoutSignature(widgets, luci) {
+    const root = gridRoot;
+    const parts = [];
+    for (const cellSpec of currentLayout.cards) {
+      const node = resolveNode(cellSpec.id, widgets, luci);
+      const cell = root
+        ? root.querySelector(`:scope > .proton-overview-cell[data-cell-id="${cellSpec.id}"]`)
+        : null;
+      const isHidden = currentLayout.hidden.includes(cellSpec.id);
+
+      // «В ячейке» — критично: если LuCI пересоздал секцию, node сменился,
+      // но id/tagName те же. Без этой проверки buildLayout решит, что
+      // ничего не изменилось, и оставит в ячейке отсоединённый старый узел.
+      const inCell = node && cell ? (node.parentNode === cell) : !node;
+
+      parts.push(
+        cellSpec.id + "|" + cellSpec.w + "|" + cellSpec.h + "|" +
+        (isHidden ? "h" : "v") + "|" +
+        (node ? (node.id || node.tagName) : "null") + "|" +
+        (inCell ? "1" : "0")
+      );
+    }
+    return parts.join(";");
+  }
 
   function t(value) {
     if (typeof window.protonT === "function") return window.protonT(value);
@@ -86,24 +90,13 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Layout: load / save / normalize
+  // Layout Model
   // ---------------------------------------------------------------------------
-
-  function isBrokenLegacyLayout(obj) {
-    // v1/v2/v3 при провале писали раскладку из 10 строк по 1 карточке.
-    if (!obj || !Array.isArray(obj.rows)) return false;
-    if (obj.version === 2) return false;
-    if (obj.rows.length < 10) return false;
-    for (const row of obj.rows) {
-      if (!Array.isArray(row) || row.length !== 1) return false;
-    }
-    return true;
-  }
 
   function cloneLayout(layout) {
     return {
-      version: 2,
-      rows: layout.rows.map(row => row.map(cell => ({ id: cell.id, w: cell.w }))),
+      version: 3,
+      cards: layout.cards.map(c => ({ id: c.id, w: c.w, h: c.h })),
       hidden: layout.hidden.slice(),
     };
   }
@@ -111,53 +104,50 @@
   function normalizeLayout(raw) {
     const known = new Set(CARD_IDS);
     const seen = new Set();
-    const rows = [];
+    const cards = [];
 
-    if (raw && Array.isArray(raw.rows)) {
-      for (const row of raw.rows) {
-        if (!Array.isArray(row) || row.length === 0) continue;
-        const newRow = [];
-        for (const cell of row) {
-          if (!cell || typeof cell.id !== "string") continue;
-          if (!known.has(cell.id)) continue;
-          if (seen.has(cell.id)) continue;
-          let w = parseInt(cell.w, 10);
-          if (!Number.isFinite(w)) w = 1;
-          if (w < W_MIN) w = W_MIN;
-          if (w > W_MAX) w = W_MAX;
-          newRow.push({ id: cell.id, w: w });
-          seen.add(cell.id);
-        }
-        if (newRow.length) rows.push(newRow);
+    if (raw && raw.version === 2 && Array.isArray(raw.rows)) {
+      raw.cards = [];
+      raw.rows.forEach(row => {
+        row.forEach(cell => {
+          raw.cards.push({ id: cell.id, w: cell.w || 1, h: 1 });
+        });
+      });
+    }
+
+    if (raw && Array.isArray(raw.cards)) {
+      for (const cell of raw.cards) {
+        if (!cell || typeof cell.id !== "string") continue;
+        if (!known.has(cell.id) || seen.has(cell.id)) continue;
+        
+        let w = parseInt(cell.w, 10);
+        if (!Number.isFinite(w) || w < 1) w = 1;
+        if (w > 12) w = 12;
+        
+        let h = parseInt(cell.h, 10);
+        if (!Number.isFinite(h) || h < 1) h = 1;
+        if (h > 6) h = 6;
+
+        cards.push({ id: cell.id, w: w, h: h });
+        seen.add(cell.id);
       }
     }
 
     const hidden = [];
     if (raw && Array.isArray(raw.hidden)) {
       for (const id of raw.hidden) {
-        if (typeof id !== "string") continue;
-        if (!known.has(id)) continue;
-        if (hidden.indexOf(id) !== -1) continue;
+        if (typeof id !== "string" || !known.has(id) || hidden.includes(id)) continue;
         hidden.push(id);
       }
     }
 
-    const missing = CARD_IDS.filter(id => !seen.has(id) && hidden.indexOf(id) === -1);
-    if (missing.length) {
-      if (!rows.length) rows.push([]);
-      const lastRow = rows[rows.length - 1];
-      for (const id of missing) {
-        lastRow.push({ id: id, w: 1 });
+    CARD_IDS.forEach(id => {
+      if (!seen.has(id) && !hidden.includes(id)) {
+        cards.push({ id: id, w: 6, h: 2 });
       }
-    }
+    });
 
-    const cleanRows = rows.filter(r => r.length > 0);
-
-    return {
-      version: 2,
-      rows: cleanRows,
-      hidden: hidden,
-    };
+    return { version: 3, cards: cards, hidden: hidden };
   }
 
   function loadLayout() {
@@ -167,11 +157,7 @@
       if (stored) raw = JSON.parse(stored);
     } catch (e) { raw = null; }
 
-    if (isBrokenLegacyLayout(raw)) {
-      raw = null;
-    }
-
-    if (!raw || raw.version !== 2) {
+    if (!raw || (raw.version !== 2 && raw.version !== 3)) {
       return cloneLayout(DEFAULT_LAYOUT);
     }
 
@@ -181,16 +167,14 @@
   function saveLayout() {
     if (!currentLayout) return;
     const json = JSON.stringify(currentLayout);
-    try {
-      localStorage.setItem(STORAGE_KEY, json);
-    } catch (e) {}
+    try { localStorage.setItem(STORAGE_KEY, json); } catch (e) {}
     if (window.protonSettingsSync && typeof window.protonSettingsSync.saveLocalKeyToUci === "function") {
       window.protonSettingsSync.saveLocalKeyToUci(STORAGE_KEY, json).catch(() => {});
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Поиск LuCI-секций (только чтение #view, без мутации)
+  // Поиск узлов
   // ---------------------------------------------------------------------------
 
   function normalizeHeading(text) {
@@ -215,42 +199,46 @@
     const root = gridRoot || document.body;
     const found = {};
     const sections = [];
+    const hiddenIds = (currentLayout || loadLayout()).hidden;
 
-    // 1. Из #view — те, что ещё не перемещены
     if (view) {
       view.querySelectorAll(".cbi-section").forEach(s => sections.push(s));
     }
-
-    // 2. Из ячеек — уже перемещённые (чтобы не терять identity)
     root.querySelectorAll(".proton-overview-cell > .cbi-section").forEach(s => {
       if (s.parentElement === view) return;
       sections.push(s);
     });
 
     for (const section of sections) {
+      const applyHiddenState = (key, el) => {
+        if (hiddenIds.includes(key)) el.style.display = "none";
+        else el.style.display = "";
+      };
+
       if (section.dataset.protonLayoutTag) {
         const key = section.dataset.protonLayoutTag;
-        if (!found[key]) found[key] = section;
+        if (!found[key]) {
+          found[key] = section;
+          applyHiddenState(key, section);
+        }
         continue;
       }
+      
       const heading = getSectionHeading(section);
       if (!heading) continue;
+      
       for (const [key, aliases] of Object.entries(LUCY_SECTIONS)) {
         if (found[key]) continue;
         if (aliases.some(alias => heading.includes(alias))) {
           found[key] = section;
           section.dataset.protonLayoutTag = key;
+          applyHiddenState(key, section);
           break;
         }
       }
     }
-
     return found;
   }
-
-  // ---------------------------------------------------------------------------
-  // Поиск наших виджетов
-  // ---------------------------------------------------------------------------
 
   function findOurWidgets() {
     return {
@@ -274,12 +262,13 @@
       case "storage":     return luci.storage;
       case "network":     return luci.network;
       case "dhcp":        return luci.dhcp;
+      case "wireless":    return luci.wireless;
       default:            return null;
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Grid construction
+  // Grid Construction
   // ---------------------------------------------------------------------------
 
   function ensureGridRoot() {
@@ -288,20 +277,20 @@
     const maincontent = document.getElementById(MAINCONTENT_ID);
     if (!maincontent) return null;
 
-    const staleByIds = ["proton-dashboard-grid", "proton-widgets-grid"];
-    for (const id of staleByIds) {
+    ["proton-dashboard-grid", "proton-widgets-grid"].forEach(id => {
       const stale = document.getElementById(id);
       if (stale) {
         const parent = stale.parentNode;
         while (stale.firstChild) parent.insertBefore(stale.firstChild, stale);
         parent.removeChild(stale);
       }
-    }
+    });
 
     gridRoot = document.createElement("div");
     gridRoot.id = GRID_ID;
     gridRoot.className = "proton-overview-grid";
 
+    // Вставляем сетку
     const view = document.getElementById(VIEW_ID);
     if (view && view.parentNode === maincontent) {
       maincontent.insertBefore(gridRoot, view);
@@ -312,10 +301,6 @@
     return gridRoot;
   }
 
-  // ---------------------------------------------------------------------------
-  // Placement (identity-safe)
-  // ---------------------------------------------------------------------------
-
   function placeInCell(cell, node) {
     if (!cell || !node) return false;
     if (node.parentNode === cell) return false;
@@ -323,65 +308,128 @@
     return true;
   }
 
-  function ensureRow(rowIndex) {
-    let row = gridRoot.querySelector(':scope > .proton-overview-row[data-row-index="' + rowIndex + '"]');
-    if (!row) {
-      row = document.createElement("div");
-      row.className = "proton-overview-row";
-      row.dataset.rowIndex = String(rowIndex);
-      gridRoot.appendChild(row);
-    }
-    return row;
-  }
+  function buildLayout() {
+    const root = ensureGridRoot();
+    if (!root) return false;
+    if (!currentLayout) currentLayout = loadLayout();
 
-  function ensureCell(row, cardId) {
-    let cell = row.querySelector(':scope > .proton-overview-cell[data-cell-id="' + cardId + '"]');
-    if (!cell) {
-      cell = document.createElement("div");
-      cell.className = "proton-overview-cell";
-      cell.dataset.cellId = cardId;
-      row.appendChild(cell);
-    }
-    return cell;
-  }
+    const widgets = findOurWidgets();
+    const luci = findLucysections();
+    isMobile = window.matchMedia("(max-width: 800px)").matches;
+	
+	const signature = computeLayoutSignature(widgets, luci);
+	if (signature === lastRenderedSignature && !editMode) {
+		return true;
+	}
+	lastRenderedSignature = signature;
 
-  function pruneStaleRowsAndCells() {
-    const root = gridRoot;
-    if (!root || !currentLayout) return;
+    // Очистка сетки: удаляем ячейки, которых больше нет в раскладке.
+    const existingCells = Array.from(root.children);
+    const activeIds = currentLayout.cards.map(c => c.id);
 
-    const validRowIndexes = new Set(currentLayout.rows.map((_, i) => String(i)));
-    const validCellsByRow = new Map();
-    currentLayout.rows.forEach((row, i) => {
-      validCellsByRow.set(String(i), new Set(row.map(c => c.id)));
+    existingCells.forEach(cell => {
+      if (!activeIds.includes(cell.dataset.cellId)) {
+        while (cell.firstChild) {
+          const child = cell.firstChild;
+          cell.removeChild(child);
+          const maincontent = document.getElementById(MAINCONTENT_ID);
+          if (maincontent) maincontent.appendChild(child);
+        }
+        cell.remove();
+      }
     });
 
-    root.querySelectorAll(":scope > .proton-overview-row").forEach(row => {
-      const idx = row.dataset.rowIndex;
-      if (!validRowIndexes.has(idx)) {
-        const maincontent = document.getElementById(MAINCONTENT_ID);
-        if (maincontent) {
-          while (row.firstChild) row.removeChild(row.firstChild);
-        }
-        row.remove();
+    // Проходим по карточкам. Каждое DOM-действие — только если оно
+    // реально меняет состояние (appendChild для уже вложенного узла,
+    // повторная установка того же gridColumn и т.п. — no-op, но браузер
+    // всё равно перерисовывает узел, поэтому избегаем их).
+    currentLayout.cards.forEach((cellSpec) => {
+      let cell = root.querySelector(`:scope > .proton-overview-cell[data-cell-id="${cellSpec.id}"]`);
+
+      if (!cell) {
+        cell = document.createElement("div");
+        cell.className = "proton-overview-cell";
+        cell.dataset.cellId = cellSpec.id;
+        root.appendChild(cell);
+      }
+
+      // gridColumn/gridRow — пишем только если значение изменилось.
+      const nextCol = `span ${cellSpec.w}`;
+      const nextRow = `span ${cellSpec.h}`;
+      if (cell.style.gridColumn !== nextCol) cell.style.gridColumn = nextCol;
+      if (cell.style.gridRow !== nextRow) cell.style.gridRow = nextRow;
+
+      // Классы ширины — тоже только при изменении.
+      const nextWidthClass =
+        cellSpec.w <= 4 ? "is-narrow" : cellSpec.w <= 7 ? "is-medium" : "is-wide";
+      if (!cell.classList.contains(nextWidthClass)) {
+        cell.classList.remove("is-narrow", "is-medium", "is-wide");
+        cell.classList.add(nextWidthClass);
+      }
+
+      const isHidden = currentLayout.hidden.includes(cellSpec.id);
+      const node = resolveNode(cellSpec.id, widgets, luci);
+
+      if (isHidden) {
+        if (cell.style.display !== "none") cell.style.display = "none";
+        if (!cell.classList.contains("is-hidden")) cell.classList.add("is-hidden");
+        if (node && node.style.display !== "none") node.style.display = "none";
         return;
       }
-      const validCells = validCellsByRow.get(idx);
-      row.querySelectorAll(":scope > .proton-overview-cell").forEach(cell => {
-        if (!validCells.has(cell.dataset.cellId)) {
-          const maincontent = document.getElementById(MAINCONTENT_ID);
-          while (cell.firstChild) {
-            const child = cell.firstChild;
-            cell.removeChild(child);
-            if (maincontent) maincontent.appendChild(child);
-          }
-          cell.remove();
-        }
-      });
+
+      if (cell.style.display === "none") cell.style.display = "";
+      if (cell.classList.contains("is-hidden")) cell.classList.remove("is-hidden");
+      if (node && node.style.display === "none") node.style.display = "";
+
+      if (node) {
+        const ph = cell.querySelector(".proton-overview-placeholder");
+        if (ph) ph.remove();
+        placeInCell(cell, node);   // уже no-op, если node.parentNode === cell
+      } else if (!cell.querySelector(".proton-overview-placeholder")) {
+        const ph = document.createElement("div");
+        ph.className = "proton-overview-placeholder";
+        ph.textContent = t("Loading...");
+        cell.appendChild(ph);
+      }
     });
-  }
+
+    // Сортировка: переставляем ячейку в конец только если она ещё не
+    // последний ребёнок root. appendChild для последнего ребёнка — no-op
+    // в спеке, но Chromium всё равно снимает/вставляет слой, поэтому
+    // проверяем явно.
+    for (let i = 0; i < currentLayout.cards.length; i++) {
+      const cellSpec = currentLayout.cards[i];
+      const cell = root.querySelector(`:scope > .proton-overview-cell[data-cell-id="${cellSpec.id}"]`);
+      if (!cell) continue;
+      const expectedPrev = root.children[i];
+      if (expectedPrev !== cell) {
+        root.insertBefore(cell, expectedPrev || null);
+      }
+    }
+
+    // --- Скрытие старых контейнеров ---
+    const view = document.getElementById(VIEW_ID);
+    if (view && view.style.display !== "none") view.style.display = "none";
+
+    const widgetsSection = document.querySelector(".proton-widgets-section");
+    if (widgetsSection && widgetsSection.style.display !== "none") {
+      widgetsSection.style.display = "none";
+    }
+
+    if (editMode) {
+      removeEditControls();
+      currentLayout.cards.forEach(cellSpec => {
+        if (currentLayout.hidden.includes(cellSpec.id)) return;
+        const cell = root.querySelector(`[data-cell-id="${cellSpec.id}"]`);
+        if (cell) createEditControlsForCell(cell, cellSpec.id);
+      });
+    }
+
+    return true;
+}
 
   // ---------------------------------------------------------------------------
-  // Edit-controls
+  // Edit Controls
   // ---------------------------------------------------------------------------
 
   function createEditControlsForCell(cell, cardId) {
@@ -398,10 +446,17 @@
     if (!isMobile) {
       const resize = document.createElement("div");
       resize.className = "proton-overview-resize-handle";
-      resize.title = t("Drag to resize");
+      resize.title = t("Drag to resize width");
       resize.dataset.role = "resize-handle";
       resize.dataset.cardId = cardId;
       cell.appendChild(resize);
+
+      const resizeBottom = document.createElement("div");
+      resizeBottom.className = "proton-overview-resize-handle-bottom";
+      resizeBottom.title = t("Drag to resize height");
+      resizeBottom.dataset.role = "resize-handle-bottom";
+      resizeBottom.dataset.cardId = cardId;
+      cell.appendChild(resizeBottom);
     }
 
     const hide = document.createElement("button");
@@ -443,64 +498,52 @@
     if (!isMobile) {
       bindDragAndDrop(cell, cardId);
       bindResize(cell, cardId);
+      bindResizeBottom(cell, cardId);
     }
   }
 
   function removeEditControls() {
     if (!gridRoot) return;
-    gridRoot.querySelectorAll('[data-role="drag-handle"], [data-role="resize-handle"], [data-role="hide-btn"], [data-role="mobile-controls"]').forEach(el => el.remove());
-    gridRoot.querySelectorAll(".is-dragging, .drop-target-before, .drop-target-after").forEach(el => el.classList.remove("is-dragging", "drop-target-before", "drop-target-after"));
+    gridRoot.querySelectorAll('[data-role="drag-handle"], [data-role="resize-handle"], [data-role="resize-handle-bottom"], [data-role="hide-btn"], [data-role="mobile-controls"]').forEach(el => el.remove());
+    gridRoot.querySelectorAll(".is-dragging, .drop-target").forEach(el => el.classList.remove("is-dragging", "drop-target"));
   }
+
+  // ---------------------------------------------------------------------------
+  // Логика изменения
+  // ---------------------------------------------------------------------------
 
   function hideCard(cardId) {
     if (!currentLayout) return;
-    if (currentLayout.hidden.indexOf(cardId) === -1) currentLayout.hidden.push(cardId);
+    if (!currentLayout.hidden.includes(cardId)) currentLayout.hidden.push(cardId);
     buildLayout();
     saveLayout();
+    if (editMode) updateResetBarVisibility();
   }
 
   function moveCard(cardId, direction) {
     if (!currentLayout) return;
-    let found = null;
-    for (let r = 0; r < currentLayout.rows.length; r++) {
-      const row = currentLayout.rows[r];
-      for (let c = 0; c < row.length; c++) {
-        if (row[c].id === cardId) { found = { r, c }; break; }
-      }
-      if (found) break;
+    const index = currentLayout.cards.findIndex(c => c.id === cardId);
+    if (index === -1) return;
+
+    const newIndex = index + direction;
+    if (newIndex >= 0 && newIndex < currentLayout.cards.length) {
+      const temp = currentLayout.cards[index];
+      currentLayout.cards[index] = currentLayout.cards[newIndex];
+      currentLayout.cards[newIndex] = temp;
+      buildLayout();
+      saveLayout();
     }
-    if (!found) return;
-
-    const row = currentLayout.rows[found.r];
-    const newC = found.c + direction;
-
-    if (newC >= 0 && newC < row.length) {
-      const tmp = row[found.c];
-      row[found.c] = row[newC];
-      row[newC] = tmp;
-    } else if (direction < 0 && found.r > 0) {
-      row.splice(found.c, 1);
-      const prevRow = currentLayout.rows[found.r - 1];
-      prevRow.splice(0, 0, { id: cardId, w: row[found.c] ? row[found.c].w : 1 });
-      if (row.length === 0) currentLayout.rows.splice(found.r, 1);
-    } else if (direction > 0 && found.r < currentLayout.rows.length - 1) {
-      row.splice(found.c, 1);
-      const nextRow = currentLayout.rows[found.r + 1];
-      nextRow.push({ id: cardId, w: 1 });
-      if (row.length === 0) currentLayout.rows.splice(found.r, 1);
-    }
-
-    buildLayout();
-    saveLayout();
   }
 
   let dragSourceId = null;
 
   function bindDragAndDrop(cell, cardId) {
-    cell.setAttribute("draggable", "true");
-    cell.dataset.dragId = cardId;
+    const dragHandle = cell.querySelector('[data-role="drag-handle"]');
+    if (!dragHandle) return;
 
-    cell.addEventListener("dragstart", ev => {
+    dragHandle.setAttribute("draggable", "true");
+
+    dragHandle.addEventListener("dragstart", ev => {
       dragSourceId = cardId;
       cell.classList.add("is-dragging");
       try {
@@ -509,68 +552,48 @@
       } catch (e) {}
     });
 
-    cell.addEventListener("dragend", () => {
+    dragHandle.addEventListener("dragend", () => {
       cell.classList.remove("is-dragging");
       dragSourceId = null;
-      gridRoot.querySelectorAll(".drop-target-before, .drop-target-after").forEach(el => {
-        el.classList.remove("drop-target-before", "drop-target-after");
-      });
+      gridRoot.querySelectorAll(".drop-target").forEach(el => el.classList.remove("drop-target"));
     });
 
     cell.addEventListener("dragover", ev => {
       if (!dragSourceId || dragSourceId === cardId) return;
       ev.preventDefault();
       try { ev.dataTransfer.dropEffect = "move"; } catch (e) {}
-
-      const rect = cell.getBoundingClientRect();
-      const isBefore = ev.clientX < rect.left + rect.width / 2;
-      cell.classList.toggle("drop-target-before", isBefore);
-      cell.classList.toggle("drop-target-after", !isBefore);
+      cell.classList.add("drop-target");
     });
 
     cell.addEventListener("dragleave", ev => {
       if (ev.relatedTarget && cell.contains(ev.relatedTarget)) return;
-      cell.classList.remove("drop-target-before", "drop-target-after");
+      cell.classList.remove("drop-target");
     });
 
     cell.addEventListener("drop", ev => {
       if (!dragSourceId || dragSourceId === cardId) return;
       ev.preventDefault();
-      const rect = cell.getBoundingClientRect();
-      const isBefore = ev.clientX < rect.left + rect.width / 2;
-      cell.classList.remove("drop-target-before", "drop-target-after");
-      dropCard(dragSourceId, cardId, isBefore);
+      cell.classList.remove("drop-target");
+      dropCard(dragSourceId, cardId);
       dragSourceId = null;
     });
   }
 
-  function findCardPosition(cardId) {
-    if (!currentLayout) return null;
-    for (let r = 0; r < currentLayout.rows.length; r++) {
-      const row = currentLayout.rows[r];
-      for (let c = 0; c < row.length; c++) {
-        if (row[c].id === cardId) return { r, c, card: row[c] };
-      }
-    }
-    return null;
-  }
-
-  function dropCard(sourceId, targetId, isBefore) {
+  function dropCard(sourceId, targetId) {
     if (!currentLayout || sourceId === targetId) return;
-    const src = findCardPosition(sourceId);
-    const tgt = findCardPosition(targetId);
-    if (!src || !tgt) return;
+    
+    const srcIndex = currentLayout.cards.findIndex(c => c.id === sourceId);
+    const tgtIndex = currentLayout.cards.findIndex(c => c.id === targetId);
+    if (srcIndex === -1 || tgtIndex === -1) return;
 
-    const card = currentLayout.rows[src.r].splice(src.c, 1)[0];
-    if (!card) return;
-
-    if (currentLayout.rows[src.r].length === 0) currentLayout.rows.splice(src.r, 1);
-
-    const tgt2 = findCardPosition(targetId);
-    if (!tgt2) return;
-
-    const insertIdx = isBefore ? tgt2.c : tgt2.c + 1;
-    currentLayout.rows[tgt2.r].splice(insertIdx, 0, card);
+    const card = currentLayout.cards.splice(srcIndex, 1)[0];
+    const newTgtIndex = currentLayout.cards.findIndex(c => c.id === targetId);
+    
+    if (srcIndex < tgtIndex) {
+      currentLayout.cards.splice(newTgtIndex + 1, 0, card);
+    } else {
+      currentLayout.cards.splice(newTgtIndex, 0, card);
+    }
 
     buildLayout();
     saveLayout();
@@ -584,80 +607,92 @@
       ev.preventDefault();
       ev.stopPropagation();
 
-      const pos = findCardPosition(cardId);
-      if (!pos) return;
+      const spec = currentLayout.cards.find(c => c.id === cardId);
+      if (!spec) return;
 
-      const row = currentLayout.rows[pos.r];
-      const totalW = row.reduce((s, c) => s + c.w, 0);
-
-      let neighbor = null;
-      if (pos.c + 1 < row.length) neighbor = { idx: pos.c + 1, card: row[pos.c + 1] };
-      else if (pos.c > 0) neighbor = { idx: pos.c - 1, card: row[pos.c - 1] };
-
-      if (!neighbor) return;
-
-      resizeState = {
-        cardId,
-        rowIndex: pos.r,
-        cellIndex: pos.c,
-        neighborIdx: neighbor.idx,
-        startX: ev.clientX,
-        startW: row[pos.c].w,
-        neighborW: neighbor.card.w,
-        totalW,
-        rowEl: cell.parentElement,
-        rowPixelWidth: cell.parentElement.getBoundingClientRect().width,
-      };
+      const startX = ev.clientX;
+      const startW = spec.w;
+      
+      const gridWidth = gridRoot.getBoundingClientRect().width;
+      const colWidth = (gridWidth - 11 * 18) / 12;
 
       document.body.style.cursor = "ew-resize";
       document.body.style.userSelect = "none";
 
-      document.addEventListener("mousemove", onResizeMove);
-      document.addEventListener("mouseup", onResizeUp);
+      const onMouseMove = (moveEv) => {
+        const dx = moveEv.clientX - startX;
+        const dw = Math.round(dx / colWidth);
+        let newW = startW + dw;
+        if (newW < 1) newW = 1;
+        if (newW > 12) newW = 12;
+        
+        if (newW !== spec.w) {
+          spec.w = newW;
+          cell.style.gridColumn = `span ${newW}`;
+        }
+      };
+
+      const onMouseUp = () => {
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        saveLayout();
+      };
+
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
     });
   }
 
-  function onResizeMove(ev) {
-    if (!resizeState || !currentLayout) return;
-    const row = currentLayout.rows[resizeState.rowIndex];
-    if (!row) return;
-    const cell = row[resizeState.cellIndex];
-    const neighbor = row[resizeState.neighborIdx];
-    if (!cell || !neighbor) return;
+  function bindResizeBottom(cell, cardId) {
+    const handle = cell.querySelector('[data-role="resize-handle-bottom"]');
+    if (!handle) return;
 
-    const pxPerW = resizeState.rowPixelWidth / resizeState.totalW;
-    const dx = ev.clientX - resizeState.startX;
-    const dw = Math.round(dx / pxPerW);
+    handle.addEventListener("mousedown", ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
 
-    let newW = resizeState.startW + dw;
-    let newNeighborW = resizeState.neighborW - dw;
+      const spec = currentLayout.cards.find(c => c.id === cardId);
+      if (!spec) return;
 
-    if (newW < W_MIN) { newNeighborW -= (W_MIN - newW); newW = W_MIN; }
-    if (newW > W_MAX) { newNeighborW += (newW - W_MAX); newW = W_MAX; }
-    if (newNeighborW < W_MIN) { newW -= (W_MIN - newNeighborW); newNeighborW = W_MIN; }
-    if (newNeighborW > W_MAX) { newW += (newNeighborW - W_MAX); newNeighborW = W_MAX; }
+      const startY = ev.clientY;
+      const startH = spec.h;
+      
+      const rowHeight = 140 + 18; 
 
-    if (newW < W_MIN) newW = W_MIN;
-    if (newNeighborW < W_MIN) newNeighborW = W_MIN;
+      document.body.style.cursor = "ns-resize";
+      document.body.style.userSelect = "none";
 
-    cell.w = newW;
-    neighbor.w = newNeighborW;
+      const onMouseMove = (moveEv) => {
+        const dy = moveEv.clientY - startY;
+        const dh = Math.round(dy / rowHeight);
+        let newH = startH + dh;
+        if (newH < 1) newH = 1;
+        if (newH > 6) newH = 6;
+        
+        if (newH !== spec.h) {
+          spec.h = newH;
+          cell.style.gridRow = `span ${newH}`;
+        }
+      };
 
-    applyRowGrid(resizeState.rowEl, row);
+      const onMouseUp = () => {
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        saveLayout();
+      };
+
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+    });
   }
 
-  function onResizeUp() {
-    document.removeEventListener("mousemove", onResizeMove);
-    document.removeEventListener("mouseup", onResizeUp);
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-    resizeState = null;
-    saveLayout();
-  }
-
-  function applyRowGrid(rowEl, row) {
-    rowEl.style.gridTemplateColumns = row.map(c => c.w + "fr").join(" ");
-  }
+  // ---------------------------------------------------------------------------
+  // Reset Bar & Unhide
+  // ---------------------------------------------------------------------------
 
   function showResetBar() {
     if (resetBar) return;
@@ -677,7 +712,15 @@
       currentLayout = cloneLayout(DEFAULT_LAYOUT);
       buildLayout();
       saveLayout();
+      updateResetBarVisibility();
     });
+
+    const unhideBtn = document.createElement("button");
+    unhideBtn.type = "button";
+    unhideBtn.className = "cbi-button cbi-button-neutral";
+    unhideBtn.id = "proton-unhide-btn";
+    unhideBtn.style.display = currentLayout.hidden.length > 0 ? "inline-flex" : "none";
+    unhideBtn.addEventListener("click", showUnhideModal);
 
     const doneBtn = document.createElement("button");
     doneBtn.type = "button";
@@ -687,8 +730,108 @@
 
     resetBar.appendChild(label);
     resetBar.appendChild(resetBtn);
+    resetBar.appendChild(unhideBtn);
     resetBar.appendChild(doneBtn);
     document.body.appendChild(resetBar);
+    updateResetBarVisibility();
+  }
+
+  function updateResetBarVisibility() {
+    const unhideBtn = document.getElementById("proton-unhide-btn");
+    if (unhideBtn) {
+      unhideBtn.style.display = currentLayout.hidden.length > 0 ? "inline-flex" : "none";
+      unhideBtn.textContent = t("Hidden cards") + " (" + currentLayout.hidden.length + ")";
+    }
+  }
+
+  function showUnhideModal() {
+    if (!currentLayout || currentLayout.hidden.length === 0) return;
+
+    const overlay = document.createElement("div");
+    overlay.className = "proton-confirm-modal-overlay";
+
+    const modal = document.createElement("div");
+    modal.className = "proton-confirm-modal";
+    modal.style.maxWidth = "400px";
+
+    const heading = document.createElement("h3");
+    heading.textContent = t("Hidden cards");
+
+    const list = document.createElement("div");
+    list.style.cssText = "display:flex; flex-direction:column; gap:8px; margin:16px 0; max-height:300px; overflow-y:auto;";
+    
+    currentLayout.hidden.forEach(id => {
+      const label = document.createElement("label");
+      label.style.cssText = "display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px; border:1px solid var(--proton-border); border-radius:6px;";
+      
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = id;
+      cb.dataset.id = id;
+
+      const name = getCardTitle(id);
+
+      const span = document.createElement("span");
+      span.textContent = name;
+      span.style.flex = "1";
+
+      label.appendChild(cb);
+      label.appendChild(span);
+      list.appendChild(label);
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "proton-confirm-modal-actions";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "cbi-button cbi-button-neutral";
+    cancelBtn.textContent = t("Cancel");
+    cancelBtn.addEventListener("click", () => {
+      overlay.remove();
+    });
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "cbi-button cbi-button-positive";
+    saveBtn.textContent = t("Restore selected");
+    saveBtn.addEventListener("click", () => {
+      const selected = Array.from(list.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.dataset.id);
+      if (selected.length === 0) {
+        overlay.remove();
+        return;
+      }
+      
+      selected.forEach(id => {
+        currentLayout.hidden = currentLayout.hidden.filter(h => h !== id);
+        if (!currentLayout.cards.find(c => c.id === id)) {
+          currentLayout.cards.push({ id: id, w: 6, h: 2 });
+        }
+      });
+      
+      buildLayout();
+      saveLayout();
+      updateResetBarVisibility();
+      overlay.remove();
+    });
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(saveBtn);
+    modal.appendChild(heading);
+    modal.appendChild(list);
+    modal.appendChild(actions);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  }
+
+  function getCardTitle(id) {
+    const map = {
+      internet: "Интернет", hosts: "Устройства", ports: "Состояние портов",
+      system: "Система", apps: "Приложения", temperature: "Температура",
+      ram: "Память", storage: "Хранилище", network: "Сеть", dhcp: "DHCP",
+      wireless: "Беспроводная сеть"
+    };
+    return map[id] || id;
   }
 
   function hideResetBar() {
@@ -696,18 +839,20 @@
     resetBar = null;
   }
 
+  // ---------------------------------------------------------------------------
+  // Edit Mode Lifecycle
+  // ---------------------------------------------------------------------------
+
   function enterEditMode() {
     if (editMode || !gridRoot) return;
     editMode = true;
     gridRoot.classList.add("is-editing");
     if (editBtn) editBtn.setAttribute("aria-pressed", "true");
 
-    currentLayout.rows.forEach(row => {
-      for (const cellSpec of row) {
-        if (currentLayout.hidden.indexOf(cellSpec.id) !== -1) continue;
-        const cell = gridRoot.querySelector('[data-cell-id="' + cellSpec.id + '"]');
-        if (cell) createEditControlsForCell(cell, cellSpec.id);
-      }
+    currentLayout.cards.forEach(cellSpec => {
+      if (currentLayout.hidden.includes(cellSpec.id)) return;
+      const cell = gridRoot.querySelector(`[data-cell-id="${cellSpec.id}"]`);
+      if (cell) createEditControlsForCell(cell, cellSpec.id);
     });
 
     showResetBar();
@@ -737,112 +882,20 @@
   }
 
   // ---------------------------------------------------------------------------
-  // buildLayout
+  // Observer / Lifecycle
   // ---------------------------------------------------------------------------
-
-  function buildLayout() {
-    const root = ensureGridRoot();
-    if (!root) return false;
-    if (!currentLayout) currentLayout = loadLayout();
-
-    const widgets = findOurWidgets();
-    const luci = findLucysections();
-    isMobile = window.matchMedia("(max-width: 800px)").matches;
-
-    for (let r = 0; r < currentLayout.rows.length; r++) {
-      const row = currentLayout.rows[r];
-      const rowEl = ensureRow(r);
-
-      // Строка — CSS Grid, fr по весам.
-      // Это самый предсказуемый способ задать пропорции.
-      rowEl.style.display = "grid";
-      rowEl.style.gridTemplateColumns = row.map(c => c.w + "fr").join(" ");
-      rowEl.style.gap = "18px";
-      rowEl.style.alignItems = "stretch";
-
-      // Удаляем ячейки, которых больше нет в этой строке
-      const validIds = new Set(row.map(c => c.id));
-      rowEl.querySelectorAll(":scope > .proton-overview-cell").forEach(cell => {
-        if (!validIds.has(cell.dataset.cellId)) {
-          const maincontent = document.getElementById(MAINCONTENT_ID);
-          while (cell.firstChild) {
-            const child = cell.firstChild;
-            cell.removeChild(child);
-            if (maincontent) maincontent.appendChild(child);
-          }
-          cell.remove();
-        }
-      });
-
-      let hasVisible = false;
-
-      for (const cellSpec of row) {
-        const cell = ensureCell(rowEl, cellSpec.id);
-
-        if (currentLayout.hidden.indexOf(cellSpec.id) !== -1) {
-          cell.style.display = "none";
-          cell.classList.add("is-hidden");
-          continue;
-        }
-        cell.style.display = "";
-        cell.classList.remove("is-hidden");
-
-        const node = resolveNode(cellSpec.id, widgets, luci);
-        if (node) {
-          const ph = cell.querySelector(".proton-overview-placeholder");
-          if (ph) ph.remove();
-          placeInCell(cell, node);
-          hasVisible = true;
-        } else {
-          if (!cell.querySelector(".proton-overview-placeholder")) {
-            const ph = document.createElement("div");
-            ph.className = "proton-overview-placeholder";
-            ph.textContent = t("Loading...");
-            cell.appendChild(ph);
-          }
-        }
-      }
-
-      if (!hasVisible) {
-        rowEl.classList.add("is-hidden");
-        rowEl.style.display = "none";
-      } else {
-        rowEl.classList.remove("is-hidden");
-        rowEl.style.display = "";
-      }
-    }
-
-    pruneStaleRowsAndCells();
-
-    const dashSection = document.getElementById("proton-dashboard-section");
-    if (dashSection && !dashSection.querySelector("#proton-dashboard-internet")) {
-      dashSection.style.display = "none";
-    }
-    const widgetsSection = document.querySelector(".proton-widgets-section");
-    if (widgetsSection && !widgetsSection.querySelector("#proton-temp-widget")) {
-      widgetsSection.style.display = "none";
-    }
-
-    if (editMode) {
-      removeEditControls();
-      currentLayout.rows.forEach(row => {
-        for (const cellSpec of row) {
-          if (currentLayout.hidden.indexOf(cellSpec.id) !== -1) continue;
-          const cell = gridRoot.querySelector('[data-cell-id="' + cellSpec.id + '"]');
-          if (cell) createEditControlsForCell(cell, cellSpec.id);
-        }
-      });
-    }
-
-    return true;
-  }
 
   function scheduleRelayout() {
     if (relayoutScheduled) return;
     relayoutScheduled = true;
     requestAnimationFrame(() => {
-      relayoutScheduled = false;
-      try { buildLayout(); } catch (e) { console.warn("[Proton2025] Layout error:", e); }
+        relayoutScheduled = false;
+        try {
+            if (dragSourceId || resizeState) return;
+            buildLayout();
+        } catch (e) {
+            console.warn("[Proton2025] Layout error:", e);
+        }
     });
   }
 
@@ -859,46 +912,56 @@
     if (!maincontent) return;
 
     layoutObserver = new MutationObserver(mutations => {
-      for (const m of mutations) {
-        if (m.type === "childList" && (m.addedNodes.length || m.removedNodes.length)) { scheduleRelayout(); return; }
-        if (m.type === "attributes" && m.attributeName === "data-page") { scheduleRelayout(); return; }
-      }
+        for (const m of mutations) {
+            // Мутации внутри уже размещённых ячеек — это работа карточек
+            // (графики, числа, чипы). Их пересборка сетки не касается.
+            if (m.target && m.target.closest &&
+                m.target.closest(".proton-overview-cell")) {
+                continue;
+            }
+
+            // Добавление/удаление узлов на уровне #maincontent или #view —
+            // это либо наши виджеты, либо LuCI-секции. Пересобираем.
+            if (m.type === "childList" &&
+                (m.addedNodes.length || m.removedNodes.length)) {
+                scheduleRelayout();
+                return;
+            }
+
+            if (m.type === "attributes" && m.attributeName === "data-page") {
+                scheduleRelayout();
+                return;
+            }
+        }
     });
 
-    layoutObserver.observe(maincontent, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-page"] });
-
-    let intervalTicks = 0;
-    const interval = setInterval(() => {
-      intervalTicks++;
-      if (!document.body.contains(maincontent)) { clearInterval(interval); return; }
-      scheduleRelayout();
-      if (intervalTicks > 30) { clearInterval(interval); setInterval(scheduleRelayout, 5000); }
-    }, 1000);
+    layoutObserver.observe(maincontent, {
+        childList: true,
+        attributes: true,
+        attributeFilter: ["data-page"],
+        subtree: true,
+    });
 
     let resizeTimer = null;
     const onResize = () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        const wasMobile = isMobile;
-        isMobile = window.matchMedia("(max-width: 800px)").matches;
-        if (wasMobile !== isMobile && editMode) {
-          removeEditControls();
-          currentLayout.rows.forEach(row => {
-            for (const cellSpec of row) {
-              if (currentLayout.hidden.indexOf(cellSpec.id) !== -1) continue;
-              const cell = gridRoot.querySelector('[data-cell-id="' + cellSpec.id + '"]');
-              if (cell) createEditControlsForCell(cell, cellSpec.id);
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            isMobile = window.matchMedia("(max-width: 800px)").matches;
+            if (editMode) {
+                removeEditControls();
+                currentLayout.cards.forEach(cellSpec => {
+                    if (currentLayout.hidden.includes(cellSpec.id)) return;
+                    const cell = gridRoot.querySelector(`[data-cell-id="${cellSpec.id}"]`);
+                    if (cell) createEditControlsForCell(cell, cellSpec.id);
+                });
             }
-          });
-        }
-        scheduleRelayout();
-      }, 150);
+            scheduleRelayout();
+        }, 150);
     };
     window.addEventListener("resize", onResize);
 
     window.addEventListener("pagehide", () => {
-      clearInterval(interval);
-      window.removeEventListener("resize", onResize);
+        window.removeEventListener("resize", onResize);
     }, { once: true });
   }
 

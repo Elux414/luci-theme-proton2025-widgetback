@@ -112,7 +112,7 @@
 
         section.innerHTML = `
           <div class="proton-dashboard-section-header">
-            <h2 class="proton-dashboard-section-title">${this.t("Dashboard")}</h2>
+            <h2 class="proton-dashboard-section-title">${this.t("Control Panel")}</h2>
           </div>
 
           <article class="proton-dashboard-internet" id="proton-dashboard-internet">

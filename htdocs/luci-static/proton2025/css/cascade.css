@@ -14551,58 +14551,58 @@ body.login-page .login-password-toggle:focus-visible {
 }
 
 /* =====================================================
-   Proton2025 Overview Layout v8.3 (финальный)
+   Proton2025 Overview Layout v9.0 (Masonry Grid)
    ===================================================== */
 
 .proton-overview-grid {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    grid-auto-flow: dense; /* Заполняет пустоты автоматически */
+    align-content: start;
     gap: 18px;
     margin: 24px 0;
     width: 100%;
 }
 
-.proton-overview-row {
-    display: grid;
-    gap: 18px;
-    align-items: stretch;
-    width: 100%;
-}
-
-.proton-overview-row.is-hidden {
-    display: none;
-}
-
 .proton-overview-cell {
-    display: flex;
-    flex-direction: column;
     position: relative;
     min-width: 0;
-    height: 100%;
+    min-height: 0;
     box-sizing: border-box;
-}
-
-.proton-overview-cell.is-hidden {
-    display: none;
+    display: flex;
+    flex-direction: column;
 }
 
 .proton-overview-cell > * {
-    flex: 1 1 auto !important;
-    width: 100% !important;
-    height: 100% !important;
-    min-width: 0 !important;
-    min-height: 0 !important;
-    box-sizing: border-box !important;
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    box-sizing: border-box;
     margin: 0 !important;
+    display: flex;
+    flex-direction: column;
 }
 
 .proton-overview-cell > .cbi-section,
 .proton-overview-cell > .proton-dashboard-card,
 .proton-overview-cell > .proton-dashboard-internet,
 .proton-overview-cell > .proton-temp-widget {
-    margin: 0 !important;
     height: 100% !important;
     max-height: none !important;
+    overflow: hidden;
+}
+
+.proton-overview-cell > * > .proton-dashboard-card-body,
+.proton-overview-cell > * > .proton-hosts-list {
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+
+/* Скрытые карточки */
+.proton-overview-cell.is-hidden {
+    display: none !important;
 }
 
 .proton-overview-placeholder {
@@ -14620,8 +14620,15 @@ body.login-page .login-password-toggle:focus-visible {
 }
 
 /* Кнопка-карандаш в шапке */
-.proton-overview-edit-btn {
+#proton-overview-edit-btn {
+    display: none;
+}
+
+body[data-page="admin-status-overview"] #proton-overview-edit-btn {
     display: inline-flex;
+}
+
+.proton-overview-edit-btn {
     align-items: center;
     justify-content: center;
     width: 34px;
@@ -14679,7 +14686,7 @@ body.login-page .login-password-toggle:focus-visible {
     border-radius: 3px;
     background: rgba(var(--proton-accent-rgb), 0.8) !important;
     cursor: grab;
-    z-index: 100 !important;
+    z-index: 9999 !important;
     display: none;
 }
 
@@ -14690,38 +14697,64 @@ body.login-page .login-password-toggle:focus-visible {
     bottom: 0 !important;
     width: 12px !important;
     cursor: ew-resize;
-    z-index: 100 !important;
+    z-index: 9999 !important;
     display: none;
 }
 
-.proton-overview-resize-handle::after {
+.proton-overview-resize-handle-bottom {
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: -6px !important;
+    height: 12px !important;
+    cursor: ns-resize;
+    z-index: 9999 !important;
+    display: none;
+    justify-content: center;
+    align-items: flex-end;
+}
+
+/* Визуальные индикаторы (полоски) */
+.proton-overview-resize-handle::after,
+.proton-overview-resize-handle-bottom::after {
     content: "";
     position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 4px;
-    height: 40px;
-    border-radius: 2px;
     background: rgba(var(--proton-accent-rgb), 0.6);
+    border-radius: 2px;
+    pointer-events: none;
+    display: none; /* Скрываем по умолчанию */
+}
+
+/* Показываем индикатор только при наведении на ручку */
+.proton-overview-resize-handle:hover::after,
+.proton-overview-resize-handle-bottom:hover::after {
+    display: block;
+}
+
+.proton-overview-resize-handle::after {
+    top: 50%; left: 50%; transform: translate(-50%, -50%); width: 4px; height: 40px;
+}
+
+.proton-overview-resize-handle-bottom::after {
+    left: 50%; bottom: 2px; transform: translateX(-50%); width: 40px; height: 4px;
 }
 
 .proton-overview-hide-btn {
     position: absolute !important;
-    top: 8px !important;
-    right: 8px !important;
+    top: 10px !important;
+    right: 10px !important;
     width: 28px !important;
     height: 28px !important;
     padding: 0;
     border: 1px solid rgba(var(--proton-accent-rgb), 0.4) !important;
     border-radius: 50%;
-    background: var(--proton-bg-solid, #161c26) !important; /* Принудительно непрозрачный */
+    background: var(--proton-bg-solid, #161c26) !important;
     color: var(--proton-accent);
     cursor: pointer;
     display: none;
     align-items: center;
     justify-content: center;
-    z-index: 9999 !important; /* Поверх всего контента карточки */
+    z-index: 9999 !important;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4) !important;
     transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
@@ -14737,67 +14770,49 @@ body.login-page .login-password-toggle:focus-visible {
     display: none;
 }
 
-/* Показываем контролы только в edit-режиме */
-.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-drag-handle {
-    display: block !important;
-}
-
-.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle {
-    display: block !important;
+/* Показываем контролы в edit-режиме */
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-drag-handle,
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle,
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle-bottom {
+    display: flex !important;
 }
 
 .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-hide-btn {
     display: flex !important;
 }
 
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-mobile-controls {
+    display: flex !important;
+}
+
 /* Блокировка кликов по содержимому карточки в режиме редактирования */
-.proton-overview-grid.is-editing .proton-overview-cell > *:not(.proton-overview-hide-btn):not(.proton-overview-drag-handle):not(.proton-overview-resize-handle):not(.proton-overview-mobile-controls) {
+.proton-overview-grid.is-editing .proton-overview-cell > *:not(.proton-overview-hide-btn):not(.proton-overview-drag-handle):not(.proton-overview-resize-handle):not(.proton-overview-resize-handle-bottom):not(.proton-overview-mobile-controls) {
     pointer-events: none !important;
     opacity: 0.5 !important;
-    filter: grayscale(0.5) !important; /* Визуально приглушаем контент */
+    filter: grayscale(0.5) !important;
     user-select: none !important;
 }
 
+/* Убеждаемся, что контролы активны */
 .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-hide-btn,
 .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-drag-handle,
 .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle,
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle-bottom,
 .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-mobile-controls {
     pointer-events: auto !important;
     opacity: 1 !important;
     filter: none !important;
 }
 
-.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-mobile-controls {
-    display: flex !important;
-}
-
+/* Drag & Drop состояния */
 .proton-overview-cell.is-dragging {
     opacity: 0.4;
 }
 
-.proton-overview-cell.drop-target-before::before,
-.proton-overview-cell.drop-target-after::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: var(--proton-accent);
-    border-radius: 2px;
-    z-index: 20;
-    pointer-events: none;
-}
-
-.proton-overview-cell.drop-target-before::before { left: -10px; }
-.proton-overview-cell.drop-target-after::after  { right: -10px; }
-
-/* ===== УБИВАЕМ ТУЛТИПЫ ВНУТРИ СЕТКИ (баг с красным овалом) ===== */
-
-.proton-overview-cell .cbi-tooltip {
-    display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
+.proton-overview-cell.drop-target {
+    border: 2px dashed var(--proton-accent) !important;
+    border-radius: var(--proton-radius) !important;
+    background: rgba(var(--proton-accent-rgb), 0.1) !important;
 }
 
 /* Панель «Сбросить» */
@@ -14823,13 +14838,6 @@ body.login-page .login-password-toggle:focus-visible {
     min-height: 32px;
 }
 
-/* Мобилка: строки в колонку */
-@media (max-width: 1000px) {
-    .proton-overview-row {
-        grid-template-columns: 1fr !important;
-    }
-}
-
 /* Мобилка: ↑/↓ */
 @media (max-width: 800px) {
     .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-mobile-controls {
@@ -14839,7 +14847,7 @@ body.login-page .login-password-toggle:focus-visible {
         position: absolute;
         bottom: 6px;
         right: 6px;
-        z-index: 100 !important;
+        z-index: 9999 !important;
     }
     .proton-overview-mobile-controls button {
         width: 34px;
@@ -14853,7 +14861,8 @@ body.login-page .login-password-toggle:focus-visible {
         padding: 0;
     }
     .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-drag-handle,
-    .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle {
+    .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle,
+    .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle-bottom {
         display: none !important;
     }
 }
@@ -14899,13 +14908,6 @@ body.login-page .login-password-toggle:focus-visible {
     border-color: rgba(75, 85, 99, 0.25);
 }
 
-@media (max-width: 1000px) {
-    .proton-overview-row.r-40-60,
-    .proton-overview-row.r-50-50 {
-        grid-template-columns: minmax(0, 1fr);
-    }
-}
-
 /* =====================================================
    Proton2025 — скрытие нативных кнопок «Скрыть» на Overview
    =====================================================
@@ -14920,6 +14922,91 @@ body[data-page="admin-status-overview"] .cbi-section .cbi-title h3 > span.label[
    а не распределяться по всей ширине (space-between). */
 body[data-page="admin-status-overview"] .cbi-section .cbi-title h3 {
     justify-content: flex-start !important;
+}
+
+/* Скрываем пустые контейнеры, чтобы не занимали место */
+#view,
+.proton-widgets-section {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* ===== Масштабирование контента ===== */
+/* Узкие карточки (1-4 колонки) — сильно уменьшаем */
+.proton-overview-cell.is-narrow .proton-dashboard-rate strong {
+    font-size: 0.85rem !important;
+}
+.proton-overview-cell.is-narrow .proton-dashboard-internet-title,
+.proton-overview-cell.is-narrow .proton-dashboard-card-title,
+.proton-overview-cell.is-narrow .proton-temp-title {
+    font-size: 0.9rem !important;
+}
+.proton-overview-cell.is-narrow .proton-dashboard-metric-value {
+    font-size: 1rem !important;
+}
+.proton-overview-cell.is-narrow .proton-dashboard-metric-label {
+    font-size: 0.65rem !important;
+}
+
+/* Средние карточки (5-7 колонок) — уменьшаем умеренно */
+.proton-overview-cell.is-medium .proton-dashboard-rate strong {
+    font-size: 0.95rem !important;
+}
+.proton-overview-cell.is-medium .proton-dashboard-internet-title,
+.proton-overview-cell.is-medium .proton-dashboard-card-title,
+.proton-overview-cell.is-medium .proton-temp-title {
+    font-size: 1rem !important;
+}
+
+/* Адаптация полей "Загрузка/Отдача" под узкие карточки */
+.proton-overview-cell.is-narrow .proton-dashboard-rates {
+    display: flex;
+    flex-direction: column; /* В узких карточках ставим поля друг под другом */
+    gap: 8px;
+    width: 100%;
+}
+
+.proton-overview-cell.is-narrow .proton-dashboard-rate {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    box-sizing: border-box; /* Чтобы padding не вылезал за границы */
+    background: rgba(var(--proton-accent-rgb), 0.05); /* Легкий фон для читаемости */
+    border-radius: var(--proton-radius-sm);
+    border: 1px solid var(--proton-border);
+}
+
+/* Убираем фиксированную ширину у лейблов и значений, если они есть */
+.proton-overview-cell.is-narrow .proton-dashboard-rate-label,
+.proton-overview-cell.is-narrow .proton-dashboard-rate strong {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: left;
+}
+
+.proton-overview-cell.is-narrow .proton-dashboard-rate strong {
+    text-align: right;
+    white-space: nowrap; /* Числа не переносим */
+}
+
+/* Адаптация заголовка "Интернет" и легенды, если они тоже вылезают */
+.proton-overview-cell.is-narrow .proton-dashboard-internet-title-row,
+.proton-overview-cell.is-narrow .proton-dashboard-footer {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 4px;
+}
+
+/* =====================================================
+   Скрытие всех лишних заголовков на странице Overview
+   ===================================================== */
+body[data-page="admin-status-overview"] #maincontent > h2,
+body[data-page="admin-status-overview"] #view > h2,
+body[data-page="admin-status-overview"] .proton-widgets-section > h2,
+body[data-page="admin-status-overview"] .proton-dashboard-section > h2 {
+    display: none !important;
 }
 
 /* =====================================================
