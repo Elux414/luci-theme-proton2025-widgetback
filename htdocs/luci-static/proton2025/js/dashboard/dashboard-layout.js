@@ -366,6 +366,13 @@
         cell.classList.remove("is-narrow", "is-medium", "is-wide");
         cell.classList.add(nextWidthClass);
       }
+	  
+	  // Высотные классы для адаптивного контента (Task 5.4).
+      const nextHeightClass = cellSpec.h <= 1 ? "is-flat" : "is-tall";
+      if (!cell.classList.contains(nextHeightClass)) {
+        cell.classList.remove("is-flat", "is-tall");
+        cell.classList.add(nextHeightClass);
+      }
 
       const isHidden = currentLayout.hidden.includes(cellSpec.id);
       const node = resolveNode(cellSpec.id, widgets, luci);

@@ -16537,3 +16537,64 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 .proton-telegram-checkbox-row input[type="checkbox"] {
     margin: 0;
 }
+
+/* =====================================================
+   Task 5.4 — Adaptive content (Container Queries)
+   =====================================================
+   Containment только на наших карточках, LuCI-секции
+   (.cbi-section) НЕ трогаем — у них intrinsic sizing.
+   Шрифты не масштабируем, только перестраиваем layout.
+   Старые правила .is-narrow / .is-medium НЕ переопределяем. */
+
+.proton-overview-cell > .proton-dashboard-card,
+.proton-overview-cell > .proton-dashboard-internet,
+.proton-overview-cell > .proton-temp-widget {
+    container-type: inline-size;
+    container-name: proton-card;
+}
+
+/* --- SYSTEM: топ-процессы и метрики --- */
+@container proton-card (max-width: 379px) {
+    .proton-dashboard-system-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .proton-dashboard-processes-tops {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+@container proton-card (min-width: 380px) and (max-width: 559px) {
+    .proton-dashboard-processes-tops {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* --- HOSTS: одна колонка вместо двух --- */
+@container proton-card (max-width: 399px) {
+    .proton-hosts-columns {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* --- APPS: чипы и сводка --- */
+@container proton-card (max-width: 359px) {
+    .proton-apps-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .proton-apps-summary {
+        display: none;
+    }
+}
+@container proton-card (min-width: 360px) and (max-width: 479px) {
+    .proton-apps-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* --- h=1: только ядро карточки --- */
+.proton-overview-cell.is-flat .proton-dashboard-processes,
+.proton-overview-cell.is-flat .proton-dashboard-network,
+.proton-overview-cell.is-flat .proton-apps-summary,
+.proton-overview-cell.is-flat .proton-hosts-chart,
+.proton-overview-cell.is-flat .proton-dashboard-chart-wrap {
+    display: none;
+}
