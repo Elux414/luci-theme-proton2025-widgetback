@@ -373,6 +373,13 @@
         cell.classList.remove("is-flat", "is-tall");
         cell.classList.add(nextHeightClass);
       }
+	  
+	  // Ступени высоты: плавная деградация контента вместо flat/tall.
+	  const nextStepClass = "is-h" + Math.min(Math.max(cellSpec.h, 1), 4);
+	  if (!cell.classList.contains(nextStepClass)) {
+		cell.classList.remove("is-h1", "is-h2", "is-h3", "is-h4");
+		cell.classList.add(nextStepClass);
+	  }
 
       const isHidden = currentLayout.hidden.includes(cellSpec.id);
       const node = resolveNode(cellSpec.id, widgets, luci);
