@@ -1,0 +1,646 @@
+'use strict';
+
+import { open, writefile, popen } from 'fs';
+import { cursor } from 'uci';
+
+const CT_PATHS  = [ '/proc/net/nf_conntrack', '/proc/net/ip_conntrack' ];
+const ACCT_PATH = '/proc/sys/net/netfilter/nf_conntrack_acct';
+const NLBW      = '/usr/sbin/nlbw';
+const NETS_TTL  = 60;
+const UCI_TTL   = 15;
+const ACCUM_TTL = 900;
+
+const S = global.protonHostRates || (global.protonHostRates = {
+	conns: {}, accum: {}, primed: false,
+	nets4: null, nets6: null, own: {}, netsTs: 0,
+	watch4: [], watch6: [], watchSig: '',
+	uciList: [], uciTs: 0,
+	calls: 0, offload: 0, matched: 0, lastError: ''
+});
+if (!S.totals) S.totals = {};
+
+function readAll(path) {
+	let f = open(path, 'r');
+	if (!f) return null;
+	let s = f.read('all');
+	f.close();
+	return s;
+}
+
+function errMsg(e) {
+	if (e == null) return 'null';
+	if (type(e) == 'string') return e;
+	if (type(e) == 'object' && e.message) return e.message;
+	return '' + e;
+}
+
+function stage(name, fn) {
+	try {
+		return { ok: true, v: fn() };
+	}
+	catch (e) {
+		return { ok: false, e: name + ': ' + errMsg(e) };
+	}
+}
+
+/* ---------- адресная математика ---------- */
+
+function ip4num(ip) {
+	let p = split(ip, '.');
+	if (length(p) != 4) return null;
+	let n = 0;
+	let i = 0;
+	while (i < 4) {
+		if (p[i] == '' || length(p[i]) > 3) return null;
+		let k = 0;
+		while (k < length(p[i])) {
+			let c = ord(substr(p[i], k, 1));
+			if (c < 48 || c > 57) return null;
+			k++;
+		}
+		let o = int(p[i]);
+		if (o > 255) return null;
+		n = n * 256 + o;
+		i++;
+	}
+	return n;
+}
+
+function dotted(n) {
+	let a = int(n / 16777216) % 256;
+	let b = int(n / 65536) % 256;
+	let c = int(n / 256) % 256;
+	let d = n % 256;
+	return a + '.' + b + '.' + c + '.' + d;
+}
+
+function mask4(bits) {
+	if (bits <= 0) return 0;
+	if (bits >= 32) return 0xffffffff;
+	return 0xffffffff - ((1 << (32 - bits)) - 1);
+}
+
+function nib(c) {
+	let k = ord(c);
+	if (k >= 48 && k <= 57) return k - 48;
+	if (k >= 97 && k <= 102) return k - 87;
+	if (k >= 65 && k <= 70) return k - 55;
+	return -1;
+}
+
+function ip6hex(ip) {
+	let z = index(ip, '%');
+	if (z >= 0) ip = substr(ip, 0, z);
+	if (ip == '') return null;
+
+	if (index(ip, '.') >= 0) {
+		let cut = -1;
+		let i = length(ip) - 1;
+		while (i >= 0) {
+			if (substr(ip, i, 1) == ':') { cut = i; break; }
+			i--;
+		}
+		if (cut < 0) return null;
+		let v = ip4num(substr(ip, cut + 1));
+		if (v == null) return null;
+		ip = substr(ip, 0, cut + 1) + sprintf('%x:%x', int(v / 65536) & 0xffff, v & 0xffff);
+	}
+
+	let halves = split(ip, '::');
+	if (length(halves) > 2) return null;
+	let groups = [];
+	if (length(halves) == 2) {
+		let head = halves[0] != '' ? split(halves[0], ':') : [];
+		let tail = halves[1] != '' ? split(halves[1], ':') : [];
+		let miss = 8 - length(head) - length(tail);
+		if (miss < 0) return null;
+		let i = 0;
+		while (i < length(head)) { groups[length(groups)] = head[i]; i++; }
+		i = 0;
+		while (i < miss) { groups[length(groups)] = '0'; i++; }
+		i = 0;
+		while (i < length(tail)) { groups[length(groups)] = tail[i]; i++; }
+	}
+	else groups = split(ip, ':');
+	if (length(groups) != 8) return null;
+
+	let out = '';
+	let g = 0;
+	while (g < 8) {
+		let item = groups[g];
+		if (item == '' || length(item) > 4) return null;
+		let v = 0;
+		let i = 0;
+		while (i < length(item)) {
+			let d = nib(substr(item, i, 1));
+			if (d < 0) return null;
+			v = v * 16 + d;
+			i++;
+		}
+		out = out + sprintf('%04x', v);
+		g++;
+	}
+	return out;
+}
+
+function pushCidr(list4, list6, cidr) {
+	if (type(cidr) != 'string') return;
+	let s = trim(cidr);
+	if (s == '') return;
+	let parts = split(s, '/');
+	if (length(parts) > 2) return;
+	let addr = trim(parts[0]);
+	let is6 = index(addr, ':') >= 0;
+	let max = is6 ? 128 : 32;
+	let bits = max;
+	if (length(parts) == 2) {
+		let b = trim(parts[1]);
+		if (b == '' || length(b) > 3) return;
+		let k = 0;
+		while (k < length(b)) {
+			let c = ord(substr(b, k, 1));
+			if (c < 48 || c > 57) return;
+			k++;
+		}
+		bits = int(b);
+		if (bits > max) return;
+	}
+	let label = addr + '/' + bits;
+	if (is6) {
+		let h = ip6hex(addr);
+		if (h != null) list6[length(list6)] = [ h, bits, label ];
+	}
+	else {
+		let v = ip4num(addr);
+		if (v != null) list4[length(list4)] = [ v & mask4(bits), mask4(bits), label ];
+	}
+}
+
+/* ---------- свои адреса ---------- */
+
+function loadNets() {
+	let now = time();
+	if (S.nets4 != null && (now - S.netsTs) < NETS_TTL) return;
+
+	let n4 = [], n6 = [], own = {};
+	let p = popen('ip -o addr show 2>/dev/null', 'r');
+
+	if (p) {
+		let out = p.read('all');
+		p.close();
+		if (out == null) out = '';
+
+		let lines = split(out, '\n');
+		let li = 0;
+		while (li < length(lines)) {
+			let f = split(trim(lines[li]), ' ');
+			let i = 0;
+			while (i < length(f)) {
+				if (f[i] != 'inet' && f[i] != 'inet6') { i++; continue; }
+				let cidr = f[i + 1];
+				if (cidr == null || cidr == '') break;
+				let cp = split(cidr, '/');
+				let addr = cp[0];
+				let bits = (cp[1] != null && cp[1] != '') ? int(cp[1]) : (f[i] == 'inet' ? 32 : 128);
+				own[addr] = true;
+
+				if (f[i] == 'inet') {
+					if (substr(addr, 0, 4) != '127.') {
+						let v = ip4num(addr);
+						if (v != null) {
+							let m = mask4(bits);
+							n4[length(n4)] = [ v & m, m, dotted(v & m) + '/' + bits ];
+						}
+					}
+				}
+				else {
+					let lo = lc(addr);
+					if (substr(lo, 0, 4) != 'fe80' && lo != '::1') {
+						let h = ip6hex(addr);
+						if (h != null) n6[length(n6)] = [ h, bits, addr + '/' + bits ];
+					}
+				}
+				break;
+			}
+			li++;
+		}
+	}
+
+	if (length(n4) == 0) {
+		n4 = [
+			[ ip4num('10.0.0.0')    & mask4(8),  mask4(8),  '10.0.0.0/8' ],
+			[ ip4num('172.16.0.0')  & mask4(12), mask4(12), '172.16.0.0/12' ],
+			[ ip4num('192.168.0.0') & mask4(16), mask4(16), '192.168.0.0/16' ]
+		];
+	}
+	if (length(n6) == 0) {
+		let fc = ip6hex('fc00::');
+		if (fc != null) n6 = [ [ substr(fc, 0, 2), 7, 'fc00::/7' ] ];
+	}
+
+	S.nets4 = n4; S.nets6 = n6; S.own = own; S.netsTs = now;
+}
+
+/* ---------- наблюдаемые сети ---------- */
+
+function uciNetworks() {
+	let now = time();
+	if (S.uciTs != 0 && (now - S.uciTs) < UCI_TTL) return S.uciList;
+
+	let out = [];
+	try {
+		let c = cursor();
+		if (c) {
+			c.load('proton2025');
+			let raw = c.get('proton2025', 'settings', 'hosts_network_filter');
+			if (type(raw) == 'string' && trim(raw) != '') {
+				let arr = json(raw);
+				if (type(arr) == 'array') {
+					let i = 0;
+					while (i < length(arr)) {
+						if (type(arr[i]) == 'string') out[length(out)] = trim(arr[i]);
+						i++;
+					}
+				}
+			}
+		}
+	}
+	catch (e) { }
+
+	S.uciList = out;
+	S.uciTs = now;
+	return out;
+}
+
+function setWatched(clientList) {
+	let seen = {};
+	let uci = uciNetworks();
+	let i = 0;
+	while (i < length(uci)) { if (uci[i] != '') seen[uci[i]] = 1; i++; }
+
+	if (type(clientList) == 'string' && clientList != '') {
+		let parts = split(clientList, ',');
+		i = 0;
+		while (i < length(parts)) {
+			let x = trim(parts[i]);
+			if (x != '') seen[x] = 1;
+			i++;
+		}
+	}
+
+	let tmp = [];
+	for (let k in seen) tmp[length(tmp)] = k;
+	let sig = '';
+	i = 0;
+	while (i < length(tmp)) { sig = sig + tmp[i] + '|'; i++; }
+	if (sig == S.watchSig) return;
+
+	let w4 = [], w6 = [];
+	i = 0;
+	while (i < length(tmp)) { pushCidr(w4, w6, tmp[i]); i++; }
+
+	S.watch4 = w4; S.watch6 = w6; S.watchSig = sig;
+}
+
+function in4(v, list) {
+	let i = 0;
+	while (i < length(list)) {
+		if ((v & list[i][1]) == list[i][0]) return true;
+		i++;
+	}
+	return false;
+}
+
+function in6(h, list) {
+	let i = 0;
+	while (i < length(list)) {
+		let n = list[i];
+		let chars = int(n[1] / 4);
+		let rem = n[1] % 4;
+		if (substr(h, 0, chars) == substr(n[0], 0, chars)) {
+			if (rem == 0) return true;
+			let sh = 4 - rem;
+			let a = nib(substr(h, chars, 1));
+			let b = nib(substr(n[0], chars, 1));
+			if (a >= 0 && b >= 0 && (a >> sh) == (b >> sh)) return true;
+		}
+		i++;
+	}
+	return false;
+}
+
+function isWatched(ip) {
+	if (ip == null || ip == '' || S.own[ip]) return false;
+
+	if (index(ip, ':') < 0) {
+		let v = ip4num(ip);
+		if (v == null) return false;
+		if ((v & 0xff000000) == 0x7f000000) return false;
+		return in4(v, S.watch4) || in4(v, S.nets4);
+	}
+
+	let h = ip6hex(ip);
+	if (h == null) return false;
+	if (substr(h, 0, 4) == 'fe80' || substr(h, 0, 4) == 'ff02') return false;
+	return in6(h, S.watch6) || in6(h, S.nets6);
+}
+
+/* ---------- conntrack ---------- */
+
+function scan(text) {
+	let prev = S.conns;
+	let next = {};
+	let count = 0, offload = 0, matched = 0;
+	let now = time();
+	let lines = split(text, '\n');
+
+	let li = 0;
+	while (li < length(lines)) {
+		let line = lines[li];
+		li++;
+		if (length(line) < 24 || index(line, 'src=') < 0) continue;
+
+		let f = split(line, ' ');
+		let n = length(f);
+		let proto = 'x', word = 0;
+		let oSrc = null, oDst = null, oSp = '', oDp = '', oId = '';
+		let oB = -1, rB = -1, seenSrc = 0, seenSp = 0, seenDp = 0, seenB = 0, seenId = 0;
+
+		let i = 0;
+		while (i < n) {
+			let t = f[i];
+			i++;
+			if (t == '') continue;
+
+			word++;
+			if (word == 3) { proto = t; continue; }
+			if (word < 4) continue;
+
+			let c = substr(t, 0, 1);
+
+			if (c == 's') {
+				if (substr(t, 0, 4) == 'src=') {
+					if (seenSrc == 0) { oSrc = substr(t, 4); seenSrc = 1; }
+				}
+				else if (substr(t, 0, 6) == 'sport=' && seenSp == 0) { oSp = substr(t, 6); seenSp = 1; }
+			}
+			else if (c == 'd') {
+				if (substr(t, 0, 4) == 'dst=') { if (oDst == null) oDst = substr(t, 4); }
+				else if (substr(t, 0, 6) == 'dport=' && seenDp == 0) { oDp = substr(t, 6); seenDp = 1; }
+			}
+			else if (c == 'b' && substr(t, 0, 6) == 'bytes=') {
+				if (seenB == 0) { oB = int(substr(t, 6)); seenB = 1; }
+				else if (seenB == 1) { rB = int(substr(t, 6)); seenB = 2; }
+			}
+			else if (c == 'i' && substr(t, 0, 3) == 'id=' && seenId == 0) { oId = substr(t, 3); seenId = 1; }
+			else if (c == '[' && t == '[OFFLOAD]') offload++;
+		}
+
+		if (oB < 0) continue;
+		if (rB < 0) rB = 0;
+		count++;
+
+		let host = null, tx = 0, rx = 0;
+		if (isWatched(oSrc))      { host = oSrc; tx = oB; rx = rB; }
+		else if (isWatched(oDst)) { host = oDst; tx = rB; rx = oB; }
+		else continue;
+
+		matched++;
+		let key = proto + '|' + oSrc + '|' + oSp + oId + '|' + oDst + '|' + oDp;
+		let p = prev[key];
+		let dTx, dRx;
+
+		if (p) {
+			dTx = tx - p[0]; dRx = rx - p[1];
+			if (dTx < 0) dTx = tx;
+			if (dRx < 0) dRx = rx;
+		}
+		else { dTx = tx; dRx = rx; }
+
+		next[key] = [ tx, rx ];
+
+		let a = S.accum[host];
+		if (!a) { a = { rx: 0, tx: 0, s: now }; S.accum[host] = a; }
+		a.s = now;
+
+		let tt = S.totals[host];
+		if (!tt) { tt = { rx: 0, tx: 0, s: now }; S.totals[host] = tt; }
+		tt.s = now;
+
+		if (S.primed) {
+			a.rx = a.rx + dRx; a.tx = a.tx + dTx;
+			tt.rx = tt.rx + dRx; tt.tx = tt.tx + dTx;
+		}
+	}
+
+	let keep = {};
+	for (let ip, a in S.accum)
+		if (now - a.s <= ACCUM_TTL) keep[ip] = a;
+	S.accum = keep;
+
+	let tkeep = {};
+	for (let ip, x in S.totals)
+		if (now - x.s <= 604800) tkeep[ip] = x;
+	S.totals = tkeep;
+
+	S.conns = next;
+	S.offload = offload;
+	S.matched = matched;
+	return count;
+}
+
+function acctOn() {
+	let v = readAll(ACCT_PATH);
+	return v != null && trim(v) == '1';
+}
+
+function ctPath() {
+	let i = 0;
+	while (i < length(CT_PATHS)) {
+		if (readAll(CT_PATHS[i]) != null) return CT_PATHS[i];
+		i++;
+	}
+	return null;
+}
+
+function publicHosts() {
+	let out = {};
+	for (let ip, a in S.accum) out[ip] = { rx: a.rx, tx: a.tx };
+	return out;
+}
+
+function publicTotals() {
+	let out = {};
+	for (let ip, x in S.totals) out[ip] = { rx: x.rx, tx: x.tx };
+	return out;
+}
+
+function labels(list) {
+	let out = [];
+	let i = 0;
+	while (i < length(list)) { out[length(out)] = list[i][2]; i++; }
+	return out;
+}
+
+/* ---------- nlbwmon fallback ---------- */
+
+function nlbwFallback(reason) {
+	let p = popen(NLBW + ' -c json -g mac 2>/dev/null', 'r');
+	if (!p) return { success: false, reason: reason, hosts: {}, keyBy: 'mac', ts: time() };
+	let raw = p.read('all');
+	p.close();
+
+	let doc = json(raw);
+	if (!doc || type(doc.columns) != 'object' || type(doc.data) != 'array')
+		return { success: false, reason: reason, hosts: {}, keyBy: 'mac', ts: time() };
+
+	let out = {};
+	let i = 0;
+	while (i < length(doc.data)) {
+		let row = doc.data[i];
+		i++;
+		if (type(row) != 'array') continue;
+		let mac = lc(trim(row[doc.columns.mac] || ''));
+		if (mac == '' || mac == '00:00:00:00:00:00') continue;
+		let a = out[mac];
+		if (!a) { a = { rx: 0, tx: 0 }; out[mac] = a; }
+		a.rx = a.rx + (int(row[doc.columns.rx_bytes]) || 0);
+		a.tx = a.tx + (int(row[doc.columns.tx_bytes]) || 0);
+	}
+	return { success: true, source: 'nlbwmon', keyBy: 'mac', hosts: out,
+	         coarse: true, conns: 0, matched: 0, offloaded: 0, acct: true, ts: time() };
+}
+
+/* ---------- логика ---------- */
+
+function getRates(networks) {
+	S.calls = S.calls + 1;
+
+	let r = stage('watch', function () { setWatched(networks); return 1; });
+	if (!r.ok) { S.lastError = r.e; return { success: false, reason: 'exception', error: r.e, hosts: {}, keyBy: 'ip', ts: time() }; }
+
+	if (!acctOn())
+		return { success: false, reason: 'acct-off', hosts: {}, keyBy: 'ip', ts: time() };
+
+	let path = null;
+	let rc = stage('ct', function () { return ctPath(); });
+	if (!rc.ok) { S.lastError = rc.e; return { success: false, reason: 'exception', error: rc.e, hosts: {}, keyBy: 'ip', ts: time() }; }
+	path = rc.v;
+	if (path == null) return nlbwFallback('no-conntrack');
+
+	let rn = stage('nets', function () { loadNets(); return 1; });
+	if (!rn.ok) { S.lastError = rn.e; return { success: false, reason: 'exception', error: rn.e, hosts: {}, keyBy: 'ip', ts: time() }; }
+
+	let text = readAll(path);
+	if (text == null) return nlbwFallback('read-failed');
+
+	let rs = stage('scan', function () { return scan(text); });
+	if (!rs.ok) { S.lastError = rs.e; return { success: false, reason: 'exception', error: rs.e, hosts: {}, keyBy: 'ip', ts: time() }; }
+
+	S.primed = true;
+	S.lastError = '';
+
+	return {
+		success: true, source: 'conntrack', keyBy: 'ip',
+		hosts: publicHosts(), totals: publicTotals(), conns: rs.v, matched: S.matched,
+		offloaded: S.offload, acct: true, coarse: false, ts: time()
+	};
+}
+
+function getInfo(networks) {
+	let rep = {};
+
+	let r1 = stage('watch', function () {
+		setWatched(networks);
+		return { w4: length(S.watch4), w6: length(S.watch6), list: labels(S.watch4), uci: S.uciList };
+	});
+	rep.watch = r1.ok ? r1.v : r1.e;
+
+	let r2 = stage('nets', function () {
+		loadNets();
+		let ownList = [];
+		for (let k in S.own) ownList[length(ownList)] = k;
+		return { n4: length(S.nets4), n6: length(S.nets6), local: labels(S.nets4), own: ownList };
+	});
+	rep.nets = r2.ok ? r2.v : r2.e;
+
+	let path = null;
+	let r3 = stage('ct', function () { return ctPath(); });
+	rep.ct = r3.ok ? r3.v : r3.e;
+	if (r3.ok) path = r3.v;
+
+	if (path != null) {
+		let r4 = stage('scan', function () {
+			let txt = readAll(path);
+			if (txt == null) return null;
+			return scan(txt);
+		});
+		rep.scan = r4.ok ? r4.v : r4.e;
+	}
+
+	let r5 = stage('build', function () {
+		let ips = [];
+		for (let ip, a in S.accum) {
+			ips[length(ips)] = ip + ' rx=' + a.rx + ' tx=' + a.tx;
+			if (length(ips) >= 24) break;
+		}
+		return {
+			accounting: acctOn(),
+			connections: length(S.conns), matched: S.matched,
+			tracked: length(S.accum), tracked_ips: ips,
+			totals: publicTotals(),
+			offloaded: S.offload
+		};
+	});
+	rep.build = r5.ok ? r5.v : r5.e;
+
+	return {
+		success: true,
+		stages: rep,
+		client_networks: (type(networks) == 'string') ? networks : '',
+		calls: S.calls, last_error: S.lastError, ts: time()
+	};
+}
+
+function safeCall(fn, arg) {
+	try {
+		return fn(arg);
+	}
+	catch (e) {
+		let msg = errMsg(e);
+		S.lastError = msg;
+		return {
+			success: false, reason: 'exception', error: msg,
+			hosts: {}, keyBy: 'ip', calls: S.calls, ts: time()
+		};
+	}
+}
+
+return {
+	'luci.proton-hostrates': {
+		getRates: {
+			args: { networks: 'string' },
+			call: function (req) {
+				let a = (req && req.args) ? req.args : {};
+				return safeCall(getRates, a.networks);
+			}
+		},
+
+		getInfo: {
+			args: { networks: 'string' },
+			call: function (req) {
+				let a = (req && req.args) ? req.args : {};
+				return safeCall(getInfo, a.networks);
+			}
+		},
+
+		enableAccounting: {
+			call: function () {
+				return safeCall(function () {
+					let ok = writefile(ACCT_PATH, '1');
+					return { success: !!ok && acctOn() };
+				}, null);
+			}
+		}
+	}
+};

@@ -1,1040 +1,1245 @@
 /**
- * Proton2025 Dashboard - Hosts widget
+ * Proton2025 Dashboard — Hosts widget
  * Copyright 2025-2026 ChesterGoodiny
  * Licensed under the Apache License, Version 2.0
- * See LICENSE and NOTICE for details.
+ *
+ * Скорость: conntrack-дельты (адаптивный опрос). Тоталы: nlbwmon (LAN/Wi-Fi),
+ * для пиров за WAN — сессионные накопления conntrack (копятся, пока виджет открыт).
+ * Наблюдаемые сети передаются в RPC строкой через запятую.
  */
-
 (function () {
-  "use strict";
-
-  const POLL_INTERVAL = 3000;
-  const HISTORY_SIZE = 30;
-
-  let callGetHostTraffic = null;
-  let callGetHostHints = null;
-  let callGetDHCPLeases = null;
-  let callIwinfoDevices = null;
-  let callIwinfoAssoclist = null;
-
-  let pollTimer = null;
-  let visibilityHandler = null;
-  let mounted = false;
-
-  let localIPs = new Set();
-  let availableSubnets = new Set();
-  let hostsFilterSubnets = null;
-
-  const wifiMacCache = new Map();
-  const WIFI_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-  let iwinfoReady = false;
-  let hostAliases = {};
-  const hostHistory = new Map();
-  let vpnSubnets = [];
-  let isEditingHostName = false; // Флаг для блокировки перерисовки при вводе имени
-
-  // --- Загрузка IP и подсетей ---
-  function isVpnInterface(iface) {
-    if (!iface) return false;
-    const proto = String(iface.proto || "").toLowerCase();
-    const device = String(iface.device || iface.l3_device || iface.ifname || "").toLowerCase();
-    const ifaceName = String(iface.interface || "").toLowerCase();
-    if (proto === "wireguard") return true;
-    if (proto === "none") {
-      const vpnDevicePrefixes = ["wg", "zt", "tun", "tap", "tailscale", "ovpn"];
-      if (vpnDevicePrefixes.some(p => device.startsWith(p))) return true;
-      if (vpnDevicePrefixes.some(p => ifaceName.startsWith(p))) return true;
-    }
-    return false;
-  }
-
-  function cidrFromAddr(addr) {
-    if (!addr || !addr.address) return null;
-    const ip = String(addr.address).split("/")[0];
-    const mask = addr.mask != null ? parseInt(addr.mask, 10) : (addr.prefix != null ? parseInt(addr.prefix, 10) : null);
-    if (mask == null || isNaN(mask)) return null;
-    if (ip.indexOf(":") !== -1) return { cidr: ip + "/" + mask, family: 6 };
-    const parts = ip.split(".");
-    if (parts.length !== 4) return null;
-    const ipNum = ((+parts[0] & 255) << 24) | ((+parts[1] & 255) << 16) | ((+parts[2] & 255) << 8) | (+parts[3] & 255);
-    const shift = 32 - mask;
-    const baseNum = (ipNum >>> shift) << shift;
-    const base = ((baseNum >>> 24) & 255) + "." + ((baseNum >>> 16) & 255) + "." + ((baseNum >>> 8) & 255) + "." + (baseNum & 255);
-    return { cidr: base + "/" + mask, family: 4 };
-  }
-
-  function ipInVpnSubnet(ip) {
-    if (!ip) return false;
-    if (ip.indexOf(":") !== -1) return false;
-    const parts = ip.split(".");
-    if (parts.length !== 4) return false;
-    const ipNum = ((+parts[0] & 255) << 24) | ((+parts[1] & 255) << 16) | ((+parts[2] & 255) << 8) | (+parts[3] & 255);
-    for (const sub of vpnSubnets) {
-      if (sub.family !== 4) continue;
-      const [base, maskStr] = sub.cidr.split("/");
-      const mask = parseInt(maskStr, 10);
-      if (isNaN(mask)) continue;
-      const baseParts = base.split(".");
-      if (baseParts.length !== 4) continue;
-      const baseNum = ((+baseParts[0] & 255) << 24) | ((+baseParts[1] & 255) << 16) | ((+baseParts[2] & 255) << 8) | (+baseParts[3] & 255);
-      const shift = 32 - mask;
-      if ((ipNum >>> shift) === (baseNum >>> shift)) return true;
-    }
-    return false;
-  }
-
-  async function fetchLocalAddressesAndSubnets() {
-    let attempts = 0;
-    while ((!window.L || !L.rpc) && attempts < 50) {
-      await new Promise(r => setTimeout(r, 100));
-      attempts++;
-    }
-    if (!window.L || !L.rpc) return;
-
-    try {
-      if (!window.__protonHostsDumpRpc) {
-        window.__protonHostsDumpRpc = L.rpc.declare({
-          object: "network.interface",
-          method: "dump",
-          expect: { "": {} },
-        });
-      }
-
-      const raw = await L.resolveDefault(window.__protonHostsDumpRpc(), null);
-      if (!raw || !Array.isArray(raw.interface)) return;
-
-      vpnSubnets = [];
-
-      raw.interface.forEach(iface => {
-        if (isVpnInterface(iface)) {
-          (iface['ipv4-address'] || []).forEach(addr => {
-            const c = cidrFromAddr(addr);
-            if (c && c.family === 4) vpnSubnets.push(c);
-          });
-        }
-
-        (iface['ipv4-address'] || []).forEach(addr => {
-          if (addr && addr.address) {
-            localIPs.add(addr.address);
-            const mask = addr.mask || 24;
-            const parts = addr.address.split('.');
-            if (parts.length === 4) {
-              const ipNum = (parseInt(parts[0]) << 24) + (parseInt(parts[1]) << 16) + (parseInt(parts[2]) << 8) + parseInt(parts[3]);
-              const shift = 32 - mask;
-              const baseNum = (ipNum >>> shift) << shift;
-              const base = [
-                (baseNum >>> 24) & 255,
-                                              (baseNum >>> 16) & 255,
-                                              (baseNum >>> 8) & 255,
-                                              baseNum & 255
-              ].join('.');
-              availableSubnets.add(`${base}/${mask}`);
-            }
-          }
-        });
-        (iface['ipv6-address'] || []).forEach(addr => {
-          if (addr && addr.address) {
-            localIPs.add(addr.address.split("/")[0]);
-            let prefix = addr.mask || addr.prefix || 64;
-            const ip = addr.address.split("/")[0];
-            const isLinkLocal = ip.toLowerCase().startsWith("fe80:");
-            const isMulticast = ip.toLowerCase().startsWith("ff");
-            if (!isLinkLocal && !isMulticast) availableSubnets.add(ip + "/" + prefix);
-          }
-        });
-          (iface['route'] || []).forEach(route => {
-            if (route && route.source) {
-              const ip = route.source.split('/')[0];
-              if (ip) localIPs.add(ip);
-            }
-          });
-      });
-    } catch (e) {
-      console.warn("[Proton2025 Hosts] Failed to fetch local IPs:", e);
-    }
-  }
-
-  async function loadHostsFilter() {
-    if (hostsFilterSubnets !== null) return hostsFilterSubnets;
-    try {
-      const raw = localStorage.getItem('proton-hosts-filter');
-      if (raw) {
-        const arr = JSON.parse(raw);
-        hostsFilterSubnets = Array.isArray(arr) ? arr : [];
-      } else {
-        hostsFilterSubnets = [];
-      }
-    } catch (e) {
-      hostsFilterSubnets = [];
-    }
-    return hostsFilterSubnets;
-  }
-
-  function ipToBigInt(ip) {
-    if (ip.indexOf(':') === -1) return null;
-    let parts = ip.split('::');
-    let head = parts[0] ? parts[0].split(':') : [];
-    let tail = parts[1] ? parts[1].split(':') : [];
-    if (head.length + tail.length < 8) {
-      let fill = 8 - (head.length + tail.length);
-      for (let i = 0; i < fill; i++) head.push('0');
-    }
-    let hex = '';
-    for (let i = 0; i < 8; i++) {
-      let part = head[i] || tail[i - head.length] || '0';
-      hex += part.padStart(4, '0');
-    }
-    try {
-      return BigInt('0x' + hex);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function ipInSubnet(ip, cidr) {
-    if (!ip || !cidr) return false;
-    const idx = cidr.indexOf('/');
-    if (idx < 0) return false;
-    const base = cidr.slice(0, idx);
-    const mask = parseInt(cidr.slice(idx + 1), 10);
-    if (isNaN(mask)) return false;
-
-    if (ip.indexOf(':') !== -1) {
-      const ipBig = ipToBigInt(ip);
-      const baseBig = ipToBigInt(base);
-      if (ipBig === null || baseBig === null) return false;
-      const shift = 128n - BigInt(mask);
-      return (ipBig >> shift) === (baseBig >> shift);
-    } else {
-      const ipParts = ip.split('.');
-      const baseParts = base.split('.');
-      if (ipParts.length !== 4 || baseParts.length !== 4) return false;
-      const ipNum = (parseInt(ipParts[0]) << 24) + (parseInt(ipParts[1]) << 16) + (parseInt(ipParts[2]) << 8) + parseInt(ipParts[3]);
-      const baseNum = (parseInt(baseParts[0]) << 24) + (parseInt(baseParts[1]) << 16) + (parseInt(baseParts[2]) << 8) + parseInt(baseParts[3]);
-      const shift = 32 - mask;
-      return ((ipNum >>> shift) === (baseNum >>> shift));
-    }
-  }
-
-  function ipInAnySubnet(ip, subnets) {
-    if (!subnets || subnets.length === 0) return true;
-    return subnets.some(cidr => ipInSubnet(ip, cidr));
-  }
-
-  function normalizeMac(mac) {
-    return String(mac || "").trim().toLowerCase();
-  }
-
-  function t(value) {
-    if (typeof window.protonT === "function") return window.protonT(value);
-    if (window.L && typeof L.tr === "function") {
-      const tr = L.tr(value);
-      if (tr && tr !== value) return tr;
-    }
-    return value;
-  }
-
-  function ensureRpc() {
-    if (!window.L || !L.rpc || typeof L.rpc.declare !== "function") return false;
-
-    if (!callGetHostTraffic) {
-      callGetHostTraffic = L.rpc.declare({ object: "luci.proton-nlbw", method: "getHostTraffic", expect: { "": {} } });
-    }
-    if (!callGetHostHints) {
-      callGetHostHints = L.rpc.declare({ object: "luci-rpc", method: "getHostHints", expect: { "": {} } });
-    }
-    if (!callGetDHCPLeases) {
-      callGetDHCPLeases = L.rpc.declare({ object: "luci-rpc", method: "getDHCPLeases", expect: { "": {} } });
-    }
-    if (!callIwinfoDevices) {
-      callIwinfoDevices = L.rpc.declare({ object: "iwinfo", method: "devices", expect: { "": {} } });
-    }
-    if (!callIwinfoAssoclist) {
-      callIwinfoAssoclist = L.rpc.declare({ object: "iwinfo", method: "assoclist", params: ["device"], expect: { "": {} } });
-    }
-    return true;
-  }
-
-  function formatBytes(bytes) {
-    if (!Number.isFinite(bytes) || bytes < 0) return "—";
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    let value = bytes;
-    let unit = 0;
-    while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
-    if (unit === 0) return `${Math.round(value)} ${units[unit]}`;
-    return `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} ${units[unit]}`;
-  }
-
-  function formatRate(bytesPerSec) {
-    if (!Number.isFinite(bytesPerSec) || bytesPerSec < 0) return "0 B/s";
-    return formatBytes(bytesPerSec) + "/s";
-  }
-
-  function escapeHtml(str) {
-    return String(str == null ? "" : str).replace(/[&<>"']/g, function (c) {
-      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
-    });
-  }
-
-  function pickBestIp(hints) {
-    let result = { ipv4: "", ipv6: "" };
-    if (!hints) return result;
-
-    if (Array.isArray(hints.ipaddrs) && hints.ipaddrs.length) {
-      let ip = hints.ipaddrs[0];
-      if (typeof ip === "string") result.ipv4 = ip.split("/")[0];
-    }
-
-    if (Array.isArray(hints.ip6addrs) && hints.ip6addrs.length) {
-      const valid = hints.ip6addrs.filter(a => {
-        if (!a) return false;
-        const clean = a.split("/")[0].toLowerCase();
-        return !clean.startsWith("fe80:") && clean !== "::1" && !clean.startsWith("ff");
-      });
-      if (valid.length) result.ipv6 = valid[0].split("/")[0];
-    }
-    return result;
-  }
-
-  async function collectWiFiClients() {
-    const map = new Map();
-    if (!callIwinfoDevices) return map;
-    let devices = [];
-    try {
-      const res = await L.resolveDefault(callIwinfoDevices(), null);
-      if (res && Array.isArray(res.devices)) devices = res.devices;
-    } catch (e) {}
-
-    if (devices.length > 0) iwinfoReady = true;
-
-    await Promise.all(devices.map(async (device) => {
-      try {
-        const res = await L.resolveDefault(callIwinfoAssoclist(device), null);
-        const results = res && Array.isArray(res.results) ? res.results : [];
-        results.forEach((client) => {
-          const mac = normalizeMac(client.mac);
-          if (!mac) return;
-          map.set(mac, { signal: Number(client.signal), device: device });
-          wifiMacCache.set(mac, { lastSeen: Date.now() });
-        });
-      } catch (e) {}
-    }));
-    return map;
-  }
-
-  async function collectData() {
-    if (!ensureRpc()) return { hosts: [], timestamp: Date.now() };
-
-    const [trafficRes, hintsRes, leasesRes, wifiMap] = await Promise.all([
-      L.resolveDefault(callGetHostTraffic(), null),
-                                                                         L.resolveDefault(callGetHostHints(), null),
-                                                                         L.resolveDefault(callGetDHCPLeases(), null),
-                                                                         collectWiFiClients(),
-    ]);
-
-    const trafficByMac = (trafficRes && trafficRes.success && trafficRes.hosts) ? trafficRes.hosts : {};
-    const allMacs = new Set();
-    for (const mac of Object.keys(trafficByMac)) allMacs.add(normalizeMac(mac));
-    if (hintsRes && typeof hintsRes === "object") {
-      for (const mac of Object.keys(hintsRes)) allMacs.add(normalizeMac(mac));
-    }
-    for (const mac of wifiMap.keys()) allMacs.add(mac);
-
-    const hostnameByMac = new Map();
-    const ipByMac = new Map();
-    if (hintsRes && typeof hintsRes === "object") {
-      for (const rawMac of Object.keys(hintsRes)) {
-        const mac = normalizeMac(rawMac);
-        const ips = pickBestIp(hintsRes[rawMac]);
-        if (ips.ipv4 || ips.ipv6) ipByMac.set(mac, ips);
-      }
-    }
-
-    if (leasesRes && Array.isArray(leasesRes.dhcp_leases)) {
-      leasesRes.dhcp_leases.forEach((lease) => {
-        const mac = normalizeMac(lease.macaddr);
-        if (!mac) return;
-        if (lease.hostname && lease.hostname.trim()) hostnameByMac.set(mac, lease.hostname.trim());
-        if (lease.ipaddr && !ipByMac.has(mac)) ipByMac.set(mac, lease.ipaddr);
-      });
-    }
-    if (leasesRes && Array.isArray(leasesRes.dhcp6_leases)) {
-      leasesRes.dhcp6_leases.forEach((lease) => {
-        const mac = normalizeMac(lease.macaddr);
-        if (!mac) return;
-        if (lease.hostname && lease.hostname.trim() && !hostnameByMac.has(mac)) hostnameByMac.set(mac, lease.hostname.trim());
-        if (lease.ip6addr && !ipByMac.has(mac)) ipByMac.set(mac, lease.ip6addr);
-      });
-    }
-
-    const now = Date.now();
-    const hosts = [];
-    const filterSubnets = await loadHostsFilter();
-
-    if (hintsRes && typeof hintsRes === "object") {
-      for (const rawMac of Object.keys(hintsRes)) {
-        const mac = normalizeMac(rawMac);
-        const ipv4 = pickBestIp(hintsRes[rawMac]);
-        if (ipv4 && localIPs.has(ipv4)) {
-          const ip6 = hintsRes[rawMac].ip6addrs || [];
-          ip6.forEach(addr => {
-            if (addr) localIPs.add(addr.split("/")[0]);
-          });
-        }
-      }
-    }
-
-    for (const mac of allMacs) {
-      if (mac === "00:00:00:00:00:00") continue;
-
-      const ips = ipByMac.get(mac) || { ipv4: "", ipv6: "" };
-      const ipv4 = ips.ipv4;
-      const ipv6 = ips.ipv6;
-      const ipForFilter = ipv4 || ipv6;
-      const ipClean = ipForFilter.split("/")[0];
-
-      if (ipClean.startsWith("fe80:") || ipClean === "::1") continue;
-      if (localIPs.has(ipClean)) continue;
-      if (filterSubnets.length > 0 && !ipInAnySubnet(ipClean, filterSubnets)) continue;
-
-      const traffic = trafficByMac[mac] || null;
-      const rxBytes = traffic ? Number(traffic.rx_bytes) || 0 : 0;
-      const txBytes = traffic ? Number(traffic.tx_bytes) || 0 : 0;
-
-      let rateRx = 0;
-      let rateTx = 0;
-      let hist = hostHistory.get(mac);
-      if (!hist) {
-        hist = { rxHistory: [], txHistory: [], prevRx: null, prevTx: null, prevTs: null };
-        hostHistory.set(mac, hist);
-      }
-      if (hist.prevRx != null && hist.prevTs != null) {
-        const dt = (now - hist.prevTs) / 1000;
-        if (dt > 0) {
-          const drx = rxBytes - hist.prevRx;
-          const dtx = txBytes - hist.prevTx;
-          rateRx = drx >= 0 ? drx / dt : 0;
-          rateTx = dtx >= 0 ? dtx / dt : 0;
-        }
-      }
-      hist.prevRx = rxBytes;
-      hist.prevTx = txBytes;
-      hist.prevTs = now;
-
-      hist.rxHistory.push(rateRx);
-      hist.txHistory.push(rateTx);
-      if (hist.rxHistory.length > HISTORY_SIZE) hist.rxHistory.shift();
-      if (hist.txHistory.length > HISTORY_SIZE) hist.txHistory.shift();
-
-      const wifi = wifiMap.get(mac);
-      const knownWifi = wifiMacCache.has(mac);
-      const isVpn = ipInVpnSubnet(ipClean);
-
-      let hostType;
-      if (wifi || knownWifi) {
-        hostType = "wifi";
-        if (wifi) wifiMacCache.set(mac, { lastSeen: now });
-      } else if (isVpn) {
-        hostType = "lan-vpn";
-      } else if (iwinfoReady) {
-        hostType = "lan";
-      } else {
-        hostType = "unknown";
-      }
-
-      const alias = hostAliases[mac] || "";
-
-      hosts.push({
-        mac: mac,
-        alias: alias,
-        hostname: alias || hostnameByMac.get(mac) || "",
-                 ip: ipv4 || ipv6,
-                 ipv6: ipv4 && ipv6 ? ipv6 : "",
-                 type: hostType,
-                 signal: wifi ? wifi.signal : null,
-                 rxBytes,
-                 txBytes,
-                 rateRx,
-                 rateTx,
-                 rxHistory: hist.rxHistory.slice(),
-                 txHistory: hist.txHistory.slice(),
-      });
-    }
-
-    const allMacsNow = new Set(hosts.map(h => h.mac));
-    for (const [mac, info] of wifiMacCache) {
-      if (!allMacsNow.has(mac) || (now - info.lastSeen) > WIFI_CACHE_TTL_MS) {
-        wifiMacCache.delete(mac);
-      }
-    }
-
-    return { hosts, timestamp: now };
-  }
-
-  function ensureCard() {
-    let card = document.getElementById("proton-dashboard-hosts");
-    if (card) { mounted = true; return card; }
-
-    card = document.createElement("article");
-    card.className = "proton-dashboard-card proton-dashboard-hosts";
-    card.id = "proton-dashboard-hosts";
-
-    card.innerHTML = `
-    <div class="proton-dashboard-card-header">
-    <div>
-    <div class="proton-dashboard-card-title-row">
-    <span class="proton-dashboard-card-status-dot" data-role="status-dot"></span>
-    <h3 class="proton-dashboard-card-title">${t("Hosts")}</h3>
-    </div>
-    <div class="proton-dashboard-card-subtitle" data-role="subtitle">${t("Loading...")}</div>
-    </div>
-    <button type="button" class="proton-dashboard-network-settings" data-role="hosts-settings" title="${t("Hosts filter")}">
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="12" cy="12" r="3"></circle>
-    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-    </svg>
-    </button>
-    </div>
-    <div class="proton-dashboard-card-body">
-    <ul class="proton-hosts-list" data-role="list" role="list"></ul>
-    </div>
-    <div class="proton-dashboard-card-footer">
-    <span data-role="footer">—</span>
-    </div>
-    `;
-
-    const maincontent = document.getElementById("maincontent");
-    if (!maincontent) return null;
-    maincontent.appendChild(card);
-
-    mounted = true;
-    return card;
-  }
-
-  function buildSparkline(rxHistory, txHistory) {
-    const width = 90, height = 24, padding = 1;
-    const max = Math.max(1, ...rxHistory, ...txHistory);
-    const innerW = width - padding * 2;
-    const innerH = height - padding * 2;
-
-    function buildPath(values) {
-      if (values.length < 2) return "";
-      const step = innerW / (values.length - 1);
-      return values.map((v, i) => {
-        const x = padding + i * step;
-        const y = padding + innerH - (v / max) * innerH;
-        return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
-      }).join(" ");
-    }
-
-    return `
-    <svg class="proton-hosts-sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
-    <path class="proton-hosts-sparkline-rx" d="${buildPath(rxHistory)}" />
-    <path class="proton-hosts-sparkline-tx" d="${buildPath(txHistory)}" />
-    </svg>
-    `;
-  }
-
-  function renderHosts(card, hosts) {
-    const list = card.querySelector('[data-role="list"]');
-    if (!list) return;
-
-    hosts.sort((a, b) => (a.hostname || a.ip || a.mac).localeCompare(b.hostname || b.ip || b.mac));
-
-    const wifi = hosts.filter(h => h.type === 'wifi');
-    const lan  = hosts.filter(h => h.type !== 'wifi');
-
-    function iconFor(h) {
-      if (h.type === 'wifi') return '📱';
-      if (h.type === 'lan-vpn') return '🔒';
-      return '💻';
-    }
-
-    function renderItem(h) {
-      const displayName = h.hostname || h.ip || h.mac || t('Unknown');
-      const typeLabel = h.type === 'wifi' ? t('Wi-Fi') : (h.type === 'lan-vpn' ? 'VPN' : 'LAN');
-
-      let html = '';
-      html += '<li class="proton-hosts-row" data-mac="' + escapeHtml(h.mac) + '" ' +
-      'data-h-name="' + escapeHtml(displayName) + '" ' +
-      'data-h-ipv4="' + escapeHtml(h.ip || "") + '" ' +
-      'data-h-ipv6="' + escapeHtml(h.ipv6 || "") + '" ' +
-      'data-h-rx="' + escapeHtml(formatBytes(h.rxBytes)) + '" ' +
-      'data-h-tx="' + escapeHtml(formatBytes(h.txBytes)) + '">';
-
-      html += '  <span class="proton-hosts-icon">' + iconFor(h) + '</span>';
-
-      html += '  <div class="proton-hosts-main">';
-
-      // Верхняя строка: Имя + IP
-      html += '    <div class="proton-hosts-top">';
-      html += '      <span class="proton-hosts-name" data-mac="' + escapeHtml(h.mac) + '" title="' + t('Click to rename') + '">' + escapeHtml(displayName) + '</span>';
-
-      // Контейнер для IP с фиксированной высотой (чтобы не прыгало)
-      html += '      <div class="proton-hosts-ips">';
-      if (h.ip) html += '<span class="proton-hosts-ip">' + escapeHtml(h.ip) + '</span>';
-      else html += '<span class="proton-hosts-ip" style="visibility:hidden">&nbsp;</span>';
-
-      if (h.ipv6) html += '<span class="proton-hosts-ip proton-hosts-ipv6">' + escapeHtml(h.ipv6) + '</span>';
-      else html += '<span class="proton-hosts-ip proton-hosts-ipv6" style="visibility:hidden">&nbsp;</span>';
-      html += '      </div>';
-
-      html += '    </div>'; // конец top
-
-      // Нижняя строка: Тип и Скорости
-      html += '    <div class="proton-hosts-bottom">';
-      html += '      <span class="proton-hosts-type">' + typeLabel + '</span>';
-      html += '      <span class="proton-hosts-rates">';
-      html += '        <span class="proton-hosts-rate-rx">▼ ' + formatRate(h.rateRx) + '</span>';
-      html += '        <span class="proton-hosts-rate-tx">▲ ' + formatRate(h.rateTx) + '</span>';
-      html += '      </span>';
-      html += '    </div>'; // конец bottom
-
-      html += '  </div>'; // конец main
-
-      html += '  <div class="proton-hosts-chart">' + buildSparkline(h.rxHistory, h.txHistory) + '</div>';
-      html += '</li>';
-
-      return html;
-    }
-
-    function renderColumn(title, items) {
-      let rows = items.length ? items.map(renderItem).join('') : '<li class="proton-hosts-empty">' + t('No active clients') + '</li>';
-      return '<div class="proton-hosts-column">' +
-      '  <h4 class="proton-hosts-col-title">' + title + ' (' + items.length + ')</h4>' +
-      '  <ul class="proton-hosts-list-inner">' + rows + '</ul>' +
-      '</div>';
-    }
-
-    list.innerHTML = '<div class="proton-hosts-columns">' +
-    renderColumn('Wi-Fi', wifi) +
-    renderColumn('LAN', lan) +
-    '</div>';
-
-      if (!list.dataset.protonEditBound) {
-        list.dataset.protonEditBound = "1";
-        list.addEventListener("click", handleHostNameClick);
-      }
-
-      if (isHoveringList && lastMouseX > 0) {
-        const el = document.elementFromPoint(lastMouseX, lastMouseY);
-        if (el) {
-          const newRow = el.closest(".proton-hosts-row");
-          if (newRow) {
-            lastHoveredRow = newRow;
-            showTooltip(newRow);
-          }
-        }
-      } else {
-        hideTooltip();
-      }
-  }
-
-  function handleHostNameClick(e) {
-    const nameEl = e.target.closest(".proton-hosts-name");
-    if (!nameEl) return;
-    e.stopPropagation();
-
-    const mac = nameEl.dataset.mac;
-    if (!mac) return;
-    if (nameEl.tagName === "INPUT") return;
-
-    isEditingHostName = true; // Блокируем перерисовку
-
-    const currentText = nameEl.textContent;
-    const currentAlias = hostAliases[mac] || "";
-
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "proton-hosts-name-edit";
-    input.value = currentAlias;
-    input.placeholder = currentText;
-    input.maxLength = 64;
-
-    nameEl.replaceWith(input);
-    input.focus();
-    input.select();
-
-    let committed = false;
-
-    const commit = () => {
-      if (committed) return;
-      committed = true;
-      const val = input.value.trim();
-      saveHostAlias(mac, val);
-      const span = document.createElement("span");
-      span.className = "proton-hosts-name";
-      span.dataset.mac = mac;
-      span.title = t("Click to rename");
-      span.textContent = val || currentText;
-      input.replaceWith(span);
-
-      isEditingHostName = false; // Разблокируем
-      poll();
-    };
-
-    const cancel = () => {
-      if (committed) return;
-      committed = true;
-      const span = document.createElement("span");
-      span.className = "proton-hosts-name";
-      span.dataset.mac = mac;
-      span.title = t("Click to rename");
-      span.textContent = currentText;
-      input.replaceWith(span);
-
-      isEditingHostName = false; // Разблокируем
-    };
-
-    input.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter") { ev.preventDefault(); commit(); }
-      else if (ev.key === "Escape") { ev.preventDefault(); cancel(); }
-    });
-    input.addEventListener("blur", commit);
-  }
-
-  function saveHostAlias(mac, name) {
-    const trimmed = String(name || "").trim();
-    if (trimmed) {
-      hostAliases[mac] = trimmed;
-    } else {
-      delete hostAliases[mac];
-    }
-    const json = JSON.stringify(hostAliases);
-    try {
-      localStorage.setItem("proton-host-aliases", json);
-    } catch (e) {}
-    if (
-      window.protonSettingsSync &&
-      typeof window.protonSettingsSync.saveLocalKeyToUci === "function"
-    ) {
-      window.protonSettingsSync.saveLocalKeyToUci("proton-host-aliases", json);
-    }
-  }
-
-  function loadHostAliases() {
-    try {
-      const raw = localStorage.getItem("proton-host-aliases");
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      return (parsed && typeof parsed === "object") ? parsed : {};
-    } catch (e) {
-      return {};
-    }
-  }
-
-  function updateSubtitle(card, hosts) {
-    const el = card.querySelector('[data-role="subtitle"]');
-    if (!el) return;
-    const wifiCount = hosts.filter(h => h.type === "wifi").length;
-    const lanCount = hosts.length - wifiCount;
-    const parts = [];
-    if (wifiCount) parts.push(`${wifiCount} ${t("Wi-Fi")}`);
-    if (lanCount) parts.push(`${lanCount} LAN`);
-    el.textContent = parts.length ? parts.join(" · ") : t("No active clients");
-  }
-
-  function updateFooter(card, hosts) {
-    const el = card.querySelector('[data-role="footer"]');
-    if (!el) return;
-    let totalRx = 0, totalTx = 0;
-    hosts.forEach(h => { totalRx += h.rateRx || 0; totalTx += h.rateTx || 0; });
-    el.textContent = `▼ ${formatRate(totalRx)}  ▲ ${formatRate(totalTx)}`;
-  }
-
-  function setStatusDot(card, state) {
-    const dot = card.querySelector('[data-role="status-dot"]');
-    if (dot) dot.dataset.state = state;
-  }
-
-  async function poll() {
-    if (!mounted || document.hidden) return;
-    if (isEditingHostName) return; // Не перерисовываем, если идёт ввод имени
-
-    const card = document.getElementById("proton-dashboard-hosts");
-    if (!card) return;
-
-    try {
-      const { hosts } = await collectData();
-      renderHosts(card, hosts);
-      updateSubtitle(card, hosts);
-      updateFooter(card, hosts);
-      setStatusDot(card, "ok");
-    } catch (error) {
-      console.warn("[Proton2025] Hosts poll failed:", error);
-      setStatusDot(card, "err");
-      const subtitle = card.querySelector('[data-role="subtitle"]');
-      if (subtitle) subtitle.textContent = t("Unable to read host data");
-    }
-  }
-
-  function openHostsFilterModal() {
-    loadHostsFilter().then((currentFilter) => {
-      const overlay = document.createElement("div");
-      overlay.className = "proton-confirm-modal-overlay";
-      const modal = document.createElement("div");
-      modal.className = "proton-confirm-modal";
-      modal.style.maxWidth = "480px";
-
-      let checkboxesHtml = "";
-      let aliasesHtml = "";
-      const aliasMacs = Object.keys(hostAliases);
-
-      if (aliasMacs.length === 0) {
-        aliasesHtml = '<div style="font-size:0.85rem;color:var(--proton-muted);">' + t("No custom names yet") + '</div>';
-      } else {
-        const parts = [];
-        aliasMacs.sort().forEach(function (mac) {
-          let h = '';
-          h += '<div class="proton-hosts-alias-row" data-mac="' + escapeHtml(mac) + '" style="display:flex;align-items:center;gap:8px;padding:4px 0;">';
-          h += '<span style="font-family:monospace;font-size:0.75rem;color:var(--proton-muted);">' + escapeHtml(mac) + '</span>';
-          h += '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(hostAliases[mac]) + '</span>';
-          h += '<button type="button" class="cbi-button cbi-button-remove proton-hosts-alias-del" data-mac="' + escapeHtml(mac) + '" style="padding:2px 8px;font-size:0.75rem;">×</button>';
-          h += '</div>';
-          parts.push(h);
-        });
-        aliasesHtml = parts.join('');
-      }
-
-      if (availableSubnets.size === 0) {
-        checkboxesHtml = '<div style="font-size:0.85rem;color:var(--proton-muted);">' + t("No subnets detected") + '</div>';
-      } else {
-        Array.from(availableSubnets).sort().forEach(subnet => {
-          const checked = currentFilter.includes(subnet);
-          checkboxesHtml += '<label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;">';
-          checkboxesHtml += '  <input type="checkbox" value="' + subnet + '" class="proton-hosts-filter-cb" ' + (checked ? 'checked' : '') + '>';
-          checkboxesHtml += '  <span>' + subnet + '</span>';
-          checkboxesHtml += '</label>';
-        });
-      }
-
-      modal.innerHTML = `
-      <h3>${t("Hosts filter")}</h3>
-      <div class="proton-network-modal-body">
-      <div style="margin-bottom:12px;">
-      <div style="font-size:0.85rem;font-weight:600;margin-bottom:8px;">${t("Detected subnets")}</div>
-      <div id="proton-hosts-filter-list" style="max-height:150px;overflow-y:auto;padding:8px;border:1px solid var(--proton-border);border-radius:var(--proton-radius-sm);">
-      ${checkboxesHtml}
-      </div>
-      <div style="font-size:0.75rem;color:var(--proton-muted);margin-top:6px;">
-      ${t("Check the networks you want to see. Uncheck all to show everything.")}
-      </div>
-      </div>
-      <div style="margin-top:12px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-      <div style="font-size:0.85rem;font-weight:600;">${t("Custom device names")}</div>
-      <button type="button" id="proton-hosts-clear-all-aliases" class="cbi-button cbi-button-neutral" style="padding:2px 8px;font-size:0.75rem;">
-      ${t("Clear all")}
-      </button>
-      </div>
-      <div id="proton-hosts-aliases-list" style="max-height:150px;overflow-y:auto;padding:8px;border:1px solid var(--proton-border);border-radius:var(--proton-radius-sm);">
-      ${aliasesHtml}
-      </div>
-      </div>
-      <div>
-      <div style="font-size:0.85rem;font-weight:600;margin-bottom:6px;">${t("Custom subnets (CIDR)")}</div>
-      <input type="text" id="proton-hosts-filter-custom" class="cbi-input-text" style="width:100%;" placeholder="192.168.2.0/24, 10.0.0.0/8" value="${currentFilter.filter(s => !availableSubnets.has(s)).join(', ')}">
-      <div style="font-size:0.75rem;color:var(--proton-muted);margin-top:6px;">
-      ${t("Comma-separated CIDR. Adds to the list above.")}
-      </div>
-      </div>
-      </div>
-      <div class="proton-confirm-modal-actions">
-      <button type="button" class="cbi-button cbi-button-neutral" data-action="cancel">${t("Cancel")}</button>
-      <button type="button" class="cbi-button cbi-button-positive" data-action="save">${t("Save")}</button>
-      </div>
-      `;
-      overlay.appendChild(modal);
-      document.body.appendChild(overlay);
-      requestAnimationFrame(() => overlay.classList.add("is-open"));
-
-      const closeModal = () => {
-        overlay.classList.remove("is-open");
-        setTimeout(() => overlay.remove(), 220);
-      };
-
-      modal.querySelector('[data-action="cancel"]').addEventListener("click", closeModal);
-      overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
-
-      modal.querySelectorAll(".proton-hosts-alias-del").forEach(function (btn) {
-        btn.addEventListener("click", function (e) {
-          e.stopPropagation();
-          const mac = btn.dataset.mac;
-          if (!mac) return;
-          saveHostAlias(mac, "");
-          const row = btn.closest(".proton-hosts-alias-row");
-          if (row) row.remove();
-          if (modal.querySelectorAll(".proton-hosts-alias-row").length === 0) {
-            const listEl = modal.querySelector("#proton-hosts-aliases-list");
-            if (listEl) listEl.innerHTML = '<div style="font-size:0.85rem;color:var(--proton-muted);">' + t("No custom names yet") + '</div>';
-          }
-        });
-      });
-
-      const clearAllBtn = modal.querySelector("#proton-hosts-clear-all-aliases");
-      if (clearAllBtn) {
-        clearAllBtn.addEventListener("click", function () {
-          if (Object.keys(hostAliases).length === 0) return;
-          if (!confirm(t("Clear all custom device names?"))) return;
-          hostAliases = {};
-          const json = "{}";
-          try { localStorage.setItem("proton-host-aliases", json); } catch (e) {}
-          if (window.protonSettingsSync && typeof window.protonSettingsSync.saveLocalKeyToUci === "function") {
-            window.protonSettingsSync.saveLocalKeyToUci("proton-host-aliases", json);
-          }
-          const listEl = modal.querySelector("#proton-hosts-aliases-list");
-          if (listEl) listEl.innerHTML = '<div style="font-size:0.85rem;color:var(--proton-muted);">' + t("No custom names yet") + '</div>';
-        });
-      }
-
-      modal.querySelector('[data-action="save"]').addEventListener("click", async () => {
-        const checked = Array.from(modal.querySelectorAll(".proton-hosts-filter-cb:checked")).map(cb => cb.value);
-        const customVal = modal.querySelector("#proton-hosts-filter-custom").value;
-        const custom = customVal.split(",").map(s => s.trim()).filter(Boolean);
-
-        const validCustom = custom.filter(c => /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(c));
-        if (validCustom.length !== custom.length) {
-          alert(t("Invalid CIDR format in custom subnets"));
-          return;
-        }
-
-        const finalFilter = [...new Set([...checked, ...validCustom])];
-
-        let isAllSelected = false;
-        if (availableSubnets.size > 0 && validCustom.length === 0) {
-          isAllSelected = Array.from(availableSubnets).every(sub => finalFilter.includes(sub));
-        }
-
-        const payload = isAllSelected ? [] : finalFilter;
-
-        localStorage.setItem("proton-hosts-filter", JSON.stringify(payload));
-        if (window.protonSettingsSync && typeof window.protonSettingsSync.saveLocalKeyToUci === "function") {
-          await window.protonSettingsSync.saveLocalKeyToUci("proton-hosts-filter", JSON.stringify(finalFilter));
-        }
-        hostsFilterSubnets = null;
-        closeModal();
-        poll();
-      });
-    });
-  }
-
-  async function start() {
-    const card = ensureCard();
-    if (!card) return false;
-    if (pollTimer) return true;
-
-    hostAliases = loadHostAliases();
-    initTooltip();
-
-    const settingsBtn = card.querySelector('[data-role="hosts-settings"]');
-    if (settingsBtn && !settingsBtn.dataset.protonBound) {
-      settingsBtn.dataset.protonBound = "1";
-      settingsBtn.addEventListener("click", openHostsFilterModal);
-    }
-
-    await fetchLocalAddressesAndSubnets();
-    poll();
-    pollTimer = setInterval(poll, POLL_INTERVAL);
-
-    visibilityHandler = () => { if (!document.hidden) poll(); };
-    document.addEventListener("visibilitychange", visibilityHandler);
-    return true;
-  }
-
-  function stop() {
-    mounted = false;
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-    if (visibilityHandler) { document.removeEventListener("visibilitychange", visibilityHandler); visibilityHandler = null; }
-  }
-
-  function isOverviewPage() {
-    return document.body.dataset.page === "admin-status-overview" || window.location.pathname.includes("/admin/status/overview");
-  }
-
-  function init() {
-    if (!isOverviewPage()) return;
-    start();
-  }
-
-  let tooltipEl = null;
-  let lastHoveredRow = null;
-  let lastMouseX = 0;
-  let lastMouseY = 0;
-  let isHoveringList = false;
-
-  function initTooltip() {
-    if (tooltipEl) return;
-    tooltipEl = document.createElement("div");
-    tooltipEl.className = "proton-hosts-tooltip";
-    tooltipEl.style.display = "none";
-    document.body.appendChild(tooltipEl);
-
-    document.addEventListener("mousemove", (e) => {
-      lastMouseX = e.clientX;
-      lastMouseY = e.clientY;
-      if (!isHoveringList) return;
-
-      const row = e.target.closest(".proton-hosts-row");
-      if (row && row === lastHoveredRow) {
-        updateTooltipPosition();
-      } else if (row) {
-        lastHoveredRow = row;
-        showTooltip(row);
-      } else if (lastHoveredRow && !e.target.closest(".proton-hosts-list-inner")) {
-        hideTooltip();
-      }
-    }, { passive: true });
-
-    const list = document.querySelector(".proton-hosts-list");
-    if (list) {
-      list.addEventListener("mouseenter", () => { isHoveringList = true; });
-      list.addEventListener("mouseleave", () => { isHoveringList = false; hideTooltip(); });
-    }
-  }
-
-  function showTooltip(row) {
-    if (!tooltipEl) return;
-    const name = row.dataset.hName || "";
-    const ipv4 = row.dataset.hIpv4 || "";
-    const ipv6 = row.dataset.hIpv6 || "";
-    const rx = row.dataset.hRx || "0 B";
-    const tx = row.dataset.hTx || "0 B";
-    const mac = row.dataset.mac || "";
-
-    let html = '<div class="proton-hosts-tooltip-title">' + escapeHtml(name) + '</div>';
-    if (ipv4) html += '<div class="proton-hosts-tooltip-row"><strong>IPv4:</strong> ' + escapeHtml(ipv4) + '</div>';
-    if (ipv6) html += '<div class="proton-hosts-tooltip-row"><strong>IPv6:</strong> ' + escapeHtml(ipv6) + '</div>';
-    html += '<div class="proton-hosts-tooltip-row"><strong>MAC:</strong> ' + escapeHtml(mac) + '</div>';
-    html += '<div class="proton-hosts-tooltip-divider"></div>';
-    html += '<div class="proton-hosts-tooltip-row"><strong>' + t("Total RX") + ':</strong> ' + escapeHtml(rx) + '</div>';
-    html += '<div class="proton-hosts-tooltip-row"><strong>' + t("Total TX") + ':</strong> ' + escapeHtml(tx) + '</div>';
-
-    tooltipEl.innerHTML = html;
-    tooltipEl.style.display = "block";
-    updateTooltipPosition();
-  }
-
-  function updateTooltipPosition() {
-    if (!tooltipEl || tooltipEl.style.display === "none") return;
-    let x = lastMouseX + 15;
-    let y = lastMouseY + 15;
-    const rect = tooltipEl.getBoundingClientRect();
-    if (x + rect.width > window.innerWidth - 10) x = lastMouseX - rect.width - 10;
-    if (y + rect.height > window.innerHeight - 10) y = lastMouseY - rect.height - 10;
-    tooltipEl.style.left = x + "px";
-    tooltipEl.style.top = y + "px";
-  }
-
-  function hideTooltip() {
-    if (tooltipEl) tooltipEl.style.display = "none";
-    lastHoveredRow = null;
-  }
-
-  window.ProtonDashboardHosts = { start, stop };
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+	"use strict";
+
+	const META_MS = 20000;
+	const RATE_MIN = 800, RATE_MAX = 8000;
+	const SPARK_MAX_POINTS = 240;
+	const WIFI_TTL = 24 * 3600 * 1000;
+	const CPU_BUDGET = 0.06;
+
+	// Канонические ключи. K_FILTER и K_ALIASES есть в SETTINGS_MAP → живут в UCI.
+	const K_FILTER  = "proton-hosts-filter";
+	const K_FILTER_MINE = "proton-hosts-network-filter";
+	const K_ALIASES = "proton-host-aliases";
+	const K_CUSTOM  = "proton-hosts-custom-subnets";
+	const K_PREFS   = "proton-hosts-prefs";
+	const K_FILTER_OLD  = "proton-hosts-filter";
+	const K_ALIASES_OLD = "proton-hosts-aliases";
+
+	const DEFAULTS = {
+		sort: "activity", units: "bytes", release: 2.0,
+		hot: 1048576, speed: "auto", window: 60
+	};
+
+	let prefs = Object.assign({}, DEFAULTS);
+	let hostAliases = {}, filterSubnets = null;
+	let detectedSubnets = new Set(), customSubnets = [], availableSubnets = new Set();
+
+	let mounted = false, rateTimer = null, metaTimer = null;
+	let rateBusy = false, metaBusy = false, editing = false;
+	let visHandler = null, syncHandler = null;
+
+	let rpcRates, rpcAcct, rpcTraffic, rpcHints, rpcLeases, rpcIwDev, rpcIwAssoc, rpcIfaces;
+
+	const registry = new Map();
+	const ipToMac = new Map();
+	const rateState = new Map();
+	const rowRefs = new Map();
+	const wifiCache = new Map();
+	const synthetic = new Map();
+
+	let localIPs = new Set(), vpnSubnets = [];
+	let listSignature = "";
+	let source = "—", coarse = false, offloaded = 0, connCount = 0;
+	let rtt = 40, totalRate = 0, interval = 1500, lastOrder = 0;
+	let tipEl = null, tipRow = null, mouseX = 0, mouseY = 0;
+
+	const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+	/* ── utils ── */
+
+	function t(v) {
+		if (typeof window.protonT === "function") {
+			try { const s = window.protonT(v); if (s && s !== v) return s; } catch (e) {}
+		}
+		if (window.L && typeof L.tr === "function") { const s = L.tr(v); if (s && s !== v) return s; }
+		return v;
+	}
+	function esc(v) {
+		return String(v == null ? "" : v).replace(/[&<>"']/g, c =>
+			({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+	}
+	function normMac(m) {
+		const s = String(m || "").toLowerCase().replace(/[^0-9a-f]/g, "");
+		return s.length === 12 ? s.match(/../g).join(":") : null;
+	}
+	function bareIp(v) { return String(v || "").split("/")[0].split("%")[0].trim(); }
+	function readLS(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+	function writeLS(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+	function uciSave(k, v) {
+		if (window.protonSettingsSync && typeof window.protonSettingsSync.saveLocalKeyToUci === "function")
+			return window.protonSettingsSync.saveLocalKeyToUci(k, v);
+		return Promise.resolve(false);
+	}
+	function persist(k, v) { writeLS(k, v); uciSave(k, v); }
+
+	function formatBytes(b) {
+		b = Number(b) || 0;
+		const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
+		while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+		return (i === 0 ? b.toFixed(0) : b.toFixed(b < 10 ? 2 : 1)) + " " + u[i];
+	}
+	function formatRate(bps) {
+		bps = Math.max(0, Number(bps) || 0);
+		if (prefs.units === "bits") {
+			let v = bps * 8; const u = ["bit/s", "Kbit/s", "Mbit/s", "Gbit/s"]; let i = 0;
+			while (v >= 1000 && i < u.length - 1) { v /= 1000; i++; }
+			return (i === 0 ? v.toFixed(0) : v.toFixed(v < 10 ? 2 : 1)) + " " + u[i];
+		}
+		let v = bps; const u = ["B/s", "KB/s", "MB/s", "GB/s"]; let i = 0;
+		while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+		return (i === 0 ? v.toFixed(0) : v.toFixed(v < 10 ? 2 : 1)) + " " + u[i];
+	}
+	// nlbwmon приоритетен; для пиров без nlbw-записей — сессионные тоталы conntrack.
+	function totalBytes(h, dir) {
+		const nlbw = dir === "rx" ? (h.rxBytes || 0) : (h.txBytes || 0);
+		const sess = dir === "rx" ? (h.sessRx || 0) : (h.sessTx || 0);
+		return nlbw > 0 ? nlbw : sess;
+	}
+
+	/* ── CIDR ── */
+
+	function ip4ToInt(ip) {
+		const p = bareIp(ip).split(".");
+		if (p.length !== 4) return null;
+		let n = 0;
+		for (const o of p) {
+			if (!/^\d{1,3}$/.test(o)) return null;
+			const v = parseInt(o, 10);
+			if (v > 255) return null;
+			n = n * 256 + v;
+		}
+		return n >>> 0;
+	}
+	function ip6ToHex(ip) {
+		let s = bareIp(ip).toLowerCase();
+		if (!s) return null;
+		if (s.indexOf(".") >= 0) {
+			const i = s.lastIndexOf(":");
+			const v = ip4ToInt(s.slice(i + 1));
+			if (v === null) return null;
+			s = s.slice(0, i + 1) + ((v >>> 16) & 0xffff).toString(16) + ":" + (v & 0xffff).toString(16);
+		}
+		const halves = s.split("::");
+		if (halves.length > 2) return null;
+		let groups;
+		if (halves.length === 2) {
+			const head = halves[0] ? halves[0].split(":") : [];
+			const tail = halves[1] ? halves[1].split(":") : [];
+			const miss = 8 - head.length - tail.length;
+			if (miss < 0) return null;
+			groups = head.concat(new Array(miss).fill("0"), tail);
+		} else groups = s.split(":");
+		if (groups.length !== 8) return null;
+		let out = "";
+		for (const g of groups) {
+			if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+			out += g.padStart(4, "0");
+		}
+		return out;
+	}
+	function ip4InNet(ip, cidr) {
+		const [net, raw] = String(cidr).split("/");
+		const bits = raw === undefined ? 32 : parseInt(raw, 10);
+		if (!(bits >= 0 && bits <= 32)) return false;
+		const a = ip4ToInt(ip), b = ip4ToInt(net);
+		if (a === null || b === null) return false;
+		if (bits === 0) return true;
+		const sh = 32 - bits;
+		return (a >>> sh) === (b >>> sh);
+	}
+	function ip6InNet(ip, cidr) {
+		const [net, raw] = String(cidr).split("/");
+		const bits = raw === undefined ? 128 : parseInt(raw, 10);
+		if (!(bits >= 0 && bits <= 128)) return false;
+		const a = ip6ToHex(ip), b = ip6ToHex(net);
+		if (!a || !b) return false;
+		const full = Math.floor(bits / 4), rem = bits % 4;
+		if (a.slice(0, full) !== b.slice(0, full)) return false;
+		if (rem === 0) return true;
+		const sh = 4 - rem;
+		return (parseInt(a[full], 16) >> sh) === (parseInt(b[full], 16) >> sh);
+	}
+	function normalizeCidr(raw) {
+		const s = String(raw || "").trim();
+		if (!s) return null;
+		const parts = s.split("/");
+		if (parts.length > 2) return null;
+		const addr = parts[0].trim();
+		const is6 = addr.indexOf(":") >= 0;
+		const max = is6 ? 128 : 32;
+		let bits = max;
+		if (parts.length === 2) {
+			if (!/^\d{1,3}$/.test(parts[1].trim())) return null;
+			bits = parseInt(parts[1], 10);
+			if (bits > max) return null;
+		}
+		if (is6 ? !ip6ToHex(addr) : ip4ToInt(addr) === null) return null;
+		return (is6 ? addr.toLowerCase() : addr) + "/" + bits;
+	}
+	function networkOf(ip, bits) {
+		if (String(ip).indexOf(":") >= 0) {
+			const h = ip6ToHex(ip);
+			if (!h) return null;
+			const b = Math.max(0, Math.min(128, bits | 0));
+			const keep = Math.floor(b / 4), rem = b % 4;
+			let out = h.slice(0, keep);
+			if (rem) out += (parseInt(h[keep], 16) & (0xf << (4 - rem))).toString(16);
+			out = out.padEnd(32, "0");
+			const g = out.match(/.{4}/g).map(x => x.replace(/^0+(?=.)/, ""));
+			return g.join(":") + "/" + b;
+		}
+		const v = ip4ToInt(ip);
+		if (v === null) return null;
+		const b = Math.max(0, Math.min(32, bits | 0));
+		const mask = b === 0 ? 0 : (0xffffffff << (32 - b)) >>> 0;
+		const n = (v & mask) >>> 0;
+		return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join(".") + "/" + b;
+	}
+	function inSubnet(ip) {
+		if (!filterSubnets) return true;
+		const v = bareIp(ip);
+		if (!v) return false;
+		const is6 = v.indexOf(":") >= 0;
+		for (const cidr of filterSubnets) {
+			if ((cidr.indexOf(":") >= 0) !== is6) continue;
+			if (is6 ? ip6InNet(v, cidr) : ip4InNet(v, cidr)) return true;
+		}
+		return false;
+	}
+	function inNetOf(ip, cidr) {
+		if (!ip) return false;
+		return ip.indexOf(":") >= 0 ? ip6InNet(ip, cidr) : ip4InNet(ip, cidr);
+	}
+
+	/* ── persistence ── */
+
+	function loadPrefs() {
+		try {
+			const raw = readLS(K_PREFS);
+			if (raw) Object.assign(prefs, JSON.parse(raw));
+		} catch (e) {}
+		prefs.release = Math.min(8, Math.max(0.3, Number(prefs.release) || 2));
+		prefs.hot = Math.max(4096, Number(prefs.hot) || DEFAULTS.hot);
+		prefs.window = [30, 60, 120].indexOf(Number(prefs.window)) >= 0 ? Number(prefs.window) : 60;
+		if (["activity", "name"].indexOf(prefs.sort) < 0) prefs.sort = "activity";
+		if (["bytes", "bits"].indexOf(prefs.units) < 0) prefs.units = "bytes";
+		if (["auto", "fast", "calm"].indexOf(prefs.speed) < 0) prefs.speed = "auto";
+	}
+	function savePrefs() { persist(K_PREFS, JSON.stringify(prefs)); }
+
+	function loadAliases() {
+		let out = {};
+		try { out = JSON.parse(readLS(K_ALIASES) || "{}") || {}; } catch (e) {}
+		if (typeof out !== "object" || Array.isArray(out)) out = {};
+		try {
+			const alt = JSON.parse(readLS(K_ALIASES_OLD) || "{}") || {};
+			const keys = Object.keys(alt);
+			if (keys.length) {
+				for (const k of keys) if (!out[k]) out[k] = alt[k];
+				try { localStorage.removeItem(K_ALIASES_OLD); } catch (e) {}
+				writeLS(K_ALIASES, JSON.stringify(out));
+				uciSave(K_ALIASES, JSON.stringify(out));
+			}
+		} catch (e) {}
+		hostAliases = out;
+	}
+	function persistAliases() { persist(K_ALIASES, JSON.stringify(hostAliases)); }
+	function saveHostAlias(mac, name) {
+		const v = String(name || "").trim();
+		if (v) hostAliases[mac] = v; else delete hostAliases[mac];
+		persistAliases();
+	}
+
+	function loadCustom() {
+		try {
+			const arr = JSON.parse(readLS(K_CUSTOM) || "[]");
+			customSubnets = Array.isArray(arr)
+				? Array.from(new Set(arr.map(normalizeCidr).filter(Boolean))) : [];
+		} catch (e) { customSubnets = []; }
+	}
+	function saveCustom() { persist(K_CUSTOM, JSON.stringify(customSubnets)); }
+
+	function loadFilter() {
+		let arr = null;
+		try { arr = JSON.parse(readLS(K_FILTER) || "null"); } catch (e) {}
+		if (!Array.isArray(arr) || !arr.length) {
+			try {
+				const mine = JSON.parse(readLS(K_FILTER_MINE) || "null");
+				if (Array.isArray(mine) && mine.length) {
+					arr = mine;
+					writeLS(K_FILTER, JSON.stringify(mine));
+					uciSave(K_FILTER, JSON.stringify(mine));
+					try { localStorage.removeItem(K_FILTER_MINE); } catch (e) {}
+				}
+			} catch (e) {}
+		}
+		if (Array.isArray(arr) && arr.length) {
+			const norm = Array.from(new Set(arr.map(normalizeCidr).filter(Boolean)));
+			filterSubnets = norm.length ? new Set(norm) : null;
+		} else filterSubnets = null;
+	}
+	function saveFilter() {
+		persist(K_FILTER, JSON.stringify(filterSubnets ? Array.from(filterSubnets) : []));
+	}
+
+	function rebuildSubnets() {
+		availableSubnets = new Set([...detectedSubnets, ...customSubnets]);
+		if (filterSubnets) for (const s of filterSubnets) availableSubnets.add(s);
+	}
+
+	function watchedNetworks() {
+		const out = new Set(availableSubnets);
+		for (const s of customSubnets) out.add(s);
+		if (filterSubnets) for (const s of filterSubnets) out.add(s);
+		return Array.from(out);
+	}
+
+	/* ── RPC ── */
+
+	function ensureRpc() {
+		if (!window.L || !L.rpc || typeof L.rpc.declare !== "function") return false;
+		const d = (o, m) => L.rpc.declare({ object: o, method: m, expect: { "": {} } });
+		if (!rpcRates) rpcRates = L.rpc.declare({
+			object: "luci.proton-hostrates", method: "getRates",
+			params: ["networks"], expect: { "": {} }
+		});
+		rpcAcct    = rpcAcct    || d("luci.proton-hostrates", "enableAccounting");
+		rpcTraffic = rpcTraffic || d("luci.proton-nlbw", "getHostTraffic");
+		rpcHints   = rpcHints   || d("luci-rpc", "getHostHints");
+		rpcLeases  = rpcLeases  || d("luci-rpc", "getDHCPLeases");
+		rpcIwDev   = rpcIwDev   || d("iwinfo", "devices");
+		rpcIwAssoc = rpcIwAssoc || L.rpc.declare({
+			object: "iwinfo", method: "assoclist", params: ["device"], expect: { "": {} }
+		});
+		rpcIfaces  = rpcIfaces  || d("network.interface", "dump");
+		return true;
+	}
+	const soft = p => Promise.resolve(p).catch(() => null);
+
+	/* ── сетевой контекст ── */
+
+	async function fetchContext() {
+		const dump = await soft(rpcIfaces());
+		localIPs = new Set(); vpnSubnets = [];
+		const found = new Set();
+		if (dump && Array.isArray(dump.interface)) {
+			for (const i of dump.interface) {
+				const name = String(i.interface || "").toLowerCase();
+				if (name === "loopback") continue;
+				const dev = String(i.device || i.l3_device || i.ifname || "").toLowerCase();
+				const proto = String(i.proto || "").toLowerCase();
+				const isVpn = proto === "wireguard" || /^(wg|zt|tun|tap|ppp|l2tp)/.test(dev);
+
+				for (const a of (i["ipv4-address"] || [])) {
+					if (!a || !a.address) continue;
+					if (a.address.startsWith("127.")) continue;
+					localIPs.add(a.address);
+					const net = networkOf(a.address, a.mask == null ? 24 : a.mask);
+					if (net) { found.add(net); if (isVpn) vpnSubnets.push(net); }
+				}
+				for (const p of (i["ipv6-prefix"] || [])) {
+					if (!p || !p.address) continue;
+					const net = networkOf(p.address, p.mask == null ? 64 : p.mask);
+					if (net) { found.add(net); if (isVpn) vpnSubnets.push(net); }
+				}
+			}
+		}
+		detectedSubnets = found;
+		rebuildSubnets();
+	}
+
+	/* ── реестр хостов (медленный цикл) ── */
+
+	function groupOf(h) { return h.type === "wifi" ? "wifi" : h.type === "remote" ? "net" : "lan"; }
+
+	function makeSynthetic(ip) {
+		const mac = "ip:" + ip;
+		const is6 = ip.indexOf(":") >= 0;
+		const h = {
+			mac, ips: [ip], ip: is6 ? "" : ip, ipv6: is6 ? ip : "",
+			name: "", type: "remote", signal: null, rxBytes: 0, txBytes: 0
+		};
+		h.display = hostAliases[mac] || ip;
+		synthetic.set(ip, h);
+		return h;
+	}
+
+	async function collectMeta() {
+		if (metaBusy || !mounted) return;
+		metaBusy = true;
+		try {
+			const [hints, leases, traffic, devs] = await Promise.all([
+				soft(rpcHints()), soft(rpcLeases()), soft(rpcTraffic()), soft(rpcIwDev())
+			]);
+
+			const seen = new Map();
+			const put = mac => {
+				if (!mac) return null;
+				let h = seen.get(mac);
+				if (!h) {
+					h = { mac, ips: [], name: "", type: "lan", signal: null, rxBytes: 0, txBytes: 0 };
+					seen.set(mac, h);
+				}
+				return h;
+			};
+			const addIp = (h, ip) => {
+				const v = bareIp(ip);
+				if (v && h.ips.indexOf(v) < 0) h.ips.push(v);
+			};
+
+			if (hints) for (const k in hints) {
+				const h = put(normMac(k)); if (!h) continue;
+				const src = hints[k] || {};
+				(src.ipaddrs || []).forEach(x => addIp(h, x));
+				(src.ip6addrs || []).forEach(x => addIp(h, x));
+				if (src.name) h.name = src.name;
+			}
+
+			const l4 = (leases && leases.dhcp_leases) || [];
+			const l6 = (leases && leases.dhcp6_leases) || [];
+			for (const l of l4.concat(l6)) {
+				const h = put(normMac(l.macaddr)); if (!h) continue;
+				addIp(h, l.ipaddr || l.ip6addr);
+				if (l.hostname && !h.name) h.name = l.hostname;
+			}
+
+			if (traffic && traffic.success && traffic.hosts) for (const k in traffic.hosts) {
+				const h = put(normMac(k)); if (!h) continue;
+				h.rxBytes = Number(traffic.hosts[k].rx_bytes) || 0;
+				h.txBytes = Number(traffic.hosts[k].tx_bytes) || 0;
+			}
+
+			if (devs && Array.isArray(devs.result)) {
+				for (const dev of devs.result) {
+					const list = await soft(rpcIwAssoc(dev));
+					for (const st of ((list && list.results) || [])) {
+						const mac = normMac(st.mac); if (!mac) continue;
+						wifiCache.set(mac, { at: Date.now(), signal: st.signal });
+						const h = put(mac); if (!h) continue;
+						h.type = "wifi"; h.signal = st.signal;
+					}
+				}
+			}
+
+			const now = Date.now();
+			for (const [mac, c] of wifiCache) {
+				if (now - c.at > WIFI_TTL) { wifiCache.delete(mac); continue; }
+				const h = seen.get(mac);
+				if (h) { h.type = "wifi"; if (h.signal == null) h.signal = c.signal; }
+			}
+
+			// Пиры за WAN, найденные conntrack — сохраняем между циклами.
+			for (const [ip, sh] of synthetic) {
+				if (seen.has(sh.mac)) continue;
+				const h = put(sh.mac);
+				if (h) { h.ips = [ip]; h.type = "remote"; h.ip = sh.ip; h.ipv6 = sh.ipv6; }
+			}
+
+			registry.clear(); ipToMac.clear();
+			for (const [mac, h] of seen) {
+				h.ips.sort((a, b) => (a.indexOf(":") < 0 ? 0 : 1) - (b.indexOf(":") < 0 ? 0 : 1));
+				h.ip = h.ips.find(x => x.indexOf(":") < 0) || "";
+				h.ipv6 = h.ips.find(x => x.indexOf(":") >= 0) || "";
+				if (h.type !== "remote" && localIPs.has(h.ip)) continue;
+				if (h.type !== "wifi" && h.type !== "remote" && vpnSubnets.some(s => inNetOf(h.ip, s)))
+					h.type = "lan-vpn";
+				h.display = hostAliases[mac] || h.name || h.ip || h.ipv6 || mac;
+				const prev = rateState.get(mac);
+				h.rateRx = prev ? prev.rx : 0;
+				h.rateTx = prev ? prev.tx : 0;
+				registry.set(mac, h);
+				for (const ip of h.ips) ipToMac.set(ip, mac);
+			}
+
+			renderList();
+		} finally { metaBusy = false; }
+	}
+
+	function refreshNames() {
+		for (const [mac, h] of registry)
+			h.display = hostAliases[mac] || h.name || h.ip || h.ipv6 || mac;
+		for (const [ip, h] of synthetic) h.display = hostAliases[h.mac] || ip;
+		listSignature = "";
+		renderList();
+	}
+
+	/* ── скорость (быстрый цикл) ── */
+
+	function stateFor(mac) {
+		let s = rateState.get(mac);
+		if (!s) {
+			s = { prevRx: null, prevTx: null, prevT: 0, lastT: 0,
+			      rx: 0, tx: 0, samples: [], scale: 65536 };
+			rateState.set(mac, s);
+		}
+		return s;
+	}
+
+	function pickInterval() {
+		if (prefs.speed === "calm") return 4000;
+		if (prefs.speed === "fast") return Math.max(RATE_MIN, Math.ceil(rtt / CPU_BUDGET));
+		const base = totalRate > 262144 ? 1000 : totalRate > 16384 ? 1500 : 4000;
+		const floor = connCount > 6000 ? 3000 : connCount > 2500 ? 1500 : RATE_MIN;
+		return Math.min(RATE_MAX, Math.max(base, floor, Math.ceil(rtt / CPU_BUDGET)));
+	}
+
+	function schedule() {
+		if (!mounted) return;
+		if (rateTimer) clearTimeout(rateTimer);
+		rateTimer = setTimeout(tickRates, interval);
+	}
+
+	async function tickRates() {
+		rateTimer = null;
+		if (!mounted || document.hidden || rateBusy) return schedule();
+		rateBusy = true;
+		const t0 = performance.now();
+		let res = null;
+		try { res = await soft(rpcRates(watchedNetworks().join(","))); }
+		finally { rateBusy = false; }
+		rtt = rtt * 0.7 + (performance.now() - t0) * 0.3;
+
+		const card = document.getElementById("proton-dashboard-hosts");
+		if (!card || !mounted) return;
+
+		if (!res || !res.success) {
+			const acctOff = res && res.reason === "acct-off";
+			source = acctOff ? "acct-off" : "offline";
+			setStatus(card, acctOff ? "warn" : "err");
+			renderNotice(card);
+			return schedule();
+		}
+
+		source = res.source; coarse = !!res.coarse;
+		connCount = res.conns || 0; offloaded = res.offloaded || 0;
+		setStatus(card, coarse || offloaded > 0 ? "warn" : "ok");
+		renderNotice(card);
+
+		const now = performance.now(), tSec = now / 1000;
+		const byMac = new Map();
+		let listDirty = false;
+
+		if (res.keyBy === "mac") {
+			for (const k in res.hosts) { const m = normMac(k); if (m) byMac.set(m, res.hosts[k]); }
+		} else {
+			for (const ip in res.hosts) {
+				let mac = ipToMac.get(ip);
+				if (!mac) {
+					let sh = synthetic.get(ip);
+					if (!sh) { sh = makeSynthetic(ip); listDirty = true; }
+					mac = sh.mac;
+					ipToMac.set(ip, mac);
+					if (!registry.has(mac)) {
+						sh.display = hostAliases[mac] || ip;
+						sh.rateRx = 0; sh.rateTx = 0;
+						registry.set(mac, sh);
+						listDirty = true;
+					}
+				}
+				const cur = byMac.get(mac) || { rx: 0, tx: 0 };
+				cur.rx += Number(res.hosts[ip].rx) || 0;
+				cur.tx += Number(res.hosts[ip].tx) || 0;
+				byMac.set(mac, cur);
+			}
+		}
+
+		if (listDirty) renderList();
+
+		// Сессионные тоталы conntrack, сгруппированные по MAC.
+		const totByMac = new Map();
+		if (res.totals) for (const ip in res.totals) {
+			const mac = ipToMac.get(ip);
+			if (!mac) continue;
+			const cur = totByMac.get(mac) || { rx: 0, tx: 0 };
+			cur.rx += Number(res.totals[ip].rx) || 0;
+			cur.tx += Number(res.totals[ip].tx) || 0;
+			totByMac.set(mac, cur);
+		}
+
+		totalRate = 0;
+		let totalTx = 0;
+		for (const [mac, h] of registry) {
+			const s = stateFor(mac);
+			const c = byMac.get(mac);
+			const tt = totByMac.get(mac);
+			if (tt) { h.sessRx = tt.rx; h.sessTx = tt.tx; }
+			let rawRx = 0, rawTx = 0;
+
+			if (c) {
+				if (s.prevRx != null) {
+					const dt = (now - s.prevT) / 1000;
+					const dRx = c.rx - s.prevRx, dTx = c.tx - s.prevTx;
+					if (dt > 0.15 && dt < 30 && dRx >= 0 && dTx >= 0) { rawRx = dRx / dt; rawTx = dTx / dt; }
+				}
+				s.prevRx = c.rx; s.prevTx = c.tx; s.prevT = now;
+			}
+
+			const dt = Math.max(0.05, (now - (s.lastT || now)) / 1000);
+			s.lastT = now;
+			const k = reduceMotion ? 1 : 1 - Math.exp(-dt / prefs.release);
+			s.rx = rawRx >= s.rx ? rawRx : s.rx + (rawRx - s.rx) * k;
+			s.tx = rawTx >= s.tx ? rawTx : s.tx + (rawTx - s.tx) * k;
+			if (s.rx < 512) s.rx = 0;
+			if (s.tx < 512) s.tx = 0;
+
+			s.samples.push({ t: tSec, rx: rawRx, tx: rawTx });
+			const cut = tSec - prefs.window - 3;
+			while (s.samples.length && (s.samples[0].t < cut || s.samples.length > SPARK_MAX_POINTS))
+				s.samples.shift();
+
+			h.rateRx = s.rx; h.rateTx = s.tx;
+			totalRate += s.rx; totalTx += s.tx;
+		}
+
+		paintRates(card, false, totalTx);
+		interval = pickInterval();
+		schedule();
+	}
+
+	/* ── спарклайн ── */
+
+	function sparkPaths(samples, tNow, maxV) {
+		const W = 120, H = 34, P = 3, t0 = tNow - prefs.window, y0 = H - P, ih = H - 2 * P;
+		const pts = [];
+		for (const s of samples) {
+			if (s.t < t0) continue;
+			pts.push({ x: P + ((s.t - t0) / prefs.window) * (W - 2 * P),
+				rx: y0 - Math.min(1, s.rx / maxV) * ih,
+				tx: y0 - Math.min(1, s.tx / maxV) * ih });
+		}
+		if (!pts.length) pts.push({ x: P, rx: y0, tx: y0 }, { x: W - P, rx: y0, tx: y0 });
+		const a = pts[0], b = pts[pts.length - 1];
+		if (a.x > P) pts.unshift({ x: P, rx: a.rx, tx: a.tx });
+		if (b.x < W - P) pts.push({ x: W - P, rx: b.rx, tx: b.tx });
+		const line = k => pts.map((p, i) => (i ? " L " : "M ") + p.x.toFixed(1) + " " + p[k].toFixed(1)).join("");
+		const rx = line("rx");
+		return { rx, tx: line("tx"), area: rx + ` L ${W - P} ${y0} L ${P} ${y0} Z` };
+	}
+
+	/* ── рендер ── */
+
+	function visibleHosts() {
+		return Array.from(registry.values()).filter(h => {
+			if (!filterSubnets) return true;
+			return inSubnet(h.ip) || inSubnet(h.ipv6);
+		});
+	}
+	function ordered(list) {
+		if (prefs.sort === "activity")
+			return list.slice().sort((a, b) =>
+				((b.rateRx || 0) + (b.rateTx || 0)) - ((a.rateRx || 0) + (a.rateTx || 0)) ||
+				String(a.display).localeCompare(String(b.display)));
+		return list.slice().sort((a, b) => String(a.display).localeCompare(String(b.display)));
+	}
+	function signature(list) {
+		return list.map(h => [h.mac, h.display, h.ip, h.ipv6, h.type].join("~")).sort().join("|") +
+			"#" + prefs.sort + "#" + prefs.window;
+	}
+
+	function renderList() {
+		const card = document.getElementById("proton-dashboard-hosts");
+		if (!card || editing) return;
+		const list = card.querySelector('[data-role="list"]');
+		if (!list) return;
+
+		const hosts = visibleHosts();
+		const sig = signature(hosts);
+		if (sig === listSignature) return;
+		listSignature = sig;
+
+		rowRefs.clear();
+		list.innerHTML = "";
+
+		if (!hosts.length) {
+			list.innerHTML = '<li class="proton-hosts-empty">' + esc(t("No active clients")) + "</li>";
+			return;
+		}
+
+		for (const g of [{ k: "wifi", t: t("Wi-Fi") }, { k: "lan", t: "LAN" }, { k: "net", t: t("Network") }]) {
+			const items = ordered(hosts.filter(h => groupOf(h) === g.k));
+			if (!items.length) continue;
+			const head = document.createElement("li");
+			head.className = "proton-hosts-group";
+			head.dataset.group = g.k;
+			head.innerHTML = `<span>${esc(g.t)}</span><i>${items.length}</i>`;
+			list.appendChild(head);
+			for (const h of items) list.appendChild(buildRow(h));
+		}
+		const totalTx = Array.from(rateState.values()).reduce((s, x) => s + x.tx, 0);
+		paintRates(card, true, totalTx);
+	}
+
+	function buildRow(h) {
+		const li = document.createElement("li");
+		li.className = "proton-hosts-row";
+		li.dataset.mac = h.mac;
+		const icon = h.type === "wifi" ? "📶" : h.type === "remote" ? "🌐" : h.type === "lan-vpn" ? "🔒" : "🖥";
+		const label = h.type === "wifi" ? (h.signal != null ? h.signal + " dBm" : "Wi-Fi")
+			: h.type === "remote" ? t("Network") : h.type === "lan-vpn" ? "VPN" : "LAN";
+		li.innerHTML =
+			'<span class="proton-hosts-bar"></span>' +
+			'<span class="proton-hosts-icon">' + icon + "</span>" +
+			'<div class="proton-hosts-main">' +
+				'<div class="proton-hosts-top">' +
+					'<span class="proton-hosts-name" data-mac="' + esc(h.mac) + '" title="' + esc(t("Click to rename")) + '">' + esc(h.display) + "</span>" +
+					'<div class="proton-hosts-ips">' +
+						'<span class="proton-hosts-ip">' + esc(h.ip || "") + "</span>" +
+						'<span class="proton-hosts-ip proton-hosts-ipv6">' + esc(h.ipv6 || "") + "</span>" +
+					"</div>" +
+				"</div>" +
+				'<div class="proton-hosts-bottom">' +
+					'<span class="proton-hosts-type">' + esc(label) + "</span>" +
+					'<span class="proton-hosts-rates">' +
+						'<span class="proton-hosts-rate-rx">▼ 0 B/s</span>' +
+						'<span class="proton-hosts-rate-tx">▲ 0 B/s</span>' +
+					"</span>" +
+				"</div>" +
+			"</div>" +
+			'<div class="proton-hosts-chart">' +
+				'<svg viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true">' +
+					'<path class="proton-hosts-area"/>' +
+					'<path class="proton-hosts-sparkline-tx"/>' +
+					'<path class="proton-hosts-sparkline-rx"/>' +
+				"</svg>" +
+			"</div>";
+
+		rowRefs.set(h.mac, {
+			row: li,
+			rx: li.querySelector(".proton-hosts-rate-rx"),
+			tx: li.querySelector(".proton-hosts-rate-tx"),
+			prx: li.querySelector(".proton-hosts-sparkline-rx"),
+			ptx: li.querySelector(".proton-hosts-sparkline-tx"),
+			area: li.querySelector(".proton-hosts-area"),
+			lastRx: "", lastTx: "", hot: false
+		});
+		return li;
+	}
+
+	function paintRates(card, force, totalTx) {
+		const tNow = performance.now() / 1000;
+		const hotV = prefs.hot;
+		let tx = totalTx;
+		if (tx == null) { tx = 0; for (const [, s] of rateState) tx += s.tx; }
+
+		for (const [mac, ref] of rowRefs) {
+			const s = rateState.get(mac);
+			if (!s) continue;
+			const rxTxt = "▼ " + formatRate(s.rx), txTxt = "▲ " + formatRate(s.tx);
+			if (force || rxTxt !== ref.lastRx) { ref.rx.textContent = rxTxt; ref.lastRx = rxTxt; }
+			if (force || txTxt !== ref.lastTx) { ref.tx.textContent = txTxt; ref.lastTx = txTxt; }
+
+			const hot = (s.rx + s.tx) >= hotV;
+			if (hot !== ref.hot) { ref.row.dataset.hot = hot ? "1" : "0"; ref.hot = hot; }
+			ref.row.dataset.active = (s.rx + s.tx) > 2048 ? "1" : "0";
+
+			let peak = 65536;
+			for (const p of s.samples) {
+				if (p.t < tNow - prefs.window) continue;
+				if (p.rx > peak) peak = p.rx;
+				if (p.tx > peak) peak = p.tx;
+			}
+			s.scale += (peak * 1.15 - s.scale) * 0.12;
+			const d = sparkPaths(s.samples, tNow, Math.max(4096, s.scale));
+			ref.prx.setAttribute("d", d.rx);
+			ref.ptx.setAttribute("d", d.tx);
+			ref.area.setAttribute("d", d.area);
+		}
+
+		const foot = card.querySelector('[data-role="total"]');
+		if (foot) foot.textContent = `▼ ${formatRate(totalRate)}  ▲ ${formatRate(tx)}`;
+
+		const meta = card.querySelector('[data-role="source"]');
+		if (meta) {
+			meta.dataset.mode = coarse ? "coarse" : "live";
+			meta.textContent = coarse ? t("nlbwmon · ~30 s") : `${t("live")} · ${(interval / 1000).toFixed(1)}s`;
+			meta.title = `${source} · ${connCount} ${t("connections")}` + (offloaded ? ` · ${offloaded} offloaded` : "");
+		}
+
+		if (prefs.sort === "activity" && tNow - lastOrder > 2.5) { lastOrder = tNow; reorder(card); }
+		if (tipRow) fillTip(tipRow);
+	}
+
+	function reorder(card) {
+		if (editing) return;
+		const list = card.querySelector('[data-role="list"]');
+		if (!list) return;
+		const hosts = visibleHosts();
+		const before = new Map();
+		for (const [mac, ref] of rowRefs) before.set(mac, ref.row.getBoundingClientRect().top);
+
+		for (const g of ["wifi", "lan", "net"]) {
+			const head = list.querySelector(`.proton-hosts-group[data-group="${g}"]`);
+			if (!head) continue;
+			let anchor = head;
+			for (const h of ordered(hosts.filter(x => groupOf(x) === g))) {
+				const ref = rowRefs.get(h.mac); if (!ref) continue;
+				if (anchor.nextSibling !== ref.row) list.insertBefore(ref.row, anchor.nextSibling);
+				anchor = ref.row;
+			}
+		}
+		if (reduceMotion) return;
+
+		const deltas = [];
+		for (const [mac, top] of before) {
+			const ref = rowRefs.get(mac); if (!ref) continue;
+			const dy = top - ref.row.getBoundingClientRect().top;
+			if (Math.abs(dy) > 0.5) deltas.push([ref.row, dy]);
+		}
+		for (const [el, dy] of deltas) { el.style.transition = "none"; el.style.transform = `translateY(${dy}px)`; }
+		requestAnimationFrame(() => {
+			for (const [el] of deltas) {
+				el.style.transition = "transform .45s cubic-bezier(.22,.61,.36,1)";
+				el.style.transform = "";
+			}
+		});
+	}
+
+	function renderNotice(card) {
+		const box = card.querySelector('[data-role="notice"]');
+		if (!box) return;
+		if (source === "acct-off") {
+			box.hidden = false;
+			box.innerHTML = `<span>${esc(t("Connection accounting is disabled"))}</span>` +
+				`<button type="button" data-role="enable-acct">${esc(t("Enable"))}</button>`;
+			const btn = box.querySelector('[data-role="enable-acct"]');
+			if (btn && !btn.dataset.bound) {
+				btn.dataset.bound = "1";
+				btn.addEventListener("click", async () => {
+					btn.disabled = true; btn.textContent = t("Please wait...");
+					await soft(rpcAcct());
+					box.hidden = true; interval = RATE_MIN; schedule();
+				});
+			}
+		} else if (offloaded > 0) {
+			box.hidden = false;
+			box.innerHTML = `<span>${esc(t("Flow offloading active — counters may lag"))}</span>`;
+		} else box.hidden = true;
+	}
+
+	function setStatus(card, state) {
+		const dot = card.querySelector('[data-role="status-dot"]');
+		if (dot) dot.dataset.state = state;
+	}
+
+	/* ── тултип ── */
+
+	function initTip(card) {
+		if (tipEl) return;
+		tipEl = document.createElement("div");
+		tipEl.className = "proton-hosts-tooltip";
+		tipEl.hidden = true;
+		document.body.appendChild(tipEl);
+
+		const list = card.querySelector('[data-role="list"]');
+		list.addEventListener("mousemove", e => {
+			mouseX = e.clientX; mouseY = e.clientY;
+			const row = e.target.closest(".proton-hosts-row");
+			if (row !== tipRow) { tipRow = row; row ? fillTip(row) : hideTip(); }
+			if (tipRow) placeTip();
+		});
+		list.addEventListener("mouseleave", () => { tipRow = null; hideTip(); });
+		list.addEventListener("scroll", () => { tipRow = null; hideTip(); }, { passive: true });
+	}
+	function fillTip(row) {
+		const h = registry.get(row.dataset.mac); if (!h) return;
+		const s = rateState.get(h.mac) || { rx: 0, tx: 0 };
+		const idLabel = h.mac.indexOf("ip:") === 0 ? "IP" : "MAC";
+		const idValue = h.mac.indexOf("ip:") === 0 ? h.mac.slice(3) : h.mac;
+		// nlbwmon ничего не знает о хосте → показываем сессионные тоталы и пометку.
+		const sess = !((h.rxBytes || 0) > 0 || (h.txBytes || 0) > 0);
+		tipEl.innerHTML =
+			`<b>${esc(h.display)}</b>` +
+			`<div class="tt-r"><span>${idLabel}</span><i>${esc(idValue)}</i></div>` +
+			(h.ip ? `<div class="tt-r"><span>IPv4</span><i>${esc(h.ip)}</i></div>` : "") +
+			(h.ipv6 ? `<div class="tt-r"><span>IPv6</span><i>${esc(h.ipv6)}</i></div>` : "") +
+			`<div class="tt-r"><span>${esc(t("Download"))}</span><i>${esc(formatRate(s.rx))}</i></div>` +
+			`<div class="tt-r"><span>${esc(t("Upload"))}</span><i>${esc(formatRate(s.tx))}</i></div>` +
+			`<div class="tt-sep"></div>` +
+			`<div class="tt-r"><span>${esc(t("Total RX"))}</span><i>${esc(formatBytes(totalBytes(h, "rx")))}</i></div>` +
+			`<div class="tt-r"><span>${esc(t("Total TX"))}</span><i>${esc(formatBytes(totalBytes(h, "tx")))}</i></div>` +
+			(sess ? `<div class="tt-note">${esc(t("Peer totals are session-based: they accumulate while the widget is open and reset when rpcd restarts."))}</div>` : "");
+		tipEl.hidden = false;
+		placeTip();
+	}
+	function placeTip() {
+		if (!tipEl || tipEl.hidden) return;
+		const r = tipEl.getBoundingClientRect();
+		let x = mouseX + 16, y = mouseY + 16;
+		if (x + r.width > innerWidth - 8) x = mouseX - r.width - 16;
+		if (y + r.height > innerHeight - 8) y = mouseY - r.height - 16;
+		tipEl.style.left = Math.max(8, x) + "px";
+		tipEl.style.top = Math.max(8, y) + "px";
+	}
+	function hideTip() { if (tipEl) tipEl.hidden = true; }
+
+	/* ── переименование ── */
+
+	function onNameClick(e) {
+		const el = e.target.closest(".proton-hosts-name");
+		if (!el || el.tagName === "INPUT") return;
+		e.stopPropagation();
+		const mac = el.dataset.mac, prev = el.textContent;
+		editing = true; hideTip();
+
+		const input = document.createElement("input");
+		input.type = "text"; input.className = "proton-hosts-name-edit";
+		input.value = hostAliases[mac] || ""; input.placeholder = prev; input.maxLength = 64;
+		el.replaceWith(input); input.focus(); input.select();
+
+		let done = false;
+		const finish = save => {
+			if (done) return; done = true;
+			const val = input.value.trim();
+			if (save) {
+				saveHostAlias(mac, val);
+				const h = registry.get(mac);
+				if (h) h.display = val || h.name || h.ip || h.ipv6 || mac;
+				const sh = synthetic.get(mac.slice(3));
+				if (sh) sh.display = val || sh.ip || sh.ipv6;
+			}
+			const span = document.createElement("span");
+			span.className = "proton-hosts-name";
+			span.dataset.mac = mac; span.title = t("Click to rename");
+			span.textContent = save ? (val || prev) : prev;
+			input.replaceWith(span);
+			editing = false; listSignature = ""; renderList();
+		};
+		input.addEventListener("keydown", ev => {
+			if (ev.key === "Enter") { ev.preventDefault(); finish(true); }
+			else if (ev.key === "Escape") { ev.preventDefault(); finish(false); }
+		});
+		input.addEventListener("blur", () => finish(true));
+	}
+
+	/* ── модалка ── */
+
+	function renderSubnetList(box) {
+		const subs = Array.from(availableSubnets).sort();
+		box.innerHTML = subs.length
+			? subs.map(s => `<label><input type="checkbox" class="proton-hosts-filter-cb" value="${esc(s)}" ${(!filterSubnets || filterSubnets.has(s)) ? "checked" : ""}><span>${esc(s)}</span></label>`).join("")
+			: `<i>${esc(t("No active clients"))}</i>`;
+	}
+	function renderAliasList(box) {
+		const keys = Object.keys(hostAliases).sort();
+		box.innerHTML = keys.length
+			? keys.map(mac => `
+				<div class="proton-hosts-alias-row" data-mac="${esc(mac)}">
+					<span class="ph-alias-mac">${esc(mac.indexOf("ip:") === 0 ? mac.slice(3) : mac)}</span>
+					<span class="ph-alias-name">${esc(hostAliases[mac])}</span>
+					<button type="button" class="ph-alias-del" data-mac="${esc(mac)}" title="${esc(t("Remove"))}" aria-label="${esc(t("Remove"))}">×</button>
+				</div>`).join("")
+			: `<div class="ph-alias-empty">${esc(t("No custom names yet"))}</div>`;
+	}
+
+	async function openSettings() {
+		const old = document.querySelector(".proton-hosts-modal-overlay");
+		if (old) old.remove();
+
+		// UCI — источник истины: дожидаемся синхронизации, иначе покажем старое.
+		if (window.protonSettingsSync && typeof window.protonSettingsSync.forceSync === "function") {
+			try { await window.protonSettingsSync.forceSync(); } catch (e) {}
+		}
+		loadAliases(); loadCustom(); loadFilter();
+		await fetchContext();
+
+		const ov = document.createElement("div");
+		ov.className = "proton-confirm-modal-overlay proton-hosts-modal-overlay";
+
+		const modal = document.createElement("div");
+		modal.className = "proton-confirm-modal proton-network-modal proton-hosts-modal";
+		modal.setAttribute("role", "dialog");
+		modal.setAttribute("aria-modal", "true");
+		modal.setAttribute("aria-labelledby", "proton-hosts-modal-title");
+
+		modal.innerHTML = `
+			<h3 id="proton-hosts-modal-title">${esc(t("Hosts"))}</h3>
+			<div class="proton-hosts-modal-body">
+				<div class="proton-monitoring-row">
+					<label class="proton-monitoring-label" for="ph-sort">${esc(t("Sort"))}</label>
+					<select id="ph-sort" class="proton-monitoring-select" data-p="sort">
+						<option value="activity">${esc(t("By activity"))}</option>
+						<option value="name">${esc(t("By name"))}</option>
+					</select>
+				</div>
+				<div class="proton-monitoring-row">
+					<label class="proton-monitoring-label" for="ph-units">${esc(t("Units"))}</label>
+					<select id="ph-units" class="proton-monitoring-select" data-p="units">
+						<option value="bytes">MB/s</option><option value="bits">Mbit/s</option>
+					</select>
+				</div>
+				<div class="proton-monitoring-row">
+					<label class="proton-monitoring-label" for="ph-speed">${esc(t("Polling"))}</label>
+					<select id="ph-speed" class="proton-monitoring-select" data-p="speed">
+						<option value="auto">${esc(t("Adaptive"))}</option>
+						<option value="fast">${esc(t("Fast"))}</option>
+						<option value="calm">${esc(t("Economical"))}</option>
+					</select>
+				</div>
+				<div class="proton-monitoring-row">
+					<label class="proton-monitoring-label" for="ph-window">${esc(t("Chart window"))}</label>
+					<select id="ph-window" class="proton-monitoring-select" data-p="window">
+						<option value="30">30 s</option><option value="60">60 s</option><option value="120">120 s</option>
+					</select>
+				</div>
+				<div class="ph-slider">
+					<label for="ph-release">${esc(t("Fade time"))} <b data-out="release">${prefs.release.toFixed(1)}s</b></label>
+					<input type="range" id="ph-release" min="0.3" max="8" step="0.1" data-p="release" value="${prefs.release}">
+				</div>
+				<div class="ph-slider">
+					<label for="ph-hot">${esc(t("Highlight above"))} <b data-out="hot">${formatRate(prefs.hot)}</b></label>
+					<input type="range" id="ph-hot" min="14" max="24" step="0.25" data-p="hot" value="${Math.log2(prefs.hot).toFixed(2)}">
+				</div>
+
+				<div class="ph-block">
+					<label>${esc(t("Detected subnets"))}</label>
+					<div class="ph-subs-list" data-role="subnets"></div>
+					<small>${esc(t("Check the networks you want to see. Uncheck all to show everything."))}</small>
+				</div>
+
+				<div class="ph-block">
+					<div class="ph-block-head">
+						<label>${esc(t("Custom device names"))}</label>
+						<button type="button" class="ph-mini-btn" data-role="clear-aliases">${esc(t("Clear all"))}</button>
+					</div>
+					<div class="ph-alias-list" data-role="aliases"></div>
+				</div>
+
+				<div class="ph-block">
+					<label for="ph-cidr">${esc(t("Custom subnets (CIDR)"))}</label>
+					<input type="text" id="ph-cidr" class="ph-cidr" spellcheck="false" autocomplete="off"
+						placeholder="192.168.2.0/24, 10.0.0.0/8">
+					<small>${esc(t("Comma-separated CIDR. Adds to the list above."))}</small>
+					<div class="ph-cidr-err" data-role="cidr-err" hidden></div>
+				</div>
+			</div>
+			<div class="proton-confirm-modal-actions">
+				<button type="button" data-role="reset">${esc(t("Reset to default"))}</button>
+				<button type="button" class="primary" data-role="close">${esc(t("Done"))}</button>
+			</div>`;
+
+		ov.appendChild(modal);
+		document.body.appendChild(ov);
+
+		const subBox = modal.querySelector('[data-role="subnets"]');
+		const aliasBox = modal.querySelector('[data-role="aliases"]');
+		const cidrInput = modal.querySelector("#ph-cidr");
+		const cidrErr = modal.querySelector('[data-role="cidr-err"]');
+
+		renderSubnetList(subBox);
+		renderAliasList(aliasBox);
+		cidrInput.value = customSubnets.join(", ");
+
+		const onKey = e => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+		const close = () => {
+			document.removeEventListener("keydown", onKey);
+			ov.classList.add("is-closing");
+			setTimeout(() => ov.remove(), 200);
+			interval = RATE_MIN; schedule();
+		};
+		document.addEventListener("keydown", onKey);
+		ov.addEventListener("click", e => { if (e.target === ov) close(); });
+		modal.querySelector('[data-role="close"]').addEventListener("click", close);
+		modal.querySelector('[data-role="reset"]').addEventListener("click", () => {
+			prefs = Object.assign({}, DEFAULTS); savePrefs(); close();
+			listSignature = ""; renderList(); interval = pickInterval(); schedule();
+		});
+
+		subBox.addEventListener("change", e => {
+			if (!e.target.classList.contains("proton-hosts-filter-cb")) return;
+			const boxes = Array.from(subBox.querySelectorAll(".proton-hosts-filter-cb"));
+			const on = boxes.filter(x => x.checked).map(x => x.value);
+			filterSubnets = on.length ? new Set(on) : null;
+			saveFilter();
+			rebuildSubnets();
+			listSignature = ""; renderList();
+			interval = RATE_MIN; schedule();
+		});
+
+		aliasBox.addEventListener("click", e => {
+			const btn = e.target.closest(".ph-alias-del");
+			if (!btn) return;
+			e.stopPropagation();
+			const mac = btn.dataset.mac; if (!mac) return;
+			saveHostAlias(mac, "");
+			renderAliasList(aliasBox);
+			refreshNames();
+		});
+
+		modal.querySelector('[data-role="clear-aliases"]').addEventListener("click", () => {
+			if (!Object.keys(hostAliases).length) return;
+			if (!confirm(t("Clear all custom device names?"))) return;
+			hostAliases = {};
+			persistAliases();
+			renderAliasList(aliasBox);
+			refreshNames();
+		});
+
+		const applyCidr = () => {
+			const parts = cidrInput.value.split(",").map(s => s.trim()).filter(Boolean);
+			const good = [], bad = [];
+			for (const p of parts) { const n = normalizeCidr(p); if (n) good.push(n); else bad.push(p); }
+			customSubnets = Array.from(new Set(good));
+			saveCustom();
+			cidrErr.hidden = !bad.length;
+			if (bad.length) cidrErr.textContent = t("Invalid CIDR") + ": " + bad.join(", ");
+			rebuildSubnets();
+			renderSubnetList(subBox);
+			listSignature = ""; renderList();
+			interval = RATE_MIN; schedule();
+		};
+		cidrInput.addEventListener("change", applyCidr);
+		cidrInput.addEventListener("keydown", e => {
+			if (e.key === "Enter") { e.preventDefault(); applyCidr(); }
+		});
+
+		modal.querySelectorAll("[data-p]").forEach(inp => {
+			const key = inp.dataset.p;
+			if (inp.tagName === "SELECT") inp.value = String(prefs[key]);
+			const apply = () => {
+				if (key === "hot") prefs.hot = Math.pow(2, parseFloat(inp.value));
+				else if (key === "release") prefs.release = parseFloat(inp.value);
+				else if (key === "window") prefs.window = parseInt(inp.value, 10);
+				else prefs[key] = inp.value;
+				const out = modal.querySelector(`[data-out="${key}"]`);
+				if (out) out.textContent = key === "hot" ? formatRate(prefs.hot) : prefs.release.toFixed(1) + "s";
+				savePrefs();
+				if (key === "sort" || key === "window") { listSignature = ""; renderList(); }
+				if (key === "speed") { interval = pickInterval(); schedule(); }
+				const card = document.getElementById("proton-dashboard-hosts");
+				if (card) paintRates(card, true);
+			};
+			inp.addEventListener("input", apply);
+			inp.addEventListener("change", apply);
+		});
+	}
+
+	/* ── шаблон ── */
+
+	function template() {
+		return `
+		<div class="proton-dashboard-card proton-hosts-card" id="proton-dashboard-hosts">
+			<div class="proton-dashboard-card-header">
+				<div class="proton-hosts-title">
+					<span class="proton-dashboard-status-dot" data-role="status-dot" data-state="ok"></span>
+					<h3>${esc(t("Hosts"))}</h3>
+					<span class="proton-hosts-source" data-role="source" data-mode="live">live</span>
+				</div>
+				<button type="button" class="proton-dashboard-network-settings" data-role="hosts-settings" title="${esc(t("Hosts filter"))}">
+					<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<circle cx="12" cy="12" r="3"></circle>
+						<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+					</svg>
+				</button>
+			</div>
+			<div class="proton-hosts-notice" data-role="notice" hidden></div>
+			<div class="proton-dashboard-card-body">
+				<ul class="proton-hosts-list" data-role="list" role="list"></ul>
+			</div>
+			<div class="proton-hosts-footer">
+				<span class="proton-hosts-total" data-role="total">▼ 0 B/s ▲ 0 B/s</span>
+			</div>
+		</div>`;
+	}
+
+	/* ── lifecycle ── */
+
+	async function mount(card) {
+		if (!card || mounted) return;
+		if (!ensureRpc()) { setTimeout(() => mount(card), 400); return; }
+		mounted = true;
+
+		loadPrefs(); loadAliases(); loadCustom(); loadFilter();
+
+		const btn = card.querySelector('[data-role="hosts-settings"]');
+		if (btn) btn.addEventListener("click", () => { openSettings(); });
+		const list = card.querySelector('[data-role="list"]');
+		if (list) list.addEventListener("click", onNameClick);
+		initTip(card);
+
+		if (window.protonSettingsSync && typeof window.protonSettingsSync.forceSync === "function") {
+			try { await window.protonSettingsSync.forceSync(); } catch (e) {}
+			loadAliases(); loadCustom(); loadFilter();
+		}
+
+		await fetchContext();
+		await collectMeta();
+		interval = RATE_MIN;
+		tickRates();
+
+		metaTimer = setInterval(() => {
+			if (!document.hidden) { fetchContext().then(collectMeta); }
+		}, META_MS);
+
+		visHandler = () => {
+			if (document.hidden) { if (rateTimer) { clearTimeout(rateTimer); rateTimer = null; } }
+			else {
+				for (const [, s] of rateState) { s.prevRx = null; s.prevTx = null; }
+				interval = RATE_MIN; tickRates(); fetchContext().then(collectMeta);
+			}
+		};
+		document.addEventListener("visibilitychange", visHandler);
+
+		syncHandler = () => {
+			loadAliases(); loadCustom(); loadFilter();
+			rebuildSubnets(); refreshNames();
+			interval = RATE_MIN; schedule();
+		};
+		window.addEventListener("proton-settings-synced", syncHandler);
+		window.addEventListener("proton-setting-changed", syncHandler);
+	}
+
+	function unmount() {
+		mounted = false;
+		if (rateTimer) clearTimeout(rateTimer);
+		if (metaTimer) clearInterval(metaTimer);
+		rateTimer = metaTimer = null;
+		if (visHandler) document.removeEventListener("visibilitychange", visHandler);
+		if (syncHandler) {
+			window.removeEventListener("proton-settings-synced", syncHandler);
+			window.removeEventListener("proton-setting-changed", syncHandler);
+		}
+		visHandler = syncHandler = null;
+		if (tipEl) { tipEl.remove(); tipEl = null; }
+		tipRow = null; rowRefs.clear(); listSignature = "";
+		const ov = document.querySelector(".proton-hosts-modal-overlay");
+		if (ov) ov.remove();
+	}
+
+	function boot() {
+		const card = document.getElementById("proton-dashboard-hosts");
+		if (card) { if (!mounted) mount(card); return; }
+		const host = document.querySelector('[data-proton-layout-tag="hosts"]') ||
+			document.getElementById("proton-widgets-container");
+		if (host) {
+			host.insertAdjacentHTML("beforeend", template());
+			mount(document.getElementById("proton-dashboard-hosts"));
+		}
+	}
+
+	const obs = new MutationObserver(() => {
+		const card = document.getElementById("proton-dashboard-hosts");
+		if (!card && mounted) unmount();
+		else boot();
+	});
+
+	function start() {
+		boot();
+		obs.observe(document.getElementById("maincontent") || document.body,
+			{ childList: true, subtree: true });
+	}
+
+	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+	else start();
+	window.addEventListener("proton-spa-navigated", () => { unmount(); setTimeout(boot, 60); });
+	window.addEventListener("pagehide", unmount);
 })();

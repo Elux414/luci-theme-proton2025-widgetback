@@ -12804,159 +12804,6 @@ body.login-page .login-password-toggle:focus-visible {
     flex-direction: column;
 }
 
-.proton-hosts-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-    max-height: none;
-}
-
-.proton-hosts-row {
-    display: grid;
-    grid-template-columns: 24px 1fr auto;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    border: 1px solid var(--proton-border);
-    border-radius: calc(var(--proton-radius) * 0.8);
-    background: rgba(var(--proton-accent-rgb), 0.02);
-    transition: background 0.15s ease, border-color 0.15s ease;
-    min-height: 56px;
-}
-
-.proton-hosts-row:hover {
-    background: rgba(var(--proton-accent-rgb), 0.05);
-    border-color: rgba(var(--proton-accent-rgb), 0.2);
-}
-
-.proton-hosts-icon {
-    width: 24px;
-    text-align: center;
-    font-size: 16px;
-}
-
-.proton-hosts-main {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 2px;
-    min-width: 0;
-}
-
-.proton-hosts-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-}
-
-.proton-hosts-name {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--proton-text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex: 1;
-}
-
-.proton-hosts-bottom {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-}
-
-.proton-hosts-type {
-    font-size: 0.7rem;
-    color: var(--proton-text-secondary);
-}
-
-.proton-hosts-rates {
-    display: inline-flex;
-    gap: 8px;
-    font-size: 0.72rem;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    flex-shrink: 0;
-}
-
-.proton-hosts-rate-rx {
-    color: #5e9eff;
-}
-
-.proton-hosts-rate-tx {
-    color: #a78bfa;
-}
-
-.proton-hosts-chart {
-    width: 70px;
-    height: 24px;
-    flex-shrink: 0;
-}
-
-.proton-hosts-sparkline {
-    width: 100%;
-    height: 100%;
-    display: block;
-}
-
-.proton-hosts-sparkline-rx {
-    fill: none;
-    stroke: #5e9eff;
-    stroke-width: 1.2;
-    vector-effect: non-scaling-stroke;
-}
-
-.proton-hosts-sparkline-tx {
-    fill: none;
-    stroke: #a78bfa;
-    stroke-width: 1.2;
-    vector-effect: non-scaling-stroke;
-}
-
-.proton-hosts-empty {
-    padding: 24px 12px;
-    text-align: center;
-    color: var(--proton-text-secondary);
-    font-size: 0.85rem;
-    list-style: none;
-}
-
-/* Редактирование имени хоста */
-.proton-hosts-name {
-    cursor: pointer;
-    border-bottom: 1px dashed transparent;
-    transition: border-color 0.15s ease;
-}
-
-.proton-hosts-name:hover {
-    border-bottom-color: var(--proton-accent);
-}
-
-.proton-hosts-name-edit {
-    min-width: 0;
-    flex: 1;
-    padding: 0 4px;
-    font: inherit;
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--proton-text-primary);
-    background: var(--proton-bg-tertiary);
-    border: 1px solid var(--proton-accent);
-    border-radius: 4px;
-    outline: none;
-    box-sizing: border-box;
-}
-
 /* =====================================================
    Applications settings modal
    ===================================================== */
@@ -13540,12 +13387,6 @@ body.login-page .login-password-toggle:focus-visible {
     background: rgba(220, 38, 38, 0.12);
     border-color: rgba(220, 38, 38, 0.3);
     color: #c53030;
-}
-
-@media (max-width: 600px) {
-    .proton-hosts-chart {
-        display: none;
-    }
 }
 
 /* Card skeleton for System / Apps / future widgets */
@@ -16380,121 +16221,6 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
     fill: rgba(148, 163, 184, 0.04);
 }
 
-/* === Hosts Widget Columns === */
-.proton-hosts-columns {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  width: 100%;
-}
-
-.proton-hosts-column {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.proton-hosts-col-title {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--proton-muted);
-  margin: 0 0 8px 0;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--proton-border);
-  font-weight: 600;
-}
-
-.proton-hosts-list-inner {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-/* Адаптивность для мобилок */
-@media (max-width: 600px) {
-  .proton-hosts-columns {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* IPv6 в карточке */
-.proton-hosts-ips {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    justify-content: center;
-    min-width: 0;
-    flex-shrink: 0;
-    line-height: 1.2;
-}
-
-.proton-hosts-ip {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.72rem;
-    color: var(--proton-text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.proton-hosts-ipv6 {
-    font-size: 0.65rem;
-    opacity: 0.7;
-}
-
-/* Tooltip для хостов */
-.proton-hosts-tooltip {
-    position: fixed;
-    z-index: 9999;
-    background: rgba(20, 25, 35, 0.98);
-    border: 1px solid var(--proton-border);
-    border-radius: var(--proton-radius-sm);
-    padding: 10px 12px;
-    box-shadow: var(--proton-shadow-lg);
-    pointer-events: none;
-    min-width: 220px;
-    max-width: 320px;
-    font-size: 0.8rem;
-    color: var(--proton-fg);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-}
-:root[data-theme="light"] .proton-hosts-tooltip {
-    background: rgba(255, 255, 255, 0.98);
-}
-.proton-hosts-tooltip-title {
-    font-weight: 600;
-    font-size: 0.9rem;
-    margin-bottom: 6px;
-    color: var(--proton-accent);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.proton-hosts-tooltip-row {
-    margin-bottom: 4px;
-    line-height: 1.4;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.75rem;
-}
-.proton-hosts-tooltip-row strong {
-    color: var(--proton-muted);
-    font-family: inherit;
-    font-weight: 500;
-}
-.proton-hosts-tooltip-divider {
-    height: 1px;
-    background: var(--proton-border);
-    margin: 6px 0;
-}
-
 /* Telegram Settings in Monitoring Tab */
 .proton-telegram-settings {
     display: flex;
@@ -17613,4 +17339,1242 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 	box-shadow: none !important;
 	border-radius: 0 !important;
 	overflow: visible !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   HOSTS · единственный блок стилей виджета «Хосты». Самодостаточен.
+
+   КУДА ВСТАВИТЬ: в конец cascade.css. Место не имеет значения —
+   всё внутри виджета скоуплено по #proton-dashboard-hosts (1,x,x),
+   старые правила виджета классовые (0,x,x). ID перебивает их по
+   специфичности, а не по порядку. !important нигде не используется.
+
+   ЧТОБЫ НЕ ПЛОДИТЬ МУСОР — удалить старое (поиск по cascade.css):
+
+   1. Поиск «proton-hosts-» → удалить ВСЕ найденные правила ВНЕ этого
+      блока. Новая разметка их не использует, они мертвы.
+
+   2. Два места, где hosts стоит в ОБЩЕМ селекторе — убрать только
+      строку с hosts, правило целиком НЕ удалять:
+        а)  .proton-overview-cell > * > .proton-hosts-list
+            (в группе с .proton-overview-cell > * > .proton-dashboard-card-body)
+        б)  .proton-overview-cell.is-flat .proton-hosts-chart
+            (в группе с .proton-dashboard-processes, .proton-dashboard-network,
+             .proton-apps-summary, .proton-dashboard-chart-wrap)
+
+   3. Общие .proton-dashboard-card / -header / -body / -footer НЕ трогать:
+      они нужны другим карточкам, здесь перебиваются точечно.
+
+   4. Тултип и модалка живут в document.body вне ID-скоупа. Их имена
+      (.proton-hosts-tooltip, .proton-hosts-modal-*, .ph-*) уникальны —
+      конфликтов с существующим cascade.css нет.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+	--ph-rx: #5e9eff;      --ph-rx-rgb: 94, 158, 255;    /* download · electric blue */
+	--ph-tx: #a78bfa;      --ph-tx-rgb: 167, 139, 250;   /* upload · violet */
+	--ph-hot: #ff4d6d;     --ph-hot-rgb: 255, 77, 109;   /* тяжёлый потребитель */
+	--ph-warm: #ffb020;    --ph-warm-rgb: 255, 176, 32;  /* предупреждение */
+	--ph-live: #34d399;    --ph-live-rgb: 52, 211, 153;  /* realtime-источник */
+	--ph-info: #22d3ee;    --ph-info-rgb: 34, 211, 238;  /* Wi-Fi группа */
+	--ph-danger: #f87171;  --ph-danger-rgb: 248, 113, 113;
+	--ph-ink-rgb: 11, 16, 23;                            /* cool overlay */
+	--ph-scrim: 6, 10, 15;                               /* cool scrim */
+}
+
+:root[data-theme="light"] {
+	--ph-rx: #2f7fe0;      --ph-rx-rgb: 47, 127, 224;
+	--ph-tx: #7c5ce0;      --ph-tx-rgb: 124, 92, 224;
+	--ph-hot: #e11d48;     --ph-hot-rgb: 225, 29, 72;
+	--ph-warm: #b45309;    --ph-warm-rgb: 180, 83, 9;
+	--ph-live: #059669;    --ph-live-rgb: 5, 150, 105;
+	--ph-info: #0891b2;    --ph-info-rgb: 8, 145, 178;
+	--ph-danger: #dc2626;  --ph-danger-rgb: 220, 38, 38;
+	--ph-ink-rgb: 255, 255, 255;
+	--ph-scrim: 24, 30, 42;
+}
+
+/* ── Корень виджета ─────────────────────────────────────────────────── */
+
+#proton-dashboard-hosts {
+	--ph-chart-w: 120px;
+	--ph-chart-h: 34px;
+	--ph-row-y: 7px;
+	--ph-name: 0.82rem;
+	--ph-rate: 0.72rem;
+	--ph-meta: 0.68rem;
+
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+	container-type: inline-size;
+	container-name: proton-card;
+}
+
+#proton-dashboard-hosts::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto 0;
+	height: 2px;
+	background: linear-gradient(90deg,
+		var(--ph-rx) 0%, var(--ph-tx) 32%, var(--ph-hot) 64%,
+		var(--ph-warm) 86%, var(--ph-rx) 100%);
+	background-size: 220% 100%;
+	opacity: 0.9;
+	pointer-events: none;
+	animation: ph-drift 14s linear infinite;
+}
+
+@keyframes ph-drift {
+	from { background-position: 0% 50%; }
+	to   { background-position: 220% 50%; }
+}
+
+/* ── Шапка ──────────────────────────────────────────────────────────── */
+
+#proton-dashboard-hosts .proton-dashboard-card-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	flex: 0 0 auto;
+}
+
+#proton-dashboard-hosts .proton-hosts-title {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	min-width: 0;
+}
+
+#proton-dashboard-hosts .proton-hosts-title h3,
+#proton-dashboard-hosts .proton-dashboard-card-title {
+	margin: 0;
+	font-size: 1rem;
+	font-weight: 600;
+	line-height: 1.25;
+	color: var(--proton-text-primary);
+	white-space: nowrap;
+}
+
+#proton-dashboard-hosts .proton-dashboard-card-subtitle {
+	margin: 4px 0 0 18px;
+	font-size: 0.78rem;
+	color: var(--proton-text-secondary);
+}
+
+#proton-dashboard-hosts .proton-dashboard-status-dot,
+#proton-dashboard-hosts .proton-dashboard-card-status-dot {
+	display: inline-block;
+	flex: 0 0 8px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--ph-live);
+	box-shadow: 0 0 0 4px rgba(var(--ph-live-rgb), 0.12);
+	transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+#proton-dashboard-hosts .proton-dashboard-status-dot[data-state="warn"],
+#proton-dashboard-hosts .proton-dashboard-card-status-dot[data-state="warn"] {
+	background: var(--ph-warm);
+	box-shadow: 0 0 0 4px rgba(var(--ph-warm-rgb), 0.14);
+}
+
+#proton-dashboard-hosts .proton-dashboard-status-dot[data-state="err"],
+#proton-dashboard-hosts .proton-dashboard-card-status-dot[data-state="err"] {
+	background: var(--ph-danger);
+	box-shadow: 0 0 0 4px rgba(var(--ph-danger-rgb), 0.14);
+}
+
+#proton-dashboard-hosts .proton-hosts-source {
+	display: inline-flex;
+	align-items: center;
+	flex: 0 0 auto;
+	padding: 4px 8px;
+	border-radius: 999px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.62rem;
+	font-weight: 700;
+	line-height: 1;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	white-space: nowrap;
+	cursor: help;
+	color: var(--ph-live);
+	background: rgba(var(--ph-live-rgb), 0.12);
+	border: 1px solid rgba(var(--ph-live-rgb), 0.38);
+}
+
+#proton-dashboard-hosts .proton-hosts-source[data-mode="live"]::before {
+	content: "";
+	width: 5px;
+	height: 5px;
+	margin-right: 6px;
+	border-radius: 50%;
+	background: currentColor;
+	animation: ph-pulse 1.6s ease-in-out infinite;
+}
+
+#proton-dashboard-hosts .proton-hosts-source[data-mode="coarse"] {
+	color: var(--ph-warm);
+	background: rgba(var(--ph-warm-rgb), 0.12);
+	border-color: rgba(var(--ph-warm-rgb), 0.4);
+}
+
+@keyframes ph-pulse {
+	0%, 100% { opacity: 1; transform: scale(1); }
+	50%      { opacity: 0.3; transform: scale(0.62); }
+}
+
+#proton-dashboard-hosts .proton-dashboard-network-settings {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	color: var(--proton-text-secondary);
+	background: transparent;
+	border: 1px solid var(--proton-border);
+	border-radius: calc(var(--proton-radius-sm) * 0.8);
+	cursor: pointer;
+	transition: color 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+#proton-dashboard-hosts .proton-dashboard-network-settings:hover {
+	color: var(--ph-rx);
+	border-color: rgba(var(--ph-rx-rgb), 0.5);
+	transform: rotate(35deg);
+}
+
+/* ── Полоса уведомления ─────────────────────────────────────────────── */
+
+#proton-dashboard-hosts .proton-hosts-notice {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	flex: 0 0 auto;
+	margin: 12px 0 0;
+	padding: 9px 12px;
+	border-radius: var(--proton-radius-sm);
+	border: 1px solid rgba(var(--ph-warm-rgb), 0.32);
+	border-left: 3px solid var(--ph-warm);
+	background: rgba(var(--ph-warm-rgb), 0.1);
+	color: var(--ph-warm);
+	font-size: 0.76rem;
+	line-height: 1.35;
+}
+
+#proton-dashboard-hosts .proton-hosts-notice[hidden] { display: none; }
+
+#proton-dashboard-hosts .proton-hosts-notice button {
+	flex: 0 0 auto;
+	padding: 6px 12px;
+	border: 0;
+	border-radius: calc(var(--proton-radius-sm) * 0.8);
+	font: inherit;
+	font-size: 0.72rem;
+	font-weight: 700;
+	color: #1a1206;
+	background: var(--ph-warm);
+	cursor: pointer;
+	transition: filter 0.16s ease, transform 0.16s ease;
+}
+
+#proton-dashboard-hosts .proton-hosts-notice button:hover:not([disabled]) {
+	filter: brightness(1.12);
+	transform: translateY(-1px);
+}
+
+#proton-dashboard-hosts .proton-hosts-notice button[disabled] {
+	opacity: 0.6;
+	cursor: progress;
+}
+
+:root[data-theme="light"] #proton-dashboard-hosts .proton-hosts-notice button { color: #fff; }
+
+/* ── Тело и список ──────────────────────────────────────────────────── */
+
+#proton-dashboard-hosts .proton-dashboard-card-body {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+	margin-top: 12px;
+	gap: 0;
+	overflow: hidden;
+}
+
+#proton-dashboard-hosts .proton-hosts-list {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	flex: 1 1 auto;
+	min-height: 0;
+	margin: 0;
+	padding: 0 4px 2px 0;
+	list-style: none;
+	overflow-y: auto;
+	overflow-x: hidden;
+	overscroll-behavior: contain;
+	max-height: min(52vh, 460px);
+	scrollbar-width: thin;
+	scrollbar-color: rgba(var(--ph-rx-rgb), 0.5) rgba(var(--ph-rx-rgb), 0.07);
+}
+
+.proton-overview-cell #proton-dashboard-hosts .proton-hosts-list { max-height: none; }
+
+#proton-dashboard-hosts .proton-hosts-list::-webkit-scrollbar { width: 8px; }
+
+#proton-dashboard-hosts .proton-hosts-list::-webkit-scrollbar-track {
+	background: rgba(var(--ph-rx-rgb), 0.07);
+	border-radius: 8px;
+}
+
+#proton-dashboard-hosts .proton-hosts-list::-webkit-scrollbar-thumb {
+	border: 2px solid transparent;
+	border-radius: 8px;
+	background-clip: content-box;
+	background-color: rgba(var(--ph-rx-rgb), 0.48);
+}
+
+#proton-dashboard-hosts .proton-hosts-list::-webkit-scrollbar-thumb:hover {
+	background-color: rgba(var(--ph-tx-rgb), 0.78);
+}
+
+/* ── Заголовки групп ────────────────────────────────────────────────── */
+
+#proton-dashboard-hosts .proton-hosts-group {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 9px 6px 5px;
+	list-style: none;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.63rem;
+	font-weight: 700;
+	line-height: 1;
+	letter-spacing: 0.13em;
+	text-transform: uppercase;
+	color: var(--proton-text-secondary);
+	background: linear-gradient(180deg,
+		var(--proton-card-solid, var(--proton-bg-tertiary)) 64%,
+		rgba(var(--ph-ink-rgb), 0) 100%);
+}
+
+#proton-dashboard-hosts .proton-hosts-group i {
+	font-style: normal;
+	opacity: 0.55;
+	font-variant-numeric: tabular-nums;
+}
+
+#proton-dashboard-hosts .proton-hosts-group::after {
+	content: "";
+	flex: 1 1 auto;
+	height: 1px;
+	background: linear-gradient(90deg, rgba(var(--ph-rx-rgb), 0.32), rgba(var(--ph-tx-rgb), 0));
+}
+
+#proton-dashboard-hosts .proton-hosts-group[data-group="wifi"]::after {
+	background: linear-gradient(90deg, rgba(var(--ph-info-rgb), 0.36), rgba(var(--ph-info-rgb), 0));
+}
+
+:root[data-theme="light"] #proton-dashboard-hosts .proton-hosts-group {
+	background: linear-gradient(180deg, #ffffff 64%, rgba(255, 255, 255, 0) 100%);
+}
+
+/* ── Строка хоста ───────────────────────────────────────────────────── */
+
+#proton-dashboard-hosts .proton-hosts-row {
+	position: relative;
+	display: grid;
+	grid-template-columns: 3px 22px minmax(0, 1fr) var(--ph-chart-w);
+	align-items: center;
+	column-gap: 10px;
+	padding: var(--ph-row-y) 8px var(--ph-row-y) 5px;
+	border: 1px solid transparent;
+	border-radius: calc(var(--proton-radius-sm) * 0.9);
+	background: rgba(var(--ph-rx-rgb), 0);
+	list-style: none;
+	transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+#proton-dashboard-hosts .proton-hosts-row:hover {
+	background: rgba(var(--ph-rx-rgb), 0.07);
+	border-color: rgba(var(--ph-rx-rgb), 0.22);
+}
+
+#proton-dashboard-hosts .proton-hosts-bar {
+	width: 3px;
+	height: 20px;
+	border-radius: 3px;
+	background: transparent;
+	transition: height 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+}
+
+#proton-dashboard-hosts .proton-hosts-row[data-active="1"] .proton-hosts-bar {
+	height: 26px;
+	background: linear-gradient(180deg, var(--ph-rx), var(--ph-tx));
+}
+
+#proton-dashboard-hosts .proton-hosts-row[data-hot="1"] {
+	background: rgba(var(--ph-hot-rgb), 0.09);
+	border-color: rgba(var(--ph-hot-rgb), 0.3);
+}
+
+#proton-dashboard-hosts .proton-hosts-row[data-hot="1"]:hover {
+	background: rgba(var(--ph-hot-rgb), 0.13);
+}
+
+#proton-dashboard-hosts .proton-hosts-row[data-hot="1"] .proton-hosts-bar {
+	height: 30px;
+	background: linear-gradient(180deg, var(--ph-warm), var(--ph-hot));
+	box-shadow: 0 0 10px rgba(var(--ph-hot-rgb), 0.65);
+	animation: ph-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes ph-breathe {
+	0%, 100% { box-shadow: 0 0 8px rgba(var(--ph-hot-rgb), 0.45); }
+	50%      { box-shadow: 0 0 15px rgba(var(--ph-hot-rgb), 0.85); }
+}
+
+#proton-dashboard-hosts .proton-hosts-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	font-size: 15px;
+	line-height: 1;
+	font-variant-emoji: emoji;
+	opacity: 0.9;
+}
+
+#proton-dashboard-hosts .proton-hosts-main { min-width: 0; }
+
+#proton-dashboard-hosts .proton-hosts-top,
+#proton-dashboard-hosts .proton-hosts-bottom {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 10px;
+	min-width: 0;
+}
+
+#proton-dashboard-hosts .proton-hosts-bottom { align-items: center; margin-top: 2px; }
+
+#proton-dashboard-hosts .proton-hosts-name {
+	min-width: 0;
+	font-size: var(--ph-name);
+	font-weight: 600;
+	line-height: 1.25;
+	color: var(--proton-text-primary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	cursor: pointer;
+	border-bottom: 1px dashed transparent;
+	transition: color 0.16s ease, border-color 0.16s ease;
+}
+
+#proton-dashboard-hosts .proton-hosts-name:hover {
+	color: var(--ph-rx);
+	border-bottom-color: rgba(var(--ph-rx-rgb), 0.7);
+}
+
+#proton-dashboard-hosts .proton-hosts-name-edit {
+	width: 100%;
+	max-width: 170px;
+	padding: 2px 6px;
+	font: inherit;
+	font-size: var(--ph-name);
+	font-weight: 600;
+	line-height: 1.25;
+	color: var(--proton-text-primary);
+	background-color: rgba(var(--ph-rx-rgb), 0.14);
+	border: 1px solid var(--ph-rx);
+	border-radius: calc(var(--proton-radius-sm) * 0.6);
+	outline: none;
+}
+
+#proton-dashboard-hosts .proton-hosts-ips {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	flex: 0 0 auto;
+	min-width: 0;
+	line-height: 1.2;
+}
+
+#proton-dashboard-hosts .proton-hosts-ip {
+	max-width: 158px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: var(--ph-meta);
+	line-height: 1.25;
+	color: var(--proton-text-secondary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+#proton-dashboard-hosts .proton-hosts-ipv6 { font-size: 0.62rem; opacity: 0.6; }
+#proton-dashboard-hosts .proton-hosts-ip:empty { display: none; }
+
+#proton-dashboard-hosts .proton-hosts-type {
+	flex: 0 0 auto;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.62rem;
+	font-weight: 700;
+	line-height: 1;
+	letter-spacing: 0.05em;
+	color: var(--proton-text-secondary);
+}
+
+#proton-dashboard-hosts .proton-hosts-rates {
+	display: inline-flex;
+	gap: 10px;
+	flex: 0 0 auto;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: var(--ph-rate);
+	font-weight: 600;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+#proton-dashboard-hosts .proton-hosts-rate-rx { color: var(--ph-rx); transition: color 0.2s ease; }
+#proton-dashboard-hosts .proton-hosts-rate-tx { color: var(--ph-tx); }
+
+#proton-dashboard-hosts .proton-hosts-row[data-hot="1"] .proton-hosts-rate-rx {
+	color: var(--ph-hot);
+	font-weight: 700;
+}
+
+/* ── Спарклайн ──────────────────────────────────────────────────────── */
+
+#proton-dashboard-hosts .proton-hosts-chart {
+	display: block;
+	width: var(--ph-chart-w);
+	height: var(--ph-chart-h);
+	min-width: 0;
+	border-radius: 4px;
+	background: linear-gradient(180deg, rgba(var(--ph-rx-rgb), .03), rgba(var(--ph-rx-rgb), .07));
+	box-shadow: inset 0 -1px 0 rgba(var(--ph-rx-rgb), .22);
+}
+
+#proton-dashboard-hosts .proton-hosts-chart svg {
+	display: block;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+}
+
+#proton-dashboard-hosts .proton-hosts-area {
+	fill: rgba(var(--ph-rx-rgb), 0.16);
+	stroke: none;
+}
+
+#proton-dashboard-hosts .proton-hosts-sparkline-rx {
+	fill: none;
+	stroke: var(--ph-rx);
+	stroke-width: 1.4;
+	stroke-linejoin: round;
+	stroke-linecap: round;
+	vector-effect: non-scaling-stroke;
+}
+
+#proton-dashboard-hosts .proton-hosts-sparkline-tx {
+	fill: none;
+	stroke: var(--ph-tx);
+	stroke-width: 1.1;
+	stroke-dasharray: 3 2;
+	stroke-linejoin: round;
+	opacity: 0.78;
+	vector-effect: non-scaling-stroke;
+}
+
+#proton-dashboard-hosts .proton-hosts-row[data-hot="1"] .proton-hosts-sparkline-rx {
+	stroke: var(--ph-hot);
+	filter: drop-shadow(0 0 3px rgba(var(--ph-hot-rgb), 0.55));
+}
+
+#proton-dashboard-hosts .proton-hosts-row[data-hot="1"] .proton-hosts-area {
+	fill: rgba(var(--ph-hot-rgb), 0.15);
+}
+
+/* ── Пусто и подвал ─────────────────────────────────────────────────── */
+
+#proton-dashboard-hosts .proton-hosts-empty {
+	list-style: none;
+	padding: 28px 12px;
+	text-align: center;
+	font-size: 0.83rem;
+	color: var(--proton-text-secondary);
+	opacity: 0.75;
+}
+
+#proton-dashboard-hosts .proton-hosts-footer,
+#proton-dashboard-hosts .proton-dashboard-card-footer {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 12px;
+	flex: 0 0 auto;
+	margin-top: 10px;
+	padding-top: 9px;
+	border-top: 1px solid var(--proton-border);
+}
+
+#proton-dashboard-hosts .proton-hosts-total {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.78rem;
+	font-weight: 700;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	color: var(--ph-rx);
+}
+
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+	#proton-dashboard-hosts .proton-hosts-total {
+		background: linear-gradient(90deg, var(--ph-rx), var(--ph-tx) 55%, var(--ph-hot));
+		-webkit-background-clip: text;
+		background-clip: text;
+		color: transparent;
+	}
+}
+
+#proton-dashboard-hosts .proton-hosts-name:focus-visible,
+#proton-dashboard-hosts .proton-dashboard-network-settings:focus-visible,
+#proton-dashboard-hosts .proton-hosts-notice button:focus-visible {
+	outline: 2px solid rgba(var(--ph-rx-rgb), 0.8);
+	outline-offset: 2px;
+}
+
+/* ── Тултип · в document.body, имена уникальны ──────────────────────── */
+
+.proton-hosts-tooltip {
+	position: fixed;
+	z-index: 10002;
+	min-width: 216px;
+	max-width: min(320px, calc(100vw - 24px));
+	padding: 10px 12px;
+	border-radius: var(--proton-radius-sm);
+	font-size: 0.74rem;
+	line-height: 1.4;
+	pointer-events: none;
+	color: var(--proton-text-primary);
+	background: rgba(var(--ph-ink-rgb), 0.95);
+	-webkit-backdrop-filter: blur(12px);
+	backdrop-filter: blur(12px);
+	border: 1px solid rgba(var(--ph-rx-rgb), 0.3);
+	box-shadow: var(--proton-shadow-lg, 0 14px 38px rgba(0, 0, 0, 0.5));
+}
+
+.proton-hosts-tooltip[hidden] { display: none; }
+
+.proton-hosts-tooltip b {
+	display: block;
+	margin-bottom: 7px;
+	font-size: 0.82rem;
+	font-weight: 700;
+	word-break: break-word;
+}
+
+.proton-hosts-tooltip .tt-r {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 14px;
+	padding: 2px 0;
+}
+
+.proton-hosts-tooltip .tt-r span { flex: 0 0 auto; color: var(--proton-text-secondary); }
+
+.proton-hosts-tooltip .tt-r i {
+	font-style: normal;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+	word-break: break-all;
+}
+
+.proton-hosts-tooltip .tt-sep {
+	height: 1px;
+	margin: 6px 0;
+	background: linear-gradient(90deg, rgba(var(--ph-rx-rgb), 0.45), rgba(var(--ph-tx-rgb), 0));
+}
+
+.proton-hosts-tooltip .tt-note {
+	margin-top: 6px;
+	padding-top: 6px;
+	border-top: 1px dashed rgba(var(--ph-rx-rgb), 0.25);
+	font-size: 0.68rem;
+	line-height: 1.45;
+	color: var(--proton-muted);
+}
+
+:root[data-theme="light"] .proton-hosts-tooltip {
+	background: rgba(255, 255, 255, 0.97);
+	border-color: rgba(var(--ph-rx-rgb), 0.28);
+	box-shadow: 0 12px 32px rgba(24, 30, 42, 0.16);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   HOSTS · МОДАЛКА НАСТРОЕК
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.proton-hosts-modal {
+	display: flex;
+	flex-direction: column;
+	max-width: 500px;
+	max-height: calc(100vh - 80px);
+}
+
+.proton-hosts-modal > h3 {
+	flex: 0 0 auto;
+	margin: 0 0 18px;
+}
+
+.proton-hosts-modal .proton-hosts-modal-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	overflow-x: hidden;
+	padding-right: 6px;
+	margin-right: -6px;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+	scrollbar-color: rgba(var(--ph-rx-rgb), 0.5) rgba(var(--ph-rx-rgb), 0.07);
+}
+
+.proton-hosts-modal .proton-hosts-modal-body::-webkit-scrollbar { width: 8px; }
+.proton-hosts-modal .proton-hosts-modal-body::-webkit-scrollbar-track {
+	background: rgba(var(--ph-rx-rgb), 0.07);
+	border-radius: 8px;
+}
+.proton-hosts-modal .proton-hosts-modal-body::-webkit-scrollbar-thumb {
+	border: 2px solid transparent;
+	border-radius: 8px;
+	background-clip: content-box;
+	background-color: rgba(var(--ph-rx-rgb), 0.5);
+}
+.proton-hosts-modal .proton-hosts-modal-body::-webkit-scrollbar-thumb:hover {
+	background-color: rgba(var(--ph-tx-rgb), 0.82);
+}
+
+.proton-hosts-modal .proton-monitoring-row + .proton-monitoring-row { margin-top: 10px; }
+
+/* Слайдеры и подсети — типографика та же, что у .proton-monitoring-label */
+
+.proton-hosts-modal .ph-slider { margin: 16px 0 0; }
+
+.proton-hosts-modal .ph-slider > label,
+.proton-hosts-modal .ph-subs > label {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 10px;
+	margin-bottom: 8px;
+	font-size: 0.85rem;
+	font-weight: 500;
+	color: var(--proton-fg-secondary);
+}
+
+.proton-hosts-modal .ph-slider b {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.8rem;
+	font-variant-numeric: tabular-nums;
+	color: var(--ph-rx);
+}
+
+.proton-hosts-modal .ph-slider input[type="range"] {
+	-webkit-appearance: none;
+	appearance: none;
+	display: block;
+	width: 100%;
+	height: 6px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 6px;
+	background: linear-gradient(90deg, var(--ph-rx), var(--ph-tx) 60%, var(--ph-hot));
+	outline: none;
+	cursor: pointer;
+}
+
+.proton-hosts-modal .ph-slider input[type="range"]::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 17px;
+	height: 17px;
+	border-radius: 50%;
+	background: #fff;
+	border: 3px solid var(--ph-rx);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+	cursor: pointer;
+	transition: transform 0.14s ease, border-color 0.14s ease;
+}
+.proton-hosts-modal .ph-slider input[type="range"]:hover::-webkit-slider-thumb {
+	transform: scale(1.14);
+	border-color: var(--ph-tx);
+}
+.proton-hosts-modal .ph-slider input[type="range"]:active::-webkit-slider-thumb { transform: scale(0.96); }
+.proton-hosts-modal .ph-slider input[type="range"]::-moz-range-thumb {
+	width: 15px; height: 15px; border-radius: 50%; background: #fff;
+	border: 3px solid var(--ph-rx); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); cursor: pointer;
+}
+.proton-hosts-modal .ph-slider input[type="range"]::-moz-range-track {
+	height: 6px; border-radius: 6px;
+	background: linear-gradient(90deg, var(--ph-rx), var(--ph-tx) 60%, var(--ph-hot));
+}
+
+.proton-hosts-modal .ph-subs { margin-top: 18px; }
+
+.proton-hosts-modal .ph-subs-list {
+	max-height: 148px;
+	margin: 0 0 6px;
+	padding: 6px;
+	overflow-y: auto;
+	border: 1px dashed var(--proton-border);
+	border-radius: var(--proton-radius-sm);
+	background: rgba(var(--proton-accent-rgb), 0.02);
+	scrollbar-width: thin;
+	scrollbar-color: rgba(var(--ph-rx-rgb), 0.45) transparent;
+}
+.proton-hosts-modal .ph-subs-list::-webkit-scrollbar { width: 7px; }
+.proton-hosts-modal .ph-subs-list::-webkit-scrollbar-track { background: transparent; }
+.proton-hosts-modal .ph-subs-list::-webkit-scrollbar-thumb {
+	border-radius: 7px; background: rgba(var(--ph-rx-rgb), 0.45);
+}
+.proton-hosts-modal .ph-subs-list::-webkit-scrollbar-thumb:hover { background: rgba(var(--ph-tx-rgb), 0.75); }
+
+.proton-hosts-modal .ph-subs-list label {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 0;
+	padding: 7px 9px;
+	border: 1px solid transparent;
+	border-radius: var(--proton-radius-sm);
+	background: transparent;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.78rem;
+	line-height: 1.2;
+	color: var(--proton-text-primary);
+	cursor: pointer;
+	user-select: none;
+	transition: background 0.16s ease, border-color 0.16s ease;
+}
+.proton-hosts-modal .ph-subs-list label + label { margin-top: 3px; }
+.proton-hosts-modal .ph-subs-list label:hover {
+	background: rgba(var(--ph-rx-rgb), 0.08);
+	border-color: rgba(var(--ph-rx-rgb), 0.22);
+}
+.proton-hosts-modal .ph-subs-list label:has(input:checked) {
+	background: rgba(var(--ph-rx-rgb), 0.1);
+	border-color: rgba(var(--ph-rx-rgb), 0.32);
+}
+.proton-hosts-modal .ph-subs-list label span {
+	min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+
+.proton-hosts-modal .ph-block { margin-top: 18px; }
+
+.proton-hosts-modal .ph-block > label,
+.proton-hosts-modal .ph-block-head > label {
+	display: block;
+	font-size: 0.85rem;
+	font-weight: 600;
+	color: var(--proton-text-primary);
+	margin-bottom: 8px;
+}
+
+.proton-hosts-modal .ph-block-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	margin-bottom: 8px;
+}
+.proton-hosts-modal .ph-block-head > label { margin-bottom: 0; }
+
+.proton-hosts-modal .ph-block small {
+	display: block;
+	margin-top: 6px;
+	font-size: 0.72rem;
+	line-height: 1.45;
+	color: var(--proton-muted);
+}
+
+.proton-hosts-modal .ph-mini-btn {
+	flex: 0 0 auto;
+	padding: 4px 10px;
+	font: inherit;
+	font-size: 0.72rem;
+	font-weight: 600;
+	color: var(--proton-text-secondary);
+	background: var(--proton-bg-tertiary);
+	border: 1px solid var(--proton-border);
+	border-radius: var(--proton-radius-sm);
+	cursor: pointer;
+	transition: var(--proton-transition);
+}
+.proton-hosts-modal .ph-mini-btn:hover {
+	color: var(--ph-hot);
+	border-color: rgba(var(--ph-hot-rgb), 0.5);
+	background: rgba(var(--ph-hot-rgb), 0.1);
+}
+
+/* Список кастомных имён */
+.proton-hosts-modal .ph-alias-list {
+	max-height: 156px;
+	overflow-y: auto;
+	padding: 6px;
+	border: 1px solid var(--proton-border);
+	border-radius: var(--proton-radius-sm);
+	background: rgba(var(--proton-accent-rgb), 0.02);
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+	scrollbar-color: rgba(var(--ph-rx-rgb), 0.45) transparent;
+}
+.proton-hosts-modal .ph-alias-list::-webkit-scrollbar { width: 7px; }
+.proton-hosts-modal .ph-alias-list::-webkit-scrollbar-track { background: transparent; }
+.proton-hosts-modal .ph-alias-list::-webkit-scrollbar-thumb {
+	border-radius: 7px; background: rgba(var(--ph-rx-rgb), 0.45);
+}
+.proton-hosts-modal .ph-alias-list::-webkit-scrollbar-thumb:hover { background: rgba(var(--ph-tx-rgb), 0.75); }
+
+.proton-hosts-modal .proton-hosts-alias-row {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) 24px;
+	align-items: center;
+	gap: 10px;
+	padding: 5px 6px;
+	border-radius: calc(var(--proton-radius-sm) * 0.8);
+	transition: background 0.15s ease;
+}
+.proton-hosts-modal .proton-hosts-alias-row:hover { background: rgba(var(--ph-rx-rgb), 0.08); }
+
+.proton-hosts-modal .ph-alias-mac {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.72rem;
+	color: var(--proton-muted);
+	white-space: nowrap;
+}
+.proton-hosts-modal .ph-alias-name {
+	min-width: 0;
+	font-size: 0.8rem;
+	font-weight: 600;
+	color: var(--proton-text-primary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.proton-hosts-modal .ph-alias-del {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	font-size: 14px;
+	line-height: 1;
+	color: var(--ph-hot);
+	background: rgba(var(--ph-hot-rgb), 0.1);
+	border: 1px solid rgba(var(--ph-hot-rgb), 0.35);
+	border-radius: calc(var(--proton-radius-sm) * 0.7);
+	cursor: pointer;
+	transition: var(--proton-transition);
+}
+.proton-hosts-modal .ph-alias-del:hover {
+	color: #fff;
+	background: var(--ph-hot);
+	border-color: transparent;
+	transform: scale(1.08);
+}
+.proton-hosts-modal .ph-alias-empty {
+	padding: 10px 6px;
+	font-size: 0.8rem;
+	color: var(--proton-muted);
+}
+
+/* Кастомные подсети */
+.proton-hosts-modal .ph-cidr {
+	display: block;
+	width: 100%;
+	padding: 9px 11px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.8rem;
+	color: var(--proton-text-primary);
+	background-color: rgba(var(--ph-rx-rgb), 0.06);
+	border: 1px solid var(--proton-border);
+	border-radius: var(--proton-radius-sm);
+	outline: none;
+	transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.proton-hosts-modal .ph-cidr::placeholder { color: var(--proton-muted); opacity: 0.7; }
+.proton-hosts-modal .ph-cidr:hover { border-color: rgba(var(--ph-rx-rgb), 0.4); }
+.proton-hosts-modal .ph-cidr:focus {
+	border-color: var(--ph-rx);
+	background-color: rgba(var(--ph-rx-rgb), 0.1);
+}
+.proton-hosts-modal .ph-cidr-err {
+	margin-top: 6px;
+	font-size: 0.72rem;
+	line-height: 1.4;
+	color: var(--ph-hot);
+	word-break: break-all;
+}
+.proton-hosts-modal .ph-cidr-err[hidden] { display: none; }
+
+.proton-hosts-modal .ph-mini-btn:focus-visible,
+.proton-hosts-modal .ph-alias-del:focus-visible,
+.proton-hosts-modal .ph-cidr:focus-visible {
+	outline: 2px solid var(--proton-accent);
+	outline-offset: 2px;
+}
+
+.proton-no-animations .proton-hosts-modal .ph-mini-btn,
+.proton-no-animations .proton-hosts-modal .ph-alias-del,
+.proton-no-animations .proton-hosts-modal .ph-cidr,
+.proton-no-animations .proton-hosts-modal .proton-hosts-alias-row { transition: none; }
+
+@media (prefers-reduced-motion: reduce) {
+	.proton-hosts-modal .ph-mini-btn,
+	.proton-hosts-modal .ph-alias-del,
+	.proton-hosts-modal .ph-cidr,
+	.proton-hosts-modal .proton-hosts-alias-row { transition: none; }
+}
+
+/* Глобальный input[type=checkbox] в cascade.css — тумблер 44×24 с белым
+   кружком в ::after. Сбрасываем его целиком и рисуем настоящий чекбокс. */
+.proton-hosts-modal .ph-subs-list input[type="checkbox"] {
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	appearance: none;
+	position: relative;
+	display: inline-block;
+	flex: 0 0 18px;
+	width: 18px;
+	min-width: 18px;
+	height: 18px;
+	margin: 0;
+	padding: 0;
+	border: 1.5px solid rgba(var(--ph-rx-rgb), 0.45);
+	border-radius: 5px;
+	background: rgba(var(--ph-rx-rgb), 0.06);
+	background-image: none;
+	box-shadow: none;
+	accent-color: var(--ph-rx);
+	cursor: pointer;
+	transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.proton-hosts-modal .ph-subs-list input[type="checkbox"]::after {
+	content: "";
+	position: absolute;
+	left: 5px; top: 2.5px; right: auto; bottom: auto;
+	width: 5px; height: 10px;
+	margin: 0;
+	background: none;
+	background-color: transparent;
+	border: solid #ffffff;
+	border-width: 0 2px 2px 0;
+	border-radius: 0;
+	box-shadow: none;
+	transform: rotate(45deg) scale(0);
+	transform-origin: center;
+	transition: transform 0.16s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.proton-hosts-modal .ph-subs-list input[type="checkbox"]:hover {
+	background: rgba(var(--ph-rx-rgb), 0.14);
+	border-color: rgba(var(--ph-rx-rgb), 0.8);
+}
+.proton-hosts-modal .ph-subs-list input[type="checkbox"]:checked {
+	background: linear-gradient(135deg, var(--ph-rx), var(--ph-tx));
+	border-color: transparent;
+	box-shadow: 0 2px 8px rgba(var(--ph-rx-rgb), 0.35);
+}
+.proton-hosts-modal .ph-subs-list input[type="checkbox"]:checked::after { transform: rotate(45deg) scale(1); }
+.proton-hosts-modal .ph-subs-list input[type="checkbox"]:checked:hover {
+	background: linear-gradient(135deg, var(--ph-rx), var(--ph-tx));
+	border-color: transparent;
+	filter: brightness(1.1);
+}
+.proton-hosts-modal .ph-subs-list input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.proton-hosts-modal .ph-subs-list i {
+	display: block; padding: 8px 4px; font-style: normal;
+	font-size: 0.78rem; color: var(--proton-text-secondary); opacity: 0.7;
+}
+.proton-hosts-modal .ph-subs small {
+	display: block; font-size: 0.72rem; line-height: 1.45; color: var(--proton-muted);
+}
+
+/* Кнопки — как «Отмена» / «Сохранить» в WAN-модалке: справа, без разделителя */
+
+.proton-hosts-modal .proton-confirm-modal-actions {
+	flex: 0 0 auto;
+	margin-top: 22px;
+}
+.proton-hosts-modal .proton-confirm-modal-actions button {
+	min-width: 100px;
+	padding: 10px 20px;
+	font: inherit;
+	font-size: 0.9rem;
+	font-weight: 500;
+	line-height: 1.2;
+	color: var(--proton-fg);
+	background: var(--proton-bg-tertiary);
+	border: 1px solid var(--proton-border);
+	border-radius: var(--proton-radius);
+	box-shadow: none;
+	cursor: pointer;
+	transition: var(--proton-transition);
+}
+.proton-hosts-modal .proton-confirm-modal-actions button:hover {
+	background: var(--proton-bg-hover);
+	border-color: rgba(var(--ph-rx-rgb), 0.45);
+	transform: translateY(-1px);
+}
+.proton-hosts-modal .proton-confirm-modal-actions button.primary {
+	color: #fff;
+	font-weight: 600;
+	background: var(--proton-accent);
+	border-color: transparent;
+}
+.proton-hosts-modal .proton-confirm-modal-actions button.primary:hover {
+	background: var(--proton-accent-hover);
+	border-color: transparent;
+}
+
+.proton-hosts-modal :focus-visible {
+	outline: 2px solid var(--proton-accent);
+	outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+	.proton-hosts-modal { max-height: calc(100vh - 40px); }
+	.proton-hosts-modal .proton-confirm-modal-actions { flex-direction: column-reverse; }
+	.proton-hosts-modal .proton-confirm-modal-actions button { width: 100%; }
+}
+
+.proton-no-animations .proton-hosts-modal-overlay { animation: none; }
+.proton-no-animations .proton-hosts-modal .ph-subs-list label,
+.proton-no-animations .proton-hosts-modal .ph-subs-list input[type="checkbox"],
+.proton-no-animations .proton-hosts-modal .ph-subs-list input[type="checkbox"]::after,
+.proton-no-animations .proton-hosts-modal .proton-confirm-modal-actions button { transition: none; }
+
+@media (prefers-reduced-motion: reduce) {
+	.proton-hosts-modal-overlay { animation: none; }
+	.proton-hosts-modal .ph-subs-list label,
+	.proton-hosts-modal .ph-subs-list input[type="checkbox"],
+	.proton-hosts-modal .ph-subs-list input[type="checkbox"]::after,
+	.proton-hosts-modal .proton-confirm-modal-actions button,
+	.proton-hosts-modal .ph-slider input[type="range"]::-webkit-slider-thumb { transition: none; }
+}
+
+/* ── Интеграция с сеткой Overview ───────────────────────────────────────
+   Когда .proton-hosts-chart скрыт, колонку грида тоже убираем — иначе
+   справа остаётся пустая дыра шириной 120px.                                */
+
+@container proton-card (max-width: 639px) {
+	#proton-dashboard-hosts .proton-hosts-row { --ph-chart-w: 92px; column-gap: 8px; }
+	#proton-dashboard-hosts .proton-hosts-ip { max-width: 128px; }
+}
+
+@container proton-card (max-width: 479px) {
+	#proton-dashboard-hosts .proton-hosts-row {
+		grid-template-columns: 3px 20px minmax(0, 1fr);
+		padding-right: 6px;
+	}
+	#proton-dashboard-hosts .proton-hosts-chart,
+	#proton-dashboard-hosts .proton-hosts-ipv6 { display: none; }
+	#proton-dashboard-hosts .proton-hosts-source { padding: 3px 6px; font-size: 0.58rem; }
+}
+
+@container proton-card (max-width: 359px) {
+	#proton-dashboard-hosts .proton-hosts-row {
+		grid-template-columns: 3px minmax(0, 1fr);
+		--ph-row-y: 6px;
+	}
+	#proton-dashboard-hosts .proton-hosts-icon,
+	#proton-dashboard-hosts .proton-hosts-source { display: none; }
+	#proton-dashboard-hosts .proton-hosts-top { flex-direction: column; align-items: flex-start; gap: 1px; }
+	#proton-dashboard-hosts .proton-hosts-ips { align-items: flex-start; }
+	#proton-dashboard-hosts .proton-hosts-name { --ph-name: 0.78rem; }
+	#proton-dashboard-hosts .proton-hosts-rates { gap: 8px; --ph-rate: 0.68rem; }
+}
+
+.proton-overview-cell.is-flat #proton-dashboard-hosts .proton-hosts-row,
+.proton-overview-cell.is-h1 #proton-dashboard-hosts .proton-hosts-row {
+	grid-template-columns: 3px 20px minmax(0, 1fr);
+	--ph-row-y: 5px;
+}
+
+.proton-overview-cell.is-flat #proton-dashboard-hosts .proton-hosts-chart,
+.proton-overview-cell.is-h1 #proton-dashboard-hosts .proton-hosts-chart,
+.proton-overview-cell.is-flat #proton-dashboard-hosts .proton-hosts-ipv6,
+.proton-overview-cell.is-h1 #proton-dashboard-hosts .proton-hosts-ipv6,
+.proton-overview-cell.is-flat #proton-dashboard-hosts .proton-hosts-type,
+.proton-overview-cell.is-h1 #proton-dashboard-hosts .proton-hosts-type {
+	display: none;
+}
+
+.proton-overview-cell.is-flat #proton-dashboard-hosts .proton-hosts-group,
+.proton-overview-cell.is-h1 #proton-dashboard-hosts .proton-hosts-group { padding: 6px 6px 3px; }
+
+.proton-overview-cell.is-narrow #proton-dashboard-hosts .proton-hosts-name { font-size: 0.78rem; }
+.proton-overview-cell.is-narrow #proton-dashboard-hosts .proton-hosts-rates { font-size: 0.68rem; gap: 8px; }
+.proton-overview-cell.is-narrow #proton-dashboard-hosts .proton-hosts-ip { font-size: 0.64rem; max-width: 120px; }
+.proton-overview-cell.is-medium #proton-dashboard-hosts .proton-hosts-name { font-size: 0.8rem; }
+
+@media (max-width: 600px) {
+	#proton-dashboard-hosts .proton-hosts-row { grid-template-columns: 3px 20px minmax(0, 1fr); }
+	#proton-dashboard-hosts .proton-hosts-chart { display: none; }
+	#proton-dashboard-hosts .proton-hosts-list { max-height: min(58vh, 420px); }
+	.proton-hosts-modal { padding: 18px 16px; }
+	.proton-hosts-modal .ph-field { flex-direction: column; align-items: stretch; gap: 6px; }
+	.proton-hosts-modal .ph-field select { width: 100%; max-width: 100%; }
+	.proton-hosts-modal .proton-network-modal-actions { flex-direction: column-reverse; }
+	.proton-hosts-modal .proton-network-modal-actions button { width: 100%; }
+}
+
+/* ── Отключённые анимации ───────────────────────────────────────────── */
+
+.proton-no-animations #proton-dashboard-hosts::before,
+.proton-no-animations #proton-dashboard-hosts .proton-hosts-source[data-mode="live"]::before,
+.proton-no-animations #proton-dashboard-hosts .proton-hosts-row[data-hot="1"] .proton-hosts-bar {
+	animation: none;
+}
+
+.proton-no-animations #proton-dashboard-hosts .proton-hosts-row,
+.proton-no-animations #proton-dashboard-hosts .proton-hosts-bar,
+.proton-no-animations .proton-hosts-modal,
+.proton-no-animations .proton-hosts-modal-overlay {
+	transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	#proton-dashboard-hosts::before,
+	#proton-dashboard-hosts .proton-hosts-source[data-mode="live"]::before,
+	#proton-dashboard-hosts .proton-hosts-row[data-hot="1"] .proton-hosts-bar {
+		animation: none;
+	}
+	#proton-dashboard-hosts .proton-hosts-row,
+	#proton-dashboard-hosts .proton-hosts-bar,
+	.proton-hosts-modal,
+	.proton-hosts-modal-overlay,
+	.proton-hosts-modal .ph-slider input[type="range"]::-webkit-slider-thumb {
+		transition: none;
+	}
 }

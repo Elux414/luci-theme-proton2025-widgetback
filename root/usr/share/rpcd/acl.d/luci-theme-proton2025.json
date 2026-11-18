@@ -68,6 +68,10 @@
 				"luci.proton-services-events": [
 					"readEvents",
 					"getStorageStats"
+				],
+				"luci.proton-hostrates": [ 
+					"getRates", 
+					"getInfo"
 				]
             },
             "uci": [
@@ -134,6 +138,9 @@
 				"luci.proton-services-events": [
 					"appendEvent",
 					"clearEvents"
+				],
+				"luci.proton-hostrates": [ 
+				"enableAccounting" 
 				]
             },
             "uci": [
