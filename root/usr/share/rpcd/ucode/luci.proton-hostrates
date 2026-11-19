@@ -1,20 +1,39 @@
 'use strict';
-
-import { open, writefile, popen } from 'fs';
+import { open, readfile, writefile, popen, stat, mkdir, rename, unlink } from 'fs';
 import { cursor } from 'uci';
 
 const CT_PATHS  = [ '/proc/net/nf_conntrack', '/proc/net/ip_conntrack' ];
 const ACCT_PATH = '/proc/sys/net/netfilter/nf_conntrack_acct';
-const NLBW      = '/usr/sbin/nlbw';
+const NLBW_PATHS = [ '/usr/sbin/nlbw', '/usr/bin/nlbw', '/sbin/nlbw', '/bin/nlbw' ];
 const NETS_TTL  = 60;
 const UCI_TTL   = 15;
 const ACCUM_TTL = 900;
+const NEIGH_MAX = 512;
+const NLBW_IP_TTL = 25;
+const NLBW_BIN_TTL = 300;
+
+/* Тоталы живут ТОЛЬКО в RAM. Никакой записи во flash/overlay.
+   /tmp на OpenWrt — tmpfs; проверяется по /proc/mounts, при не-tmpfs
+   персистенция отключается целиком. */
+const DIR_TMP  = '/tmp/proton-hostrates';
+const FILE_TMP = '/tmp/proton-hostrates/totals.json';
+const FILE_NEW = '/tmp/proton-hostrates/totals.json.new';
+const SAVE_TTL = 30;
+const TOTALS_RETAIN = 604800;
+const TOTALS_MAX = 2048;
+
+const NEIGH_MAC_RE = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/;
+const VPN_DEV_RE = /^(zt|wg|wireguard|tailscale|ts|tun|tap|ppp|ovpn|vtun|nordlynx|ipsec|vpn|br-vpn)/;
 
 const S = global.protonHostRates || (global.protonHostRates = {
 	conns: {}, accum: {}, primed: false,
 	nets4: null, nets6: null, own: {}, netsTs: 0,
 	watch4: [], watch6: [], watchSig: '',
 	uciList: [], uciTs: 0,
+	nlbwIp: null, nlbwMac: {}, nlbwIpTs: 0, nlbwIpMode: '', nlbwIpTried: null,
+	nlbwCols: null, nlbwSample: null,
+	nlbwBin: null, nlbwBinTs: 0,
+	tmpRam: null, loaded: false, saveTs: 0, persist: '', persistBytes: 0,
 	calls: 0, offload: 0, matched: 0, lastError: ''
 });
 if (!S.totals) S.totals = {};
@@ -26,30 +45,36 @@ function readAll(path) {
 	f.close();
 	return s;
 }
-
 function errMsg(e) {
 	if (e == null) return 'null';
 	if (type(e) == 'string') return e;
 	if (type(e) == 'object' && e.message) return e.message;
 	return '' + e;
 }
-
 function stage(name, fn) {
-	try {
-		return { ok: true, v: fn() };
-	}
-	catch (e) {
-		return { ok: false, e: name + ': ' + errMsg(e) };
-	}
+	try { return { ok: true, v: fn() }; }
+	catch (e) { return { ok: false, e: name + ': ' + errMsg(e) }; }
+}
+function isFile(path) {
+	let st = stat(path);
+	return st != null && st.type == 'file';
+}
+function collapseWs(s) {
+	let t = replace(s, /\t/g, ' ');
+	while (index(t, '  ') >= 0) t = replace(t, /  /g, ' ');
+	return trim(t);
+}
+function parseJson(raw) {
+	if (raw == null || raw == '') return null;
+	try { return json(raw); }
+	catch (e) { return null; }
 }
 
 /* ---------- адресная математика ---------- */
-
 function ip4num(ip) {
 	let p = split(ip, '.');
 	if (length(p) != 4) return null;
-	let n = 0;
-	let i = 0;
+	let n = 0, i = 0;
 	while (i < 4) {
 		if (p[i] == '' || length(p[i]) > 3) return null;
 		let k = 0;
@@ -65,7 +90,6 @@ function ip4num(ip) {
 	}
 	return n;
 }
-
 function dotted(n) {
 	let a = int(n / 16777216) % 256;
 	let b = int(n / 65536) % 256;
@@ -73,13 +97,11 @@ function dotted(n) {
 	let d = n % 256;
 	return a + '.' + b + '.' + c + '.' + d;
 }
-
 function mask4(bits) {
 	if (bits <= 0) return 0;
 	if (bits >= 32) return 0xffffffff;
 	return 0xffffffff - ((1 << (32 - bits)) - 1);
 }
-
 function nib(c) {
 	let k = ord(c);
 	if (k >= 48 && k <= 57) return k - 48;
@@ -87,25 +109,18 @@ function nib(c) {
 	if (k >= 65 && k <= 70) return k - 55;
 	return -1;
 }
-
 function ip6hex(ip) {
 	let z = index(ip, '%');
 	if (z >= 0) ip = substr(ip, 0, z);
 	if (ip == '') return null;
-
 	if (index(ip, '.') >= 0) {
-		let cut = -1;
-		let i = length(ip) - 1;
-		while (i >= 0) {
-			if (substr(ip, i, 1) == ':') { cut = i; break; }
-			i--;
-		}
+		let cut = -1, i = length(ip) - 1;
+		while (i >= 0) { if (substr(ip, i, 1) == ':') { cut = i; break; } i--; }
 		if (cut < 0) return null;
 		let v = ip4num(substr(ip, cut + 1));
 		if (v == null) return null;
 		ip = substr(ip, 0, cut + 1) + sprintf('%x:%x', int(v / 65536) & 0xffff, v & 0xffff);
 	}
-
 	let halves = split(ip, '::');
 	if (length(halves) > 2) return null;
 	let groups = [];
@@ -123,14 +138,11 @@ function ip6hex(ip) {
 	}
 	else groups = split(ip, ':');
 	if (length(groups) != 8) return null;
-
-	let out = '';
-	let g = 0;
+	let out = '', g = 0;
 	while (g < 8) {
 		let item = groups[g];
 		if (item == '' || length(item) > 4) return null;
-		let v = 0;
-		let i = 0;
+		let v = 0, i = 0;
 		while (i < length(item)) {
 			let d = nib(substr(item, i, 1));
 			if (d < 0) return null;
@@ -142,7 +154,6 @@ function ip6hex(ip) {
 	}
 	return out;
 }
-
 function pushCidr(list4, list6, cidr) {
 	if (type(cidr) != 'string') return;
 	let s = trim(cidr);
@@ -177,23 +188,19 @@ function pushCidr(list4, list6, cidr) {
 }
 
 /* ---------- свои адреса ---------- */
-
 function loadNets() {
 	let now = time();
 	if (S.nets4 != null && (now - S.netsTs) < NETS_TTL) return;
-
 	let n4 = [], n6 = [], own = {};
 	let p = popen('ip -o addr show 2>/dev/null', 'r');
-
 	if (p) {
 		let out = p.read('all');
 		p.close();
 		if (out == null) out = '';
-
 		let lines = split(out, '\n');
 		let li = 0;
 		while (li < length(lines)) {
-			let f = split(trim(lines[li]), ' ');
+			let f = split(collapseWs(lines[li]), ' ');
 			let i = 0;
 			while (i < length(f)) {
 				if (f[i] != 'inet' && f[i] != 'inet6') { i++; continue; }
@@ -203,7 +210,6 @@ function loadNets() {
 				let addr = cp[0];
 				let bits = (cp[1] != null && cp[1] != '') ? int(cp[1]) : (f[i] == 'inet' ? 32 : 128);
 				own[addr] = true;
-
 				if (f[i] == 'inet') {
 					if (substr(addr, 0, 4) != '127.') {
 						let v = ip4num(addr);
@@ -225,7 +231,6 @@ function loadNets() {
 			li++;
 		}
 	}
-
 	if (length(n4) == 0) {
 		n4 = [
 			[ ip4num('10.0.0.0')    & mask4(8),  mask4(8),  '10.0.0.0/8' ],
@@ -237,16 +242,63 @@ function loadNets() {
 		let fc = ip6hex('fc00::');
 		if (fc != null) n6 = [ [ substr(fc, 0, 2), 7, 'fc00::/7' ] ];
 	}
-
 	S.nets4 = n4; S.nets6 = n6; S.own = own; S.netsTs = now;
 }
 
-/* ---------- наблюдаемые сети ---------- */
+/* ---------- сети устройств из ядра ---------- */
+function devBase(name) {
+	let s = trim(name);
+	let at = index(s, '@');
+	if (at >= 0) s = substr(s, 0, at);
+	return lc(s);
+}
+function getNetworks() {
+	let out = [];
+	let p = popen('ip -o addr show 2>/dev/null', 'r');
+	if (!p) return { success: false, reason: 'no-ip', networks: [], ts: time() };
+	let raw = p.read('all');
+	p.close();
+	if (raw == null) raw = '';
+	let lines = split(raw, '\n');
+	let li = 0;
+	while (li < length(lines)) {
+		let f = split(collapseWs(lines[li]), ' ');
+		li++;
+		if (length(f) < 4) continue;
+		let dev = devBase(f[1]);
+		if (dev == '' || dev == 'lo') continue;
+		let i = 2;
+		while (i < length(f)) {
+			if (f[i] != 'inet' && f[i] != 'inet6') { i++; continue; }
+			let cidr = f[i + 1];
+			if (cidr == null || cidr == '') break;
+			let cp = split(cidr, '/');
+			let addr = cp[0];
+			if (addr == '') break;
+			let is6 = index(addr, ':') >= 0;
+			if (!is6 && substr(addr, 0, 4) == '127.') break;
+			if (is6 && substr(lc(addr), 0, 4) == 'fe80') break;
+			let bits = (cp[1] != null && cp[1] != '') ? int(cp[1]) : (is6 ? 128 : 32);
+			let netAddr = addr;
+			if (!is6) {
+				let v = ip4num(addr);
+				if (v != null) netAddr = dotted(v & mask4(bits));
+			}
+			push(out, {
+				dev: dev, cidr: netAddr + '/' + bits, addr: addr,
+				family: (is6 ? 6 : 4),
+				kind: (match(dev, VPN_DEV_RE) != null ? 'vpn' : 'lan')
+			});
+			break;
+		}
+	}
+	return { success: true, networks: out, count: length(out), ts: time() };
+}
 
+/* ---------- наблюдаемые сети ---------- */
 function uciNetworks() {
 	let now = time();
 	if (S.uciTs != 0 && (now - S.uciTs) < UCI_TTL) return S.uciList;
-
 	let out = [];
 	try {
 		let c = cursor();
@@ -254,7 +306,7 @@ function uciNetworks() {
 			c.load('proton2025');
 			let raw = c.get('proton2025', 'settings', 'hosts_network_filter');
 			if (type(raw) == 'string' && trim(raw) != '') {
-				let arr = json(raw);
+				let arr = parseJson(raw);
 				if (type(arr) == 'array') {
 					let i = 0;
 					while (i < length(arr)) {
@@ -266,18 +318,15 @@ function uciNetworks() {
 		}
 	}
 	catch (e) { }
-
 	S.uciList = out;
 	S.uciTs = now;
 	return out;
 }
-
 function setWatched(clientList) {
 	let seen = {};
 	let uci = uciNetworks();
 	let i = 0;
 	while (i < length(uci)) { if (uci[i] != '') seen[uci[i]] = 1; i++; }
-
 	if (type(clientList) == 'string' && clientList != '') {
 		let parts = split(clientList, ',');
 		i = 0;
@@ -287,21 +336,17 @@ function setWatched(clientList) {
 			i++;
 		}
 	}
-
 	let tmp = [];
 	for (let k in seen) tmp[length(tmp)] = k;
 	let sig = '';
 	i = 0;
 	while (i < length(tmp)) { sig = sig + tmp[i] + '|'; i++; }
 	if (sig == S.watchSig) return;
-
 	let w4 = [], w6 = [];
 	i = 0;
 	while (i < length(tmp)) { pushCidr(w4, w6, tmp[i]); i++; }
-
 	S.watch4 = w4; S.watch6 = w6; S.watchSig = sig;
 }
-
 function in4(v, list) {
 	let i = 0;
 	while (i < length(list)) {
@@ -310,7 +355,6 @@ function in4(v, list) {
 	}
 	return false;
 }
-
 function in6(h, list) {
 	let i = 0;
 	while (i < length(list)) {
@@ -328,56 +372,130 @@ function in6(h, list) {
 	}
 	return false;
 }
-
 function isWatched(ip) {
 	if (ip == null || ip == '' || S.own[ip]) return false;
-
 	if (index(ip, ':') < 0) {
 		let v = ip4num(ip);
 		if (v == null) return false;
 		if ((v & 0xff000000) == 0x7f000000) return false;
 		return in4(v, S.watch4) || in4(v, S.nets4);
 	}
-
 	let h = ip6hex(ip);
 	if (h == null) return false;
 	if (substr(h, 0, 4) == 'fe80' || substr(h, 0, 4) == 'ff02') return false;
 	return in6(h, S.watch6) || in6(h, S.nets6);
 }
 
-/* ---------- conntrack ---------- */
+/* ---------- тоталы в RAM (/tmp) ---------- */
+function tmpIsRam() {
+	if (S.tmpRam != null) return S.tmpRam;
+	S.tmpRam = false;
+	let raw = readAll('/proc/mounts');
+	if (raw != null) {
+		for (let ln in split(raw, '\n')) {
+			let f = split(collapseWs(ln), ' ');
+			if (length(f) < 3) continue;
+			if (f[1] == '/tmp' && (f[2] == 'tmpfs' || f[2] == 'ramfs')) {
+				S.tmpRam = true;
+				break;
+			}
+		}
+	}
+	return S.tmpRam;
+}
+function pruneTotals(now) {
+	let keep = {};
+	let n = 0;
+	for (let ip, x in S.totals) {
+		if (now - x.s > TOTALS_RETAIN) continue;
+		keep[ip] = x;
+		n++;
+	}
+	if (n > TOTALS_MAX) {
+		let arr = [];
+		for (let ip, x in keep) push(arr, [ ip, x.s ]);
+		arr = sort(arr, function (a, b) { return b[1] - a[1]; });
+		let out = {};
+		let i = 0;
+		while (i < TOTALS_MAX && i < length(arr)) {
+			let ip = arr[i][0];
+			out[ip] = keep[ip];
+			i++;
+		}
+		keep = out;
+	}
+	S.totals = keep;
+}
+function loadTotals() {
+	if (S.loaded) return;
+	S.loaded = true;
+	if (!tmpIsRam()) { S.persist = 'disabled'; return; }
+	S.persist = FILE_TMP;
+	let doc = parseJson(readAll(FILE_TMP));
+	if (type(doc) != 'object') return;
+	let now = time();
+	let n = 0;
+	for (let ip, rec in doc) {
+		if (type(rec) != 'object') continue;
+		let rx = int(rec.rx) || 0, tx = int(rec.tx) || 0;
+		if (rx <= 0 && tx <= 0) continue;
+		let s = int(rec.s) || now;
+		if (now - s > TOTALS_RETAIN) continue;
+		S.totals[ip] = { rx: rx, tx: tx, s: s };
+		n++;
+	}
+	pruneTotals(now);
+	if (n > 0) S.saveTs = now;
+}
+function saveTotals(force) {
+	if (!tmpIsRam()) { S.persist = 'disabled'; return false; }
+	let now = time();
+	if (!force && (now - S.saveTs) < SAVE_TTL) return false;
+	let payload = null;
+	try { payload = sprintf('%J', S.totals); }
+	catch (e) { payload = null; }
+	if (payload == null) return false;
+	let st = stat(DIR_TMP);
+	if (st == null || st.type != 'directory') mkdir(DIR_TMP, 0o755);
+	if (!writefile(FILE_NEW, payload)) return false;
+	let ok = rename(FILE_NEW, FILE_TMP);
+	if (ok == null || ok == false) {
+		unlink(FILE_NEW);
+		return false;
+	}
+	S.saveTs = now;
+	S.persist = FILE_TMP;
+	S.persistBytes = length(payload);
+	return true;
+}
 
+/* ---------- conntrack ---------- */
 function scan(text) {
+	loadTotals();
 	let prev = S.conns;
 	let next = {};
 	let count = 0, offload = 0, matched = 0;
 	let now = time();
 	let lines = split(text, '\n');
-
 	let li = 0;
 	while (li < length(lines)) {
 		let line = lines[li];
 		li++;
 		if (length(line) < 24 || index(line, 'src=') < 0) continue;
-
 		let f = split(line, ' ');
 		let n = length(f);
 		let proto = 'x', word = 0;
 		let oSrc = null, oDst = null, oSp = '', oDp = '', oId = '';
 		let oB = -1, rB = -1, seenSrc = 0, seenSp = 0, seenDp = 0, seenB = 0, seenId = 0;
-
 		let i = 0;
 		while (i < n) {
 			let t = f[i];
 			i++;
 			if (t == '') continue;
-
 			word++;
 			if (word == 3) { proto = t; continue; }
 			if (word < 4) continue;
-
 			let c = substr(t, 0, 1);
-
 			if (c == 's') {
 				if (substr(t, 0, 4) == 'src=') {
 					if (seenSrc == 0) { oSrc = substr(t, 4); seenSrc = 1; }
@@ -395,65 +513,50 @@ function scan(text) {
 			else if (c == 'i' && substr(t, 0, 3) == 'id=' && seenId == 0) { oId = substr(t, 3); seenId = 1; }
 			else if (c == '[' && t == '[OFFLOAD]') offload++;
 		}
-
 		if (oB < 0) continue;
 		if (rB < 0) rB = 0;
 		count++;
-
 		let host = null, tx = 0, rx = 0;
 		if (isWatched(oSrc))      { host = oSrc; tx = oB; rx = rB; }
 		else if (isWatched(oDst)) { host = oDst; tx = rB; rx = oB; }
 		else continue;
-
 		matched++;
-		let key = proto + '|' + oSrc + '|' + oSp + oId + '|' + oDst + '|' + oDp;
+		let key = proto + '|' + oSrc + '|' + oSp + '|' + oId + '|' + oDst + '|' + oDp;
 		let p = prev[key];
 		let dTx, dRx;
-
 		if (p) {
 			dTx = tx - p[0]; dRx = rx - p[1];
 			if (dTx < 0) dTx = tx;
 			if (dRx < 0) dRx = rx;
 		}
 		else { dTx = tx; dRx = rx; }
-
 		next[key] = [ tx, rx ];
-
 		let a = S.accum[host];
 		if (!a) { a = { rx: 0, tx: 0, s: now }; S.accum[host] = a; }
 		a.s = now;
-
 		let tt = S.totals[host];
 		if (!tt) { tt = { rx: 0, tx: 0, s: now }; S.totals[host] = tt; }
 		tt.s = now;
-
 		if (S.primed) {
 			a.rx = a.rx + dRx; a.tx = a.tx + dTx;
 			tt.rx = tt.rx + dRx; tt.tx = tt.tx + dTx;
 		}
 	}
-
 	let keep = {};
 	for (let ip, a in S.accum)
 		if (now - a.s <= ACCUM_TTL) keep[ip] = a;
 	S.accum = keep;
-
-	let tkeep = {};
-	for (let ip, x in S.totals)
-		if (now - x.s <= 604800) tkeep[ip] = x;
-	S.totals = tkeep;
-
+	pruneTotals(now);
 	S.conns = next;
 	S.offload = offload;
 	S.matched = matched;
+	saveTotals(false);
 	return count;
 }
-
 function acctOn() {
 	let v = readAll(ACCT_PATH);
 	return v != null && trim(v) == '1';
 }
-
 function ctPath() {
 	let i = 0;
 	while (i < length(CT_PATHS)) {
@@ -462,19 +565,17 @@ function ctPath() {
 	}
 	return null;
 }
-
 function publicHosts() {
 	let out = {};
 	for (let ip, a in S.accum) out[ip] = { rx: a.rx, tx: a.tx };
 	return out;
 }
-
 function publicTotals() {
+	loadTotals();
 	let out = {};
 	for (let ip, x in S.totals) out[ip] = { rx: x.rx, tx: x.tx };
 	return out;
 }
-
 function labels(list) {
 	let out = [];
 	let i = 0;
@@ -482,80 +583,350 @@ function labels(list) {
 	return out;
 }
 
-/* ---------- nlbwmon fallback ---------- */
-
-function nlbwFallback(reason) {
-	let p = popen(NLBW + ' -c json -g mac 2>/dev/null', 'r');
-	if (!p) return { success: false, reason: reason, hosts: {}, keyBy: 'mac', ts: time() };
+/* ---------- nlbwmon ---------- */
+function nlbwPath() {
+	let now = time();
+	if (S.nlbwBin != null && (S.nlbwBin != '' || (now - S.nlbwBinTs) < NLBW_BIN_TTL))
+		return S.nlbwBin;
+	let i = 0;
+	while (i < length(NLBW_PATHS)) {
+		if (isFile(NLBW_PATHS[i])) { S.nlbwBin = NLBW_PATHS[i]; S.nlbwBinTs = now; return S.nlbwBin; }
+		i++;
+	}
+	let p = popen('command -v nlbw 2>/dev/null', 'r');
+	if (p) {
+		let s = p.read('all');
+		p.close();
+		s = trim(s == null ? '' : s);
+		if (s != '' && isFile(s)) { S.nlbwBin = s; S.nlbwBinTs = now; return s; }
+	}
+	S.nlbwBin = '';
+	S.nlbwBinTs = now;
+	return '';
+}
+function nlbwRun(args) {
+	let bin = nlbwPath();
+	if (bin == '') return null;
+	let p = popen(bin + ' ' + args + ' 2>/dev/null', 'r');
+	if (!p) return null;
 	let raw = p.read('all');
 	p.close();
+	return raw;
+}
 
-	let doc = json(raw);
-	if (!doc || type(doc.columns) != 'object' || type(doc.data) != 'array')
-		return { success: false, reason: reason, hosts: {}, keyBy: 'mac', ts: time() };
+/* nlbw отдаёт columns МАССИВОМ имён: ["mac","conns","rx_bytes",...].
+   Старый код читал doc.columns.mac — для массива это undefined, и все
+   формы отвергались как no-ip-column. Нормализуем оба варианта. */
+function nlbwColumns(doc) {
+	if (doc == null) return null;
+	let c = doc.columns;
+	let idx = {};
+	if (type(c) == 'array') {
+		let i = 0;
+		while (i < length(c)) {
+			if (type(c[i]) == 'string') idx[lc(trim(c[i]))] = i;
+			i++;
+		}
+		return idx;
+	}
+	if (type(c) == 'object') {
+		for (let k, v in c) {
+			if (v == null) continue;
+			idx[lc(trim(k))] = int(v);
+		}
+		return idx;
+	}
+	return null;
+}
+function nlbwCell(row, idx, name) {
+	if (type(row) == 'array') {
+		let i = idx[name];
+		if (i == null || i >= length(row)) return null;
+		return row[i];
+	}
+	if (type(row) == 'object') return row[name];
+	return null;
+}
+function nlbwRows(doc) {
+	if (doc == null) return null;
+	if (type(doc.data) == 'array') return doc.data;
+	if (type(doc.rows) == 'array') return doc.rows;
+	return null;
+}
+function nlbwNormIp(v) {
+	let ip = trim('' + (v == null ? '' : v));
+	let pct = index(ip, '%');
+	if (pct >= 0) ip = substr(ip, 0, pct);
+	let slash = index(ip, '/');
+	if (slash >= 0) ip = substr(ip, 0, slash);
+	return ip;
+}
+function nlbwNormMac(v) {
+	let m = lc(trim('' + (v == null ? '' : v)));
+	if (match(m, NEIGH_MAC_RE) == null) return '';
+	if (m == '00:00:00:00:00:00') return '';
+	return m;
+}
+function nlbwAccum(out, macOut, ip, mac, rx, tx) {
+	if (ip == '') return;
+	let a = out[ip];
+	if (!a) { a = { rx: 0, tx: 0 }; out[ip] = a; }
+	a.rx = a.rx + rx;
+	a.tx = a.tx + tx;
+	if (mac != '') macOut[ip] = mac;
+}
 
+function nlbwMacTotals() {
+	let doc = parseJson(nlbwRun('-c json -g mac'));
+	let idx = nlbwColumns(doc);
+	let rows = nlbwRows(doc);
+	if (idx == null || rows == null) return null;
+	if (idx.mac == null || idx.rx_bytes == null || idx.tx_bytes == null) return null;
 	let out = {};
 	let i = 0;
-	while (i < length(doc.data)) {
-		let row = doc.data[i];
+	while (i < length(rows)) {
+		let row = rows[i];
 		i++;
-		if (type(row) != 'array') continue;
-		let mac = lc(trim(row[doc.columns.mac] || ''));
-		if (mac == '' || mac == '00:00:00:00:00:00') continue;
+		let mac = nlbwNormMac(nlbwCell(row, idx, 'mac'));
+		if (mac == '') continue;
 		let a = out[mac];
 		if (!a) { a = { rx: 0, tx: 0 }; out[mac] = a; }
-		a.rx = a.rx + (int(row[doc.columns.rx_bytes]) || 0);
-		a.tx = a.tx + (int(row[doc.columns.tx_bytes]) || 0);
+		a.rx = a.rx + (int(nlbwCell(row, idx, 'rx_bytes')) || 0);
+		a.tx = a.tx + (int(nlbwCell(row, idx, 'tx_bytes')) || 0);
 	}
+	return out;
+}
+function nlbwFallback(reason) {
+	let out = nlbwMacTotals();
+	if (out == null)
+		return { success: false, reason: reason, hosts: {}, totals: publicTotals(),
+		         keyBy: 'mac', persisted: tmpIsRam(), ts: time() };
 	return { success: true, source: 'nlbwmon', keyBy: 'mac', hosts: out,
+	         totals: publicTotals(), persisted: tmpIsRam(),
 	         coarse: true, conns: 0, matched: 0, offloaded: 0, acct: true, ts: time() };
 }
 
-/* ---------- логика ---------- */
+function nlbwJsonParse(raw) {
+	let doc = parseJson(raw);
+	if (doc == null) return { err: 'no-json' };
+	let idx = nlbwColumns(doc);
+	if (idx == null) return { err: 'no-columns' };
+	let rows = nlbwRows(doc);
+	if (rows == null) return { err: 'no-rows', cols: idx };
+	if (idx.ip == null) return { err: 'no-ip-column', cols: idx };
+	if (idx.rx_bytes == null || idx.tx_bytes == null) return { err: 'no-byte-columns', cols: idx };
+	let out = {}, macOut = {};
+	let i = 0;
+	while (i < length(rows)) {
+		let row = rows[i];
+		i++;
+		nlbwAccum(out, macOut,
+			nlbwNormIp(nlbwCell(row, idx, 'ip')),
+			nlbwNormMac(nlbwCell(row, idx, 'mac')),
+			(int(nlbwCell(row, idx, 'rx_bytes')) || 0),
+			(int(nlbwCell(row, idx, 'tx_bytes')) || 0));
+	}
+	if (length(out) == 0) return { err: 'empty', cols: idx };
+	return { hosts: out, macByIp: macOut, cols: idx, sample: rows[0] };
+}
+function csvField(v) {
+	let s = trim(v);
+	if (length(s) >= 2 && substr(s, 0, 1) == '"' && substr(s, length(s) - 1, 1) == '"')
+		s = substr(s, 1, length(s) - 2);
+	return trim(s);
+}
+function nlbwCsvParse(raw) {
+	if (raw == null || raw == '') return { err: 'no-output' };
+	let lines = split(raw, '\n');
+	if (length(lines) < 2) return { err: 'no-rows' };
+	let head = split(csvField(lines[0]), ',');
+	let idx = {};
+	let h = 0;
+	while (h < length(head)) { idx[lc(csvField(head[h]))] = h; h++; }
+	if (idx.ip == null) return { err: 'no-ip-column', cols: idx };
+	if (idx.rx_bytes == null || idx.tx_bytes == null) return { err: 'no-byte-columns', cols: idx };
+	let out = {}, macOut = {};
+	let li = 1;
+	while (li < length(lines)) {
+		let line = trim(lines[li]);
+		li++;
+		if (line == '') continue;
+		let f = split(line, ',');
+		let cell = function (name) {
+			let i = idx[name];
+			if (i == null || i >= length(f)) return null;
+			return csvField(f[i]);
+		};
+		nlbwAccum(out, macOut, nlbwNormIp(cell('ip')), nlbwNormMac(cell('mac')),
+			(int(cell('rx_bytes')) || 0), (int(cell('tx_bytes')) || 0));
+	}
+	if (length(out) == 0) return { err: 'empty', cols: idx };
+	return { hosts: out, macByIp: macOut, cols: idx, sample: lines[1] };
+}
+function nlbwByIp() {
+	let now = time();
+	if (S.nlbwIp != null && (now - S.nlbwIpTs) < NLBW_IP_TTL)
+		return { success: length(S.nlbwIp) > 0, mode: S.nlbwIpMode, bin: nlbwPath(),
+		         hosts: S.nlbwIp, macByIp: S.nlbwMac, count: length(S.nlbwIp),
+		         columns: S.nlbwCols, tried: S.nlbwIpTried, ts: S.nlbwIpTs };
+	let forms = [
+		[ '-c json -g mac,ip', 'json' ],
+		[ '-c json -g ip,mac', 'json' ],
+		[ '-c json -g ip', 'json' ],
+		[ '-c json', 'json' ],
+		[ '-c csv -g mac,ip', 'csv' ],
+		[ '-c csv -g ip', 'csv' ],
+		[ '-c csv', 'csv' ]
+	];
+	let tried = [];
+	let lastCols = null, lastSample = null;
+	let fi = 0;
+	while (fi < length(forms)) {
+		let form = forms[fi][0], kind = forms[fi][1];
+		fi++;
+		let raw = nlbwRun(form);
+		if (raw == null) { push(tried, form + ':no-bin'); continue; }
+		let r = (kind == 'json') ? nlbwJsonParse(raw) : nlbwCsvParse(raw);
+		if (r != null && r.hosts != null) {
+			S.nlbwIp = r.hosts;
+			S.nlbwMac = r.macByIp;
+			S.nlbwIpTs = now;
+			S.nlbwIpMode = form;
+			S.nlbwIpTried = tried;
+			S.nlbwCols = r.cols;
+			S.nlbwSample = r.sample;
+			return { success: true, mode: form, bin: nlbwPath(), hosts: r.hosts,
+			         macByIp: r.macByIp, count: length(r.hosts), columns: r.cols,
+			         tried: tried, ts: now };
+		}
+		if (r != null && r.cols != null) { lastCols = r.cols; lastSample = r.sample; }
+		push(tried, form + ':' + (r != null ? r.err : 'parse-null'));
+	}
+	S.nlbwIp = {};
+	S.nlbwMac = {};
+	S.nlbwIpTs = now;
+	S.nlbwIpMode = 'none';
+	S.nlbwIpTried = tried;
+	S.nlbwCols = lastCols;
+	S.nlbwSample = lastSample;
+	return { success: false, mode: 'none', bin: nlbwPath(), hosts: {}, macByIp: {},
+	         columns: lastCols, sample: lastSample, tried: tried, ts: now };
+}
 
+/* ---------- соседи ---------- */
+function neighMac(v) {
+	if (v == null) return null;
+	let m = lc(trim(v));
+	if (match(m, NEIGH_MAC_RE) == null) return null;
+	if (m == '00:00:00:00:00:00' || m == 'ff:ff:ff:ff:ff:ff') return null;
+	return m;
+}
+function neighBare(v) {
+	let s = trim(v);
+	let p = index(s, '%');
+	if (p >= 0) s = substr(s, 0, p);
+	return s;
+}
+function neighSkip(ip) {
+	if (ip == '') return true;
+	let l = lc(ip);
+	if (substr(l, 0, 5) == 'fe80:') return true;
+	if (substr(l, 0, 2) == 'ff') return true;
+	if (substr(l, 0, 8) == '169.254.') return true;
+	if (substr(l, 0, 4) == '127.') return true;
+	if (l == '0.0.0.0' || l == '::') return true;
+	return false;
+}
+function neighAdd(out, seen, ip, mac, dev, fam) {
+	if (mac == null || neighSkip(ip)) return;
+	let k = ip + '|' + mac;
+	if (seen[k] != null) return;
+	if (length(out) >= NEIGH_MAX) return;
+	seen[k] = 1;
+	push(out, { ip: ip, mac: mac, dev: dev, family: fam });
+}
+function neighLine(line, out, seen) {
+	let s = collapseWs(line);
+	if (s == '') return;
+	let f = split(s, ' ');
+	if (length(f) < 4) return;
+	let ip = neighBare(f[0]);
+	let mac = null, dev = '';
+	let i = 1;
+	while (i < length(f)) {
+		if (f[i] == 'lladdr' && i + 1 < length(f)) mac = neighMac(f[i + 1]);
+		else if (f[i] == 'dev' && i + 1 < length(f)) dev = f[i + 1];
+		i++;
+	}
+	neighAdd(out, seen, ip, mac, dev, (index(ip, ':') >= 0 ? 6 : 4));
+}
+function neighArp(out, seen) {
+	let raw = readAll('/proc/net/arp');
+	if (raw == null) return;
+	let lines = split(raw, '\n');
+	let i = 1;
+	while (i < length(lines)) {
+		let s = collapseWs(lines[i]);
+		i++;
+		if (s == '') continue;
+		let f = split(s, ' ');
+		if (length(f) < 6) continue;
+		neighAdd(out, seen, neighBare(f[0]), neighMac(f[3]), f[5], 4);
+	}
+}
+function getNeighbors() {
+	let out = [], seen = {}, src = 'none';
+	let p = popen('ip -4 neigh show 2>/dev/null; ip -6 neigh show 2>/dev/null', 'r');
+	if (p) {
+		let raw = p.read('all');
+		p.close();
+		if (raw != null) {
+			for (let ln in split(raw, '\n')) neighLine(ln, out, seen);
+		}
+	}
+	if (length(out) > 0) src = 'ip-neigh';
+	else {
+		neighArp(out, seen);
+		if (length(out) > 0) src = 'proc-arp';
+	}
+	return { success: true, source: src, neighbors: out, count: length(out), ts: time() };
+}
+
+/* ---------- логика ---------- */
 function getRates(networks) {
 	S.calls = S.calls + 1;
-
 	let r = stage('watch', function () { setWatched(networks); return 1; });
 	if (!r.ok) { S.lastError = r.e; return { success: false, reason: 'exception', error: r.e, hosts: {}, keyBy: 'ip', ts: time() }; }
-
 	if (!acctOn())
-		return { success: false, reason: 'acct-off', hosts: {}, keyBy: 'ip', ts: time() };
-
+		return { success: false, reason: 'acct-off', hosts: {}, totals: publicTotals(),
+		         persisted: tmpIsRam(), keyBy: 'ip', ts: time() };
 	let path = null;
 	let rc = stage('ct', function () { return ctPath(); });
 	if (!rc.ok) { S.lastError = rc.e; return { success: false, reason: 'exception', error: rc.e, hosts: {}, keyBy: 'ip', ts: time() }; }
 	path = rc.v;
 	if (path == null) return nlbwFallback('no-conntrack');
-
 	let rn = stage('nets', function () { loadNets(); return 1; });
 	if (!rn.ok) { S.lastError = rn.e; return { success: false, reason: 'exception', error: rn.e, hosts: {}, keyBy: 'ip', ts: time() }; }
-
 	let text = readAll(path);
 	if (text == null) return nlbwFallback('read-failed');
-
 	let rs = stage('scan', function () { return scan(text); });
 	if (!rs.ok) { S.lastError = rs.e; return { success: false, reason: 'exception', error: rs.e, hosts: {}, keyBy: 'ip', ts: time() }; }
-
 	S.primed = true;
 	S.lastError = '';
-
 	return {
 		success: true, source: 'conntrack', keyBy: 'ip',
 		hosts: publicHosts(), totals: publicTotals(), conns: rs.v, matched: S.matched,
-		offloaded: S.offload, acct: true, coarse: false, ts: time()
+		offloaded: S.offload, acct: true, coarse: false,
+		persisted: tmpIsRam(), persist_path: S.persist, ts: time()
 	};
 }
-
 function getInfo(networks) {
 	let rep = {};
-
 	let r1 = stage('watch', function () {
 		setWatched(networks);
 		return { w4: length(S.watch4), w6: length(S.watch6), list: labels(S.watch4), uci: S.uciList };
 	});
 	rep.watch = r1.ok ? r1.v : r1.e;
-
 	let r2 = stage('nets', function () {
 		loadNets();
 		let ownList = [];
@@ -563,12 +934,10 @@ function getInfo(networks) {
 		return { n4: length(S.nets4), n6: length(S.nets6), local: labels(S.nets4), own: ownList };
 	});
 	rep.nets = r2.ok ? r2.v : r2.e;
-
 	let path = null;
 	let r3 = stage('ct', function () { return ctPath(); });
 	rep.ct = r3.ok ? r3.v : r3.e;
 	if (r3.ok) path = r3.v;
-
 	if (path != null) {
 		let r4 = stage('scan', function () {
 			let txt = readAll(path);
@@ -577,42 +946,50 @@ function getInfo(networks) {
 		});
 		rep.scan = r4.ok ? r4.v : r4.e;
 	}
-
 	let r5 = stage('build', function () {
 		let ips = [];
-		for (let ip, a in S.accum) {
-			ips[length(ips)] = ip + ' rx=' + a.rx + ' tx=' + a.tx;
+		for (let ip, x in S.totals) {
+			ips[length(ips)] = ip + ' rx=' + x.rx + ' tx=' + x.tx;
 			if (length(ips) >= 24) break;
 		}
 		return {
-			accounting: acctOn(),
-			connections: length(S.conns), matched: S.matched,
-			tracked: length(S.accum), tracked_ips: ips,
-			totals: publicTotals(),
-			offloaded: S.offload
+			accounting: acctOn(), connections: length(S.conns), matched: S.matched,
+			tracked: length(S.accum), totals_count: length(S.totals), tracked_ips: ips,
+			offloaded: S.offload,
+			tmp_is_ram: tmpIsRam(), persist_path: S.persist,
+			persist_file: isFile(FILE_TMP), persist_bytes: S.persistBytes,
+			retain_sec: TOTALS_RETAIN, max_entries: TOTALS_MAX
 		};
 	});
 	rep.build = r5.ok ? r5.v : r5.e;
-
+	let r6 = stage('nlbwip', function () { return nlbwByIp(); });
+	rep.nlbw_ip = r6.ok ? r6.v : r6.e;
+	let r7 = stage('nlbwmac', function () {
+		let m = nlbwMacTotals();
+		if (m == null) return { ok: false };
+		let list = [];
+		for (let mac, x in m) {
+			push(list, mac + ' rx=' + x.rx + ' tx=' + x.tx);
+			if (length(list) >= 32) break;
+		}
+		return { ok: true, count: length(m), hosts: list };
+	});
+	rep.nlbw_mac = r7.ok ? r7.v : r7.e;
+	let r8 = stage('devnets', function () { return getNetworks(); });
+	rep.dev_networks = r8.ok ? r8.v : r8.e;
 	return {
-		success: true,
-		stages: rep,
+		success: true, stages: rep,
 		client_networks: (type(networks) == 'string') ? networks : '',
 		calls: S.calls, last_error: S.lastError, ts: time()
 	};
 }
-
 function safeCall(fn, arg) {
-	try {
-		return fn(arg);
-	}
+	try { return fn(arg); }
 	catch (e) {
 		let msg = errMsg(e);
 		S.lastError = msg;
-		return {
-			success: false, reason: 'exception', error: msg,
-			hosts: {}, keyBy: 'ip', calls: S.calls, ts: time()
-		};
+		return { success: false, reason: 'exception', error: msg,
+		         hosts: {}, keyBy: 'ip', calls: S.calls, ts: time() };
 	}
 }
 
@@ -625,7 +1002,6 @@ return {
 				return safeCall(getRates, a.networks);
 			}
 		},
-
 		getInfo: {
 			args: { networks: 'string' },
 			call: function (req) {
@@ -633,7 +1009,47 @@ return {
 				return safeCall(getInfo, a.networks);
 			}
 		},
-
+		getNeighbors: {
+			call: function () {
+				try { return getNeighbors(); }
+				catch (e) {
+					let msg = errMsg(e);
+					S.lastError = msg;
+					return { success: false, reason: 'exception', error: msg, neighbors: [], count: 0, ts: time() };
+				}
+			}
+		},
+		getNetworks: {
+			call: function () {
+				try { return getNetworks(); }
+				catch (e) {
+					let msg = errMsg(e);
+					S.lastError = msg;
+					return { success: false, reason: 'exception', error: msg, networks: [], count: 0, ts: time() };
+				}
+			}
+		},
+		getNlbwByIp: {
+			call: function () {
+				try { return nlbwByIp(); }
+				catch (e) {
+					let msg = errMsg(e);
+					S.lastError = msg;
+					return { success: false, reason: 'exception', error: msg, mode: 'none', hosts: {}, ts: time() };
+				}
+			}
+		},
+		flushTotals: {
+			call: function () {
+				try {
+					loadTotals();
+					let ok = saveTotals(true);
+					return { success: ok, path: S.persist, tmpfs: tmpIsRam(),
+					         count: length(S.totals), bytes: S.persistBytes, ts: time() };
+				}
+				catch (e) { return { success: false, error: errMsg(e), ts: time() }; }
+			}
+		},
 		enableAccounting: {
 			call: function () {
 				return safeCall(function () {

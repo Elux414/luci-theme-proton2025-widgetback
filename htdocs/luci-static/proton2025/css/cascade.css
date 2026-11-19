@@ -16505,18 +16505,18 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 }
 
 /* --- Таблицы: база --- */
-#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6) {
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) {
 	display: block !important;
 	width: 100% !important;
 	min-width: 0 !important;
 	margin: 0 !important;
 	font-size: var(--pc-text) !important;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6) tbody {
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tbody {
 	display: block !important;
 	width: 100% !important;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6) tr.tr {
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr {
 	display: flex !important;
 	flex-direction: row !important;
 	align-items: center;
@@ -16530,10 +16530,10 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 	overflow: visible !important;
 	transition: margin 0.18s ease;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6) tr.tr:last-child {
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr:last-child {
 	margin-bottom: 0 !important;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6) tr.tr > td.td:first-child {
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr > td.td:first-child {
 	flex: 0 0 var(--pc-label-col) !important;
 	box-sizing: border-box;
 	width: auto !important;
@@ -16552,7 +16552,7 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 	hyphens: auto;
 	transition: font-size 0.18s ease, padding 0.18s ease;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6) tr.tr > td.td:last-child {
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr > td.td:last-child {
 	flex: 1 1 0 !important;
 	width: auto !important;
 	min-width: 0 !important;
@@ -16562,12 +16562,12 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 }
 
 @container proton-cell (max-width: 249px) {
-	#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6) tr.tr {
+	#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr {
 		flex-direction: column !important;
 		align-items: stretch;
 		gap: 3px;
 	}
-	#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6) tr.tr > td.td:first-child {
+	#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr > td.td:first-child {
 		flex: 0 0 auto !important;
 		max-width: 100% !important;
 		padding-right: 0 !important;
@@ -16621,7 +16621,7 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 	display: flex;
 	flex-direction: column;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) {
 	display: flex !important;
 	flex-direction: column;
 	flex: 1 1 auto;
@@ -16630,14 +16630,14 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 	padding: var(--pc-panel-pad-y) var(--pc-panel-pad-x) !important;
 	transition: padding 0.18s ease;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tbody {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tbody {
 	display: flex !important;
 	flex-direction: column;
 	justify-content: space-between;
 	flex: 1 1 auto;
 	min-height: 0;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr {
 	flex: 1 1 0 !important;
 	min-height: calc(var(--pc-bar-h) + 6px);
 	max-height: calc(var(--pc-bar-h) + 34px);
@@ -16665,19 +16665,19 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 }
 /* Строка «Соединения» — панель с внутренними отступами,
    как в эталоне: подпись слева, шкала справа внутри подложки. */
-#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6) {
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6):not(.assoclist) {
 	flex: 0 0 auto;
 	margin-top: auto !important;
 	padding-top: 12px;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6) tr.tr {
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr {
 	box-sizing: border-box;
 	padding: 9px 12px !important;
 	border: 1px solid var(--proton-border) !important;
 	border-radius: var(--proton-radius-sm) !important;
 	background: rgba(var(--proton-accent-rgb), 0.04) !important;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] table.table:not(#status_leases):not(#status_leases6) tr.tr > td.td:first-child {
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr > td.td:first-child {
 	flex: 0 0 var(--pc-label-col) !important;
 	max-width: var(--pc-label-col) !important;
 	padding: 0 var(--pc-label-pad) 0 0 !important;
@@ -16905,10 +16905,10 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 	font-size: 0.95rem !important;
 	margin-bottom: 6px;
 }
-#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6) {
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6):not(.assoclist) {
 	padding-top: 6px;
 }
-#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6) tr.tr {
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr {
 	padding: 6px 10px !important;
 }
 #proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="network"] .network-status-table > .ifacebox > .ifacebox-body > span {
@@ -16934,23 +16934,23 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 #proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1, .is-h2, .is-h3) > .cbi-section[data-proton-layout-tag="network"] .ifacebox-body > div {
 	display: none !important;
 }
-#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6) {
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6):not(.assoclist) {
 	padding-top: 8px;
 }
 
 /* Память / Хранилище: на h1 только первые две строки */
-#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr:nth-of-type(n+3) {
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr:nth-of-type(n+3) {
 	display: none !important;
 }
-#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6) tr.tr {
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr {
 	flex-direction: row !important;
 	align-items: center;
 }
-#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr > td.td:first-child {
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr > td.td:first-child {
 	flex: 0 1 auto !important;
 	max-width: 48% !important;
 }
-#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr > td.td:last-child {
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr > td.td:last-child {
 	flex: 1 1 0 !important;
 }
 
@@ -17023,7 +17023,7 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] .network-status-table > .ifacebox {
 	box-shadow: none !important;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6) {
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6):not(.assoclist) {
 	padding-top: 10px;
 }
 
@@ -17260,27 +17260,27 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 
 /* Вся цепочка — строго 100% ширины, ничего не съезжает */
 #proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) > div:not(.cbi-title),
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6),
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tbody,
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist),
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tbody,
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr {
 	width: 100% !important;
 	align-self: stretch;
 	box-sizing: border-box;
 }
 
 /* Равномерное распределение строк, без space-between */
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tbody {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tbody {
 	justify-content: flex-start;
 	gap: 0;
 }
 
 /* Панель: собственные отступы минимальны — воздух дают строки */
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) {
 	padding: 6px !important;
 }
 
 /* Строка: равная высота, паддинги, ховер как в оригинале */
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr {
 	flex: 1 1 0 !important;
 	min-height: calc(var(--pc-bar-h) + 12px);
 	max-height: none !important;
@@ -17289,21 +17289,21 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 	border-radius: 4px;
 	transition: background 0.15s ease;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr:hover {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr:hover {
 	background: var(--proton-bg-hover, rgba(var(--proton-accent-rgb), 0.05));
 }
 
 /* Еле заметный разделитель между строками (верхний у каждой,
    кроме первой — тогда скрытые на h1 строки не оставляют линию) */
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr + tr.tr {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr + tr.tr {
 	border-top: 1px solid var(--proton-border-light, var(--proton-border)) !important;
 }
 
 /* Подпись и шкала внутри строки: колонки фиксированы, полоса до края */
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr > td.td:first-child {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr > td.td:first-child {
 	padding: 0 12px 0 2px !important;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr > td.td:last-child {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr > td.td:last-child {
 	flex: 1 1 0 !important;
 	min-width: 0 !important;
 }
@@ -17317,23 +17317,23 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 
 /* 1) Строки Память/Хранилище: ховер обязан быть с !important,
    иначе его перебивает базовый `background: none !important`. */
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr {
 	padding: 6px 10px !important;
 	border-radius: 6px;
 	transition: background 0.15s ease;
 }
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr:hover {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr:hover {
 	background: var(--proton-bg-hover) !important;
 }
 /* Разделители между строками (если их ещё нет в файле) */
-#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6) tr.tr + tr.tr {
+#proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) tr.tr + tr.tr {
 	border-top: 1px solid var(--proton-border-light) !important;
 }
 
 /* 2) Сеть: снимаем с таблицы «Соединения» глобальные table-стили
    (фон, рамку, скругление и особенно box-shadow) — остаётся только
    наша панелька на строке, пятно между боксом и строкой исчезает. */
-#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6) {
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6):not(.assoclist) {
 	background: none !important;
 	border: none !important;
 	box-shadow: none !important;
@@ -18577,4 +18577,911 @@ html[class*="proton-pattern-"] body #proton-temp-widget,
 	.proton-hosts-modal .ph-slider input[type="range"]::-webkit-slider-thumb {
 		transition: none;
 	}
+}
+
+@media (max-width: 800px) {
+  .proton-overview-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-auto-flow: row !important;
+    grid-auto-rows: auto !important;
+    gap: 12px !important;
+  }
+  .proton-overview-cell { min-height: 0 !important; }
+  .proton-overview-cell > * {
+    height: auto !important;
+    max-height: none !important;
+  }
+  #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="ports"] {
+    height: auto !important;
+    flex: 0 0 auto !important;
+  }
+  /* специфичность (1,2,0) — перебивает max-height:none из desktop-правила */
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-list {
+    max-height: min(60vh, 460px) !important;
+  }
+}
+
+/* ---------- 1. Геометрия таблицы ---------- */
+table.assoclist,
+#wifi_assoclist_table {
+  --wl-w-net: 24%;
+  --wl-w-mac: 15%;
+  --wl-w-host: 20%;
+  --wl-w-sig: 14%;
+  --wl-w-rate: 20%;
+  --wl-w-act: 7%;
+  --wl-row-pad-y: 9px;
+  --wl-row-pad-x: 12px;
+  --wl-font: 0.82rem;
+  --wl-head-font: 0.72rem;
+  --wl-radius: 10px;
+
+  table-layout: fixed;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--wl-font);
+  line-height: 1.35;
+}
+
+table.assoclist > thead > tr > th:nth-child(1),
+table.assoclist > tr.table-titles > th:nth-child(1),
+#wifi_assoclist_table > thead > tr > th:nth-child(1),
+#wifi_assoclist_table > tr.table-titles > th:nth-child(1) { width: var(--wl-w-net); }
+table.assoclist > thead > tr > th:nth-child(2),
+table.assoclist > tr.table-titles > th:nth-child(2),
+#wifi_assoclist_table > thead > tr > th:nth-child(2),
+#wifi_assoclist_table > tr.table-titles > th:nth-child(2) { width: var(--wl-w-mac); }
+table.assoclist > thead > tr > th:nth-child(3),
+table.assoclist > tr.table-titles > th:nth-child(3),
+#wifi_assoclist_table > thead > tr > th:nth-child(3),
+#wifi_assoclist_table > tr.table-titles > th:nth-child(3) { width: var(--wl-w-host); }
+table.assoclist > thead > tr > th:nth-child(4),
+table.assoclist > tr.table-titles > th:nth-child(4),
+#wifi_assoclist_table > thead > tr > th:nth-child(4),
+#wifi_assoclist_table > tr.table-titles > th:nth-child(4) { width: var(--wl-w-sig); }
+table.assoclist > thead > tr > th:nth-child(5),
+table.assoclist > tr.table-titles > th:nth-child(5),
+#wifi_assoclist_table > thead > tr > th:nth-child(5),
+#wifi_assoclist_table > tr.table-titles > th:nth-child(5) { width: var(--wl-w-rate); }
+table.assoclist > thead > tr > th:nth-child(6),
+table.assoclist > tr.table-titles > th:nth-child(6),
+#wifi_assoclist_table > thead > tr > th:nth-child(6),
+#wifi_assoclist_table > tr.table-titles > th:nth-child(6) { width: var(--wl-w-act); }
+
+table.assoclist th,
+table.assoclist td,
+#wifi_assoclist_table th,
+#wifi_assoclist_table td {
+  padding: var(--wl-row-pad-y) var(--wl-row-pad-x);
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Заголовок: липкий, живёт над прокруткой строк */
+table.assoclist > thead > tr > th,
+table.assoclist > tr.table-titles > th,
+#wifi_assoclist_table > thead > tr > th,
+#wifi_assoclist_table > tr.table-titles > th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 8px var(--wl-row-pad-x);
+  background: var(--proton-bg-tertiary);
+  color: var(--proton-fg-secondary);
+  font-size: var(--wl-head-font);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--proton-border);
+}
+
+/* MAC — моноширинный, но переносимый: иначе режет адрес */
+table.assoclist td[data-title="MAC address"i],
+#wifi_assoclist_table td[data-title="MAC address"i] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--proton-accent);
+}
+
+/* Host и Rate — многострочные, без обрезки содержимого */
+table.assoclist td[data-title="Host"i],
+#wifi_assoclist_table td[data-title="Host"i],
+table.assoclist td[data-title="RX Rate / TX Rate"i],
+#wifi_assoclist_table td[data-title="RX Rate / TX Rate"i],
+table.assoclist td.proton-signal-cell + td,
+#wifi_assoclist_table td.proton-signal-cell + td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
+
+/* Network: бейдж не растягиваем в колонку и не делаем моноширинным */
+table.assoclist td.nowrap,
+#wifi_assoclist_table td.nowrap {
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  background: none;
+}
+table.assoclist td.nowrap .ifacebadge,
+#wifi_assoclist_table td.nowrap .ifacebadge {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 5px 9px;
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+table.assoclist td.nowrap .ifacebadge > span,
+#wifi_assoclist_table td.nowrap .ifacebadge > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+table.assoclist td.nowrap .ifacebadge img,
+#wifi_assoclist_table td.nowrap .ifacebadge img {
+  width: 20px !important;
+  height: 20px !important;
+  flex: 0 0 auto;
+}
+
+/* Разделители строк + ховер */
+table.assoclist tr.cbi-rowstyle-1 > td,
+table.assoclist tr.cbi-rowstyle-2 > td,
+#wifi_assoclist_table tr.cbi-rowstyle-1 > td,
+#wifi_assoclist_table tr.cbi-rowstyle-2 > td {
+  border-bottom: 1px solid var(--proton-border-light);
+  background: none;
+}
+table.assoclist tr:last-child > td,
+#wifi_assoclist_table tr:last-child > td { border-bottom: none; }
+table.assoclist tr.cbi-rowstyle-1:hover > td,
+table.assoclist tr.cbi-rowstyle-2:hover > td,
+#wifi_assoclist_table tr.cbi-rowstyle-1:hover > td,
+#wifi_assoclist_table tr.cbi-rowstyle-2:hover > td {
+  background: var(--proton-bg-hover, rgba(var(--proton-accent-rgb), 0.06));
+}
+
+/* Disconnect — компактная кнопка, не растягивает колонку */
+table.assoclist td.cbi-section-actions,
+#wifi_assoclist_table td.cbi-section-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+table.assoclist td.cbi-section-actions .cbi-button,
+#wifi_assoclist_table td.cbi-section-actions .cbi-button {
+  padding: 5px 10px !important;
+  font-size: 0.72rem !important;
+  min-width: 0;
+}
+
+/* ---------- 2. Страница Wireless: таблица на всю ширину ---------- */
+body[data-page="admin-network-wireless"] table.assoclist,
+body[data-page="admin-network-wireless"] #wifi_assoclist_table {
+  --wl-row-pad-y: 11px;
+  --wl-row-pad-x: 14px;
+  --wl-font: 0.86rem;
+  border: 1px solid var(--proton-border);
+  border-radius: var(--wl-radius);
+  overflow: hidden;
+}
+
+/* ---------- 3. Overview-карточка: прокрутка + ступени h1…h6 ---------- */
+/* overflow помечен !important: общее правило нативных секций задаёт
+   overflow:hidden !important и обрезает строки без скролла. */
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] {
+  --wl-row-pad-y: 9px;
+  --wl-row-pad-x: 12px;
+  --wl-font: 0.82rem;
+  --wl-head-font: 0.7rem;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--proton-accent-rgb), 0.45) transparent;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"]::-webkit-scrollbar {
+  width: 8px;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"]::-webkit-scrollbar-track {
+  background: rgba(var(--proton-accent-rgb), 0.06);
+  border-radius: 8px;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"]::-webkit-scrollbar-thumb {
+  background: rgba(var(--proton-accent-rgb), 0.42);
+  border-radius: 8px;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"]::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--proton-accent-rgb), 0.7);
+}
+
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] > h3 {
+  margin: 10px 0 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--proton-fg-secondary);
+  letter-spacing: 0.02em;
+}
+
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist,
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] #wifi_assoclist_table {
+  margin: 0;
+  border: 1px solid var(--proton-border);
+  border-radius: var(--wl-radius);
+  font-size: var(--wl-font);
+}
+
+/* Боксы радио: компактная сводка вместо двух этажей */
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] .network-status-table {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] .network-status-table > .ifacebox {
+  flex: 1 1 calc(50% - 4px);
+  min-width: min(220px, 100%);
+  max-width: 100%;
+  margin: 0 !important;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] .ifacebox-head {
+  padding: 5px 10px !important;
+  font-size: 0.76rem !important;
+  line-height: 1.3;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] .ifacebox-body {
+  padding: 8px 10px !important;
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+/* — h1: только клиенты, ~3 строки, остальное скроллом — */
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] {
+  --wl-row-pad-y: 5px;
+  --wl-row-pad-x: 8px;
+  --wl-font: 0.74rem;
+  --wl-head-font: 0.64rem;
+  --wl-w-net: 30%;
+  --wl-w-mac: 0%;
+  --wl-w-host: 26%;
+  --wl-w-sig: 18%;
+  --wl-w-rate: 26%;
+  --wl-w-act: 0%;
+}
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] .network-status-table,
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] > h3 {
+  display: none;
+}
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist th:nth-child(2),
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist td:nth-child(2),
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist th:nth-child(6),
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist td:nth-child(6) {
+  display: none;
+}
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] td.nowrap .ifacebadge img {
+  display: none !important;
+}
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] td.nowrap .ifacebadge > span > small {
+  display: none;
+}
+
+/* — h2: клиенты плотнее, сводка радио ещё скрыта — */
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="wireless"] {
+  --wl-row-pad-y: 6px;
+  --wl-row-pad-x: 10px;
+  --wl-font: 0.78rem;
+  --wl-head-font: 0.66rem;
+}
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="wireless"] .network-status-table {
+  display: none;
+}
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="wireless"] > h3 {
+  margin: 4px 0 4px;
+  font-size: 0.76rem;
+}
+
+/* — h3: сводка радио в одну строку на радио — */
+#proton-overview-grid .proton-overview-cell.is-h3 > .cbi-section[data-proton-layout-tag="wireless"] {
+  --wl-row-pad-y: 7px;
+  --wl-font: 0.8rem;
+}
+#proton-overview-grid .proton-overview-cell.is-h3 > .cbi-section[data-proton-layout-tag="wireless"] .ifacebox-body > span > br,
+#proton-overview-grid .proton-overview-cell.is-h3 > .cbi-section[data-proton-layout-tag="wireless"] .ifacebox-body > span > .nowrap:nth-child(n+7) {
+  display: none;
+}
+#proton-overview-grid .proton-overview-cell.is-h3 > .cbi-section[data-proton-layout-tag="wireless"] .ifacebox-body > span > .nowrap {
+  display: inline;
+  margin-right: 8px;
+}
+
+/* — h4: обычный вид — */
+#proton-overview-grid .proton-overview-cell.is-h4 > .cbi-section[data-proton-layout-tag="wireless"] {
+  --wl-row-pad-y: 9px;
+  --wl-font: 0.82rem;
+}
+
+/* — h5 / h6: просторно, всё видно — */
+#proton-overview-grid .proton-overview-cell.is-h5 > .cbi-section[data-proton-layout-tag="wireless"] {
+  --wl-row-pad-y: 11px;
+  --wl-row-pad-x: 14px;
+  --wl-font: 0.85rem;
+  --wl-head-font: 0.72rem;
+}
+#proton-overview-grid .proton-overview-cell.is-h6 > .cbi-section[data-proton-layout-tag="wireless"] {
+  --wl-row-pad-y: 13px;
+  --wl-row-pad-x: 16px;
+  --wl-font: 0.88rem;
+  --wl-head-font: 0.74rem;
+  --wl-w-net: 22%;
+  --wl-w-mac: 16%;
+  --wl-w-host: 21%;
+  --wl-w-sig: 14%;
+  --wl-w-rate: 20%;
+  --wl-w-act: 7%;
+}
+#proton-overview-grid .proton-overview-cell.is-h6 > .cbi-section[data-proton-layout-tag="wireless"] .ifacebox-body {
+  padding: 12px 14px !important;
+  font-size: 0.8rem;
+}
+
+/* ---------- 4. Container queries: ширина карточки, не вьюпорта ---------- */
+@container (max-width: 620px) {
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist,
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] #wifi_assoclist_table {
+    --wl-w-net: 30%;
+    --wl-w-mac: 0%;
+    --wl-w-host: 24%;
+    --wl-w-sig: 18%;
+    --wl-w-rate: 28%;
+    --wl-w-act: 0%;
+  }
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist th:nth-child(2),
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist td:nth-child(2),
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist th:nth-child(6),
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist td:nth-child(6) {
+    display: none;
+  }
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] .network-status-table > .ifacebox {
+    flex: 1 1 100%;
+  }
+}
+@container (max-width: 440px) {
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist,
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] #wifi_assoclist_table {
+    --wl-row-pad-x: 8px;
+    --wl-w-net: 34%;
+    --wl-w-host: 26%;
+    --wl-w-sig: 40%;
+    --wl-w-rate: 0%;
+  }
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist th:nth-child(5),
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist td:nth-child(5) {
+    display: none;
+  }
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] td.nowrap .ifacebadge img,
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] td.nowrap .ifacebadge > span > small {
+    display: none !important;
+  }
+  .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] .proton-signal-badge {
+    padding: 4px 8px;
+    font-size: 0.72rem;
+  }
+}
+
+/* ---------- 5. Мобильный карточный вид: подписи полей ---------- */
+@media (max-width: 800px) {
+  table.assoclist td[data-title]::before,
+  #wifi_assoclist_table td[data-title]::before {
+    content: attr(data-title);
+    display: block;
+    margin-bottom: 3px;
+    color: var(--proton-fg-secondary);
+    font-family: inherit;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  table.assoclist td:first-child,
+  #wifi_assoclist_table td:first-child {
+    font-family: inherit;
+    font-size: 0.9rem;
+    background: var(--proton-bg-tertiary);
+  }
+  table.assoclist td:first-child::before,
+  #wifi_assoclist_table td:first-child::before {
+    display: none;
+  }
+  table.assoclist td.nowrap .ifacebadge,
+  #wifi_assoclist_table td.nowrap .ifacebadge {
+    flex-direction: row;
+    justify-content: flex-start;
+    text-align: left;
+  }
+  table.assoclist td.cbi-section-actions,
+  #wifi_assoclist_table td.cbi-section-actions {
+    text-align: left;
+  }
+  table.assoclist td.cbi-section-actions .cbi-button,
+  #wifi_assoclist_table td.cbi-section-actions .cbi-button {
+    width: 100%;
+    padding: 9px 12px !important;
+    font-size: 0.82rem !important;
+  }
+  /* в карточке высота auto — липкий заголовок не нужен */
+  table.assoclist > thead > tr > th,
+  table.assoclist > tr.table-titles > th,
+  #wifi_assoclist_table > thead > tr > th,
+  #wifi_assoclist_table > tr.table-titles > th {
+    position: static;
+  }
+}
+
+/* ---------- 6. Светлая тема ---------- */
+:root[data-theme="light"] table.assoclist > thead > tr > th,
+:root[data-theme="light"] table.assoclist > tr.table-titles > th,
+:root[data-theme="light"] #wifi_assoclist_table > thead > tr > th,
+:root[data-theme="light"] #wifi_assoclist_table > tr.table-titles > th {
+  background: var(--proton-bg-tertiary);
+  border-bottom-color: rgba(0, 0, 0, 0.1);
+}
+:root[data-theme="light"] #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"] {
+  scrollbar-color: rgba(var(--proton-accent-rgb), 0.5) rgba(0, 0, 0, 0.05);
+}
+
+/* ---------- 7. Уважение к prefers-reduced-motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  table.assoclist tr > td,
+  #wifi_assoclist_table tr > td {
+    transition: none;
+  }
+}
+
+/* =====================================================
+   H-5 · Высоты сетки, скролл, VPN-строки, DHCP h1…h6
+   ===================================================== */
+
+/* 4.1 Высота строки сетки. bindResizeBottom считает rowHeight = 140 + 18,
+   но grid-auto-rows не был задан — строки росли под контент, и карточка
+   «Хосты» растягивалась на весь список. */
+.proton-overview-grid {
+  grid-auto-rows: 140px;
+}
+.proton-overview-cell {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 4.2 Скролл: видимая полоса в палитре темы + прокрутка страницы не
+   перехватывается (overscroll-behavior: contain блокировал колесо даже
+   когда контейнеру нечего скроллить). */
+.proton-overview-cell > * > .proton-dashboard-card-body,
+.proton-overview-cell > * > .proton-hosts-list,
+#proton-dashboard-hosts .proton-hosts-list,
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"],
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] {
+  overscroll-behavior: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--ph-rx-rgb), 0.55) rgba(var(--ph-rx-rgb), 0.08);
+}
+.proton-overview-cell > * > .proton-dashboard-card-body::-webkit-scrollbar,
+.proton-overview-cell > * > .proton-hosts-list::-webkit-scrollbar,
+#proton-dashboard-hosts .proton-hosts-list::-webkit-scrollbar,
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"]::-webkit-scrollbar,
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"]::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.proton-overview-cell > * > .proton-dashboard-card-body::-webkit-scrollbar-track,
+.proton-overview-cell > * > .proton-hosts-list::-webkit-scrollbar-track,
+#proton-dashboard-hosts .proton-hosts-list::-webkit-scrollbar-track,
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"]::-webkit-scrollbar-track,
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"]::-webkit-scrollbar-track {
+  background: rgba(var(--ph-rx-rgb), 0.08);
+  border-radius: 8px;
+}
+.proton-overview-cell > * > .proton-dashboard-card-body::-webkit-scrollbar-thumb,
+.proton-overview-cell > * > .proton-hosts-list::-webkit-scrollbar-thumb,
+#proton-dashboard-hosts .proton-hosts-list::-webkit-scrollbar-thumb,
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"]::-webkit-scrollbar-thumb,
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"]::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(var(--ph-rx-rgb), 0.75), rgba(var(--ph-tx-rgb), 0.75));
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 8px;
+}
+.proton-overview-cell > * > .proton-dashboard-card-body::-webkit-scrollbar-thumb:hover,
+.proton-overview-cell > * > .proton-hosts-list::-webkit-scrollbar-thumb:hover,
+#proton-dashboard-hosts .proton-hosts-list::-webkit-scrollbar-thumb:hover,
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="wireless"]::-webkit-scrollbar-thumb:hover,
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"]::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--ph-rx), var(--ph-tx));
+  background-clip: content-box;
+}
+
+/* 4.3 «Хосты»: тело и список делят ограниченную высоту карточки */
+#proton-dashboard-hosts .proton-dashboard-card-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.proton-overview-cell #proton-dashboard-hosts .proton-hosts-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
+/* 4.4 VPN-пиры: щит и фиолетовая полоса вместо нейтральной */
+#proton-dashboard-hosts .proton-hosts-row[data-vpn="1"] .proton-hosts-icon {
+  filter: drop-shadow(0 0 4px rgba(var(--ph-tx-rgb), 0.55));
+}
+#proton-dashboard-hosts .proton-hosts-row[data-vpn="1"] .proton-hosts-bar {
+  background: linear-gradient(180deg, var(--ph-tx), rgba(var(--ph-tx-rgb), 0.25));
+}
+#proton-dashboard-hosts .proton-hosts-row[data-vpn="1"] .proton-hosts-type {
+  color: var(--ph-tx);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+/* 4.5 DHCP · динамическое масштабирование h1…h6 */
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] {
+  --wl-dhcp-pad-y: 9px;
+  --wl-dhcp-pad-x: 12px;
+  --wl-dhcp-font: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] > h3 {
+  flex: 0 0 auto;
+  margin: 10px 0 6px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--proton-text-secondary);
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] > h3:first-of-type {
+  margin-top: 2px;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] table.table {
+  flex: 0 0 auto;
+  width: 100%;
+  margin: 0 0 6px;
+  font-size: var(--wl-dhcp-font);
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] table.table th,
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] table.table td {
+  padding: var(--wl-dhcp-pad-y) var(--wl-dhcp-pad-x);
+  vertical-align: middle;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] table.table > tbody > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--proton-bg-tertiary);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] .cbi-button {
+  padding: 5px 10px !important;
+  font-size: 0.72rem !important;
+}
+
+/* h1 — только DHCPv4, три записи */
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="dhcp"] {
+  --wl-dhcp-pad-y: 5px;
+  --wl-dhcp-pad-x: 8px;
+  --wl-dhcp-font: 0.74rem;
+}
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="dhcp"] > h3:nth-of-type(n+2),
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="dhcp"] #status_leases6,
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="dhcp"] #status_leases > tbody > tr:nth-of-type(n+5) {
+  display: none !important;
+}
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="dhcp"] > h3:first-of-type {
+  font-size: 0.74rem;
+  margin: 0 0 4px;
+}
+
+/* h2 — DHCPv4 целиком, v6 скрыт */
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="dhcp"] {
+  --wl-dhcp-pad-y: 6px;
+  --wl-dhcp-font: 0.78rem;
+}
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="dhcp"] > h3:nth-of-type(n+2),
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="dhcp"] #status_leases6 {
+  display: none !important;
+}
+
+/* h3 — обе таблицы, v6 обрезан до трёх записей */
+#proton-overview-grid .proton-overview-cell.is-h3 > .cbi-section[data-proton-layout-tag="dhcp"] {
+  --wl-dhcp-pad-y: 7px;
+  --wl-dhcp-font: 0.8rem;
+}
+#proton-overview-grid .proton-overview-cell.is-h3 > .cbi-section[data-proton-layout-tag="dhcp"] #status_leases6 > tbody > tr:nth-of-type(n+5) {
+  display: none !important;
+}
+
+/* h4 — обычный вид */
+#proton-overview-grid .proton-overview-cell.is-h4 > .cbi-section[data-proton-layout-tag="dhcp"] {
+  --wl-dhcp-pad-y: 9px;
+  --wl-dhcp-font: 0.82rem;
+}
+
+/* h5 / h6 — просторно */
+#proton-overview-grid .proton-overview-cell.is-h5 > .cbi-section[data-proton-layout-tag="dhcp"] {
+  --wl-dhcp-pad-y: 11px;
+  --wl-dhcp-pad-x: 14px;
+  --wl-dhcp-font: 0.85rem;
+}
+#proton-overview-grid .proton-overview-cell.is-h6 > .cbi-section[data-proton-layout-tag="dhcp"] {
+  --wl-dhcp-pad-y: 13px;
+  --wl-dhcp-pad-x: 16px;
+  --wl-dhcp-font: 0.88rem;
+}
+#proton-overview-grid .proton-overview-cell.is-h6 > .cbi-section[data-proton-layout-tag="dhcp"] > h3 {
+  font-size: 0.92rem;
+  margin: 14px 0 8px;
+}
+
+/* 4.6 На мобильном высота auto — липкие шапки и обрезка не нужны */
+@media (max-width: 800px) {
+  #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] table.table > tbody > tr > th {
+    position: static;
+  }
+  #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] > h3:nth-of-type(n+2),
+  #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] #status_leases6,
+  #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] #status_leases > tbody > tr,
+  #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="dhcp"] #status_leases6 > tbody > tr {
+    display: revert !important;
+  }
+}
+
+/* =====================================================
+   H-6 · Коррекция H-4/H-5
+   1) Wireless: auto-layout вместо процентных колонок — кнопка
+      Disconnect больше не обрезается (первопричина: fixed + 7%).
+   2) Network: overflow:hidden на .network-status-table обрезал
+      нижний ifacebox → прокрутка секции.
+   3) Минимальные виды Network и Wireless (h1/h2).
+   4) Нижняя ручка ресайза обрезалась overflow:hidden ячейки.
+   ===================================================== */
+
+/* --- 4. Ручки ресайза --- */
+.proton-overview-grid.is-editing .proton-overview-cell { overflow: visible !important; }
+.proton-overview-grid.is-editing .proton-overview-cell > .proton-dashboard-card,
+.proton-overview-grid.is-editing .proton-overview-cell > .cbi-section,
+.proton-overview-grid.is-editing .proton-overview-cell > .proton-dashboard-internet,
+.proton-overview-grid.is-editing .proton-overview-cell > .proton-temp-widget { overflow: hidden !important; }
+.proton-overview-cell .proton-overview-resize-handle-bottom {
+  position: absolute !important;
+  top: auto !important; right: auto !important;
+  left: 50% !important; bottom: 4px !important;
+  transform: translateX(-50%) !important;
+  width: 52px !important; height: 12px !important;
+  margin: 0 !important; padding: 0 !important;
+  align-items: center; justify-content: center;
+  border-radius: 7px;
+  background: rgba(var(--proton-accent-rgb), 0.22);
+  border: 1px solid rgba(var(--proton-accent-rgb), 0.55);
+  cursor: ns-resize;
+  z-index: 10002 !important;
+  pointer-events: auto !important;
+  opacity: 1 !important; filter: none !important;
+}
+.proton-overview-cell .proton-overview-resize-handle-bottom::after {
+  content: ""; width: 24px; height: 2px; border-radius: 2px;
+  background: var(--proton-accent);
+}
+.proton-overview-cell .proton-overview-resize-handle-bottom:hover {
+  background: rgba(var(--proton-accent-rgb), 0.45);
+}
+.proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle-bottom { display: flex !important; }
+
+/* --- 2. Network: нижний ifacebox не обрезается --- */
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--proton-accent-rgb), 0.55) rgba(var(--proton-accent-rgb), 0.08);
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] .network-status-table {
+  overflow: visible !important;
+  flex: 0 0 auto !important;
+  min-height: min-content !important;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] .network-status-table > .ifacebox {
+  flex: 1 1 calc(50% - 6px);
+  min-width: min(260px, 100%);
+  height: auto !important;
+  max-height: none !important;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] .ifacebox-body,
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"] .ifacebox-body > span {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"]::-webkit-scrollbar { width: 10px; }
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"]::-webkit-scrollbar-track {
+  background: rgba(var(--proton-accent-rgb), 0.08); border-radius: 8px;
+}
+#proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag="network"]::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(var(--proton-accent-rgb), 0.8), rgba(139, 122, 255, 0.8));
+  border: 2px solid transparent; background-clip: content-box; border-radius: 8px;
+}
+
+/* --- 3a. Network minimal: имя интерфейса + разделители --- */
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1, .is-h2) > .cbi-section[data-proton-layout-tag="network"] .ifacebox-head {
+  display: block !important;
+  background: none !important;
+  border: none !important;
+  padding: 0 0 4px !important;
+  margin: 0 !important;
+  text-align: left !important;
+  font-size: 0.66rem !important;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--proton-accent);
+  line-height: 1.2;
+}
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1, .is-h2) > .cbi-section[data-proton-layout-tag="network"] .network-status-table {
+  gap: 8px 18px !important;
+}
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1, .is-h2) > .cbi-section[data-proton-layout-tag="network"] .network-status-table > .ifacebox {
+  padding: 0 !important;
+  border-left: 2px solid rgba(var(--proton-accent-rgb), 0.35) !important;
+  padding-left: 10px !important;
+  border-radius: 0 !important;
+}
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1, .is-h2) > .cbi-section[data-proton-layout-tag="network"] .ifacebox-body > span {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)) !important;
+  gap: 2px 16px !important;
+  font-size: 0.74rem !important;
+  line-height: 1.5 !important;
+}
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1, .is-h2) > .cbi-section[data-proton-layout-tag="network"] .ifacebox-body > span > span.nowrap {
+  display: flex !important;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1, .is-h2) > .cbi-section[data-proton-layout-tag="network"] .ifacebox-body > span > span.nowrap > strong {
+  flex: 0 0 auto;
+  color: var(--proton-text-secondary);
+  font-weight: 600;
+}
+
+/* --- 1. Wireless:.auto-layout, кнопка не обрезается --- */
+table.assoclist,
+#wifi_assoclist_table { table-layout: auto !important; }
+table.assoclist > thead > tr > th,
+table.assoclist > tr.table-titles > th,
+#wifi_assoclist_table > thead > tr > th,
+#wifi_assoclist_table > tr.table-titles > th { width: auto !important; }
+table.assoclist td.cbi-section-actions,
+#wifi_assoclist_table td.cbi-section-actions {
+  width: 1% !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  padding-left: 8px;
+}
+table.assoclist td.cbi-section-actions .cbi-button,
+#wifi_assoclist_table td.cbi-section-actions .cbi-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 5px 11px !important;
+  font-size: 0.72rem !important;
+}
+table.assoclist td[data-title="MAC address"i],
+#wifi_assoclist_table td[data-title="MAC address"i] { white-space: nowrap !important; width: 1%; }
+table.assoclist td.proton-signal-cell,
+#wifi_assoclist_table td.proton-signal-cell { white-space: nowrap !important; width: 1%; }
+table.assoclist td[data-title="Host"i],
+#wifi_assoclist_table td[data-title="Host"i] { min-width: 12ch; }
+
+/* --- 3b. Wireless minimal h1: только клиенты --- */
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] .network-status-table,
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] > h3 { display: none !important; }
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist th:nth-child(2),
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist td:nth-child(2),
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist th:nth-child(6),
+#proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] table.assoclist td:nth-child(6) { display: none !important; }
+
+/* --- 3c. Wireless minimal h2: сводка радио строкой, как Network --- */
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="wireless"] .network-status-table {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 6px 18px !important;
+  margin: 0 0 6px !important;
+  overflow: visible !important;
+}
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="wireless"] .network-status-table > .ifacebox {
+  flex: 1 1 calc(50% - 9px);
+  min-width: min(240px, 100%);
+  border: none !important;
+  background: none !important;
+  box-shadow: none !important;
+  border-left: 2px solid rgba(var(--proton-accent-rgb), 0.35) !important;
+  padding-left: 10px !important;
+  border-radius: 0 !important;
+}
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="wireless"] .ifacebox-head {
+  display: block !important;
+  background: none !important;
+  border: none !important;
+  padding: 0 0 3px !important;
+  text-align: left !important;
+  font-size: 0.66rem !important;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--proton-accent);
+}
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="wireless"] .ifacebox-body {
+  padding: 0 !important;
+  gap: 0 !important;
+}
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="wireless"] .ifacebox-body > span {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
+  gap: 1px 14px !important;
+  font-size: 0.72rem !important;
+  line-height: 1.45 !important;
+}
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="wireless"] .ifacebox-body > span > br { display: none !important; }
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="wireless"] .ifacebox-body > span > span.nowrap {
+  display: flex !important; gap: 5px; min-width: 0;
+  white-space: nowrap !important; overflow: hidden; text-overflow: ellipsis;
+}
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="wireless"] .ifacebox-body > div { display: none !important; }
+#proton-overview-grid .proton-overview-cell.is-h2 > .cbi-section[data-proton-layout-tag="wireless"] > h3 {
+  margin: 2px 0 4px !important; font-size: 0.74rem !important;
+}
+
+/* --- Источник тоталов в тултипе --- */
+.proton-hosts-tooltip .tt-src {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(var(--proton-accent-rgb), 0.18);
+  font-size: 0.66rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--proton-text-secondary);
+}
+.proton-hosts-tooltip .tt-src[data-src="nlbw"] { color: var(--proton-success, #4caf50); }
+.proton-hosts-tooltip .tt-src[data-src="saved"] { color: var(--proton-accent); }
+
+/* --- Мобильный: подписи и полная ширина кнопки --- */
+@media (max-width: 800px) {
+  table.assoclist td.cbi-section-actions,
+  #wifi_assoclist_table td.cbi-section-actions { width: 100% !important; }
+  table.assoclist td[data-title="MAC address"i],
+  #wifi_assoclist_table td[data-title="MAC address"i],
+  table.assoclist td.proton-signal-cell,
+  #wifi_assoclist_table td.proton-signal-cell { width: 100% !important; white-space: normal !important; }
+  #proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1, .is-h2) > .cbi-section[data-proton-layout-tag="wireless"] .network-status-table,
+  #proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1, .is-h2) > .cbi-section[data-proton-layout-tag="wireless"] > h3 { display: flex !important; }
+  #proton-overview-grid .proton-overview-cell:is(.is-flat, .is-h1) > .cbi-section[data-proton-layout-tag="wireless"] > h3 { display: block !important; }
 }

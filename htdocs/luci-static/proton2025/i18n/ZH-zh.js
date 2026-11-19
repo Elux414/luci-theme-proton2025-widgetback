@@ -761,4 +761,5 @@ window.ProtonTranslations = {
   "Network": "网络",
   "connections": "连接",
   "Peer totals are session-based: they accumulate while the widget is open and reset when rpcd restarts.": "对端总计为会话值：仅在部件打开期间累计，rpcd 重启后清零。",
+  "offline": "离线",
 };

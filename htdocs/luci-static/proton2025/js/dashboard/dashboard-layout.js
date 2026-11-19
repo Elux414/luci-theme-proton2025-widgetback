@@ -77,7 +77,11 @@
         (inCell ? "1" : "0")
       );
     }
-    return parts.join(";");
+
+    // H-3: режим раскладки обязан входить в подпись. Иначе при переходе
+    // через 800px ни один id/w/h не меняется, buildLayout выходит по
+    // раннему return и сетка остаётся в прежнем режиме.
+    return (isMobile ? "M;" : "D;") + parts.join(";");
   }
 
   function t(value) {
@@ -354,32 +358,57 @@
       }
 
       // gridColumn/gridRow — пишем только если значение изменилось.
-      const nextCol = `span ${cellSpec.w}`;
-      const nextRow = `span ${cellSpec.h}`;
+      // H-3: на мобильном w/h игнорируются. Inline-спаны снимаем, иначе
+      // они перебьют одноколоночную сетку из CSS при любой специфичности.
+      const nextCol = isMobile ? "" : `span ${cellSpec.w}`;
+      const nextRow = isMobile ? "" : `span ${cellSpec.h}`;
       if (cell.style.gridColumn !== nextCol) cell.style.gridColumn = nextCol;
       if (cell.style.gridRow !== nextRow) cell.style.gridRow = nextRow;
 
       // Классы ширины — тоже только при изменении.
-      const nextWidthClass =
-        cellSpec.w <= 4 ? "is-narrow" : cellSpec.w <= 7 ? "is-medium" : "is-wide";
+      // H-3: на мобильном карточка всегда во всю ширину → is-wide.
+      // is-narrow дополнительно ужимал бы шрифты через !important
+      // поверх container queries (двойное уменьшение на 375px).
+      const nextWidthClass = isMobile
+        ? "is-wide"
+        : (cellSpec.w <= 4 ? "is-narrow" : cellSpec.w <= 7 ? "is-medium" : "is-wide");
       if (!cell.classList.contains(nextWidthClass)) {
         cell.classList.remove("is-narrow", "is-medium", "is-wide");
         cell.classList.add(nextWidthClass);
       }
 	  
 	  // Высотные классы для адаптивного контента (Task 5.4).
-      const nextHeightClass = cellSpec.h <= 1 ? "is-flat" : "is-tall";
+      // H-3: на мобильном высота auto, контент должен быть полным,
+      // поэтому is-flat запрещён — он скрывает processes/network/
+      // apps-summary/графики.
+      const nextHeightClass = (isMobile || cellSpec.h > 1) ? "is-tall" : "is-flat";
       if (!cell.classList.contains(nextHeightClass)) {
         cell.classList.remove("is-flat", "is-tall");
         cell.classList.add(nextHeightClass);
       }
 	  
 	  // Ступени высоты: плавная деградация контента вместо flat/tall.
-	  const nextStepClass = "is-h" + Math.min(Math.max(cellSpec.h, 1), 4);
-	  if (!cell.classList.contains(nextStepClass)) {
-		cell.classList.remove("is-h1", "is-h2", "is-h3", "is-h4");
-		cell.classList.add(nextStepClass);
-	  }
+      // H-3: на мобильном ступени снимаем целиком (высота auto).
+      // Кламп до 4 сохраняем: is-h5/is-h6 добавляются в H-4 вместе с CSS,
+      // иначе h5/h6 потеряют переменные группы :is(.is-h3,.is-h4).
+
+      const stepBase = isMobile ? 0 : Math.min(Math.max(cellSpec.h, 1), 4);
+      const nextStepClass = stepBase ? "is-h" + stepBase : "";
+      if (nextStepClass) {
+        if (!cell.classList.contains(nextStepClass)) {
+          cell.classList.remove("is-h1", "is-h2", "is-h3", "is-h4");
+          cell.classList.add(nextStepClass);
+        }
+      } else if (
+        cell.classList.contains("is-h1") || cell.classList.contains("is-h2") ||
+        cell.classList.contains("is-h3") || cell.classList.contains("is-h4")
+      ) {
+        cell.classList.remove("is-h1", "is-h2", "is-h3", "is-h4");
+      }
+      const wantH5 = !isMobile && cellSpec.h >= 5;
+      const wantH6 = !isMobile && cellSpec.h >= 6;
+      if (wantH5 !== cell.classList.contains("is-h5")) cell.classList.toggle("is-h5", wantH5);
+      if (wantH6 !== cell.classList.contains("is-h6")) cell.classList.toggle("is-h6", wantH6);
 
       const isHidden = currentLayout.hidden.includes(cellSpec.id);
       const node = resolveNode(cellSpec.id, widgets, luci);

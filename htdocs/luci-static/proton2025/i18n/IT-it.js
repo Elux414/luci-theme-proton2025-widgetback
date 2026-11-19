@@ -794,4 +794,5 @@ window.ProtonTranslations = {
   "Network": "Rete",
   "connections": "connessioni",
   "Peer totals are session-based: they accumulate while the widget is open and reset when rpcd restarts.": "Totali di sessione del peer: accumulati con il widget aperto, azzerati al riavvio di rpcd.",
+  "offline": "offline",
 };

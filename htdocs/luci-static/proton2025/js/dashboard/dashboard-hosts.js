@@ -3,9 +3,10 @@
  * Copyright 2025-2026 ChesterGoodiny
  * Licensed under the Apache License, Version 2.0
  *
- * Скорость: conntrack-дельты (адаптивный опрос). Тоталы: nlbwmon (LAN/Wi-Fi),
- * для пиров за WAN — сессионные накопления conntrack (копятся, пока виджет открыт).
- * Наблюдаемые сети передаются в RPC строкой через запятую.
+ * Скорость: conntrack-дельты (адаптивный опрос).
+ * Тоталы: nlbwmon по MAC, затем nlbwmon по IP (MAC у VPN-пиров меняется),
+ * затем накопления conntrack из /tmp. Источник показан в тултипе.
+ * VPN-сети берутся из ядра: ZeroTier/Tailscale нет в netifd.
  */
 (function () {
 	"use strict";
@@ -13,16 +14,15 @@
 	const META_MS = 20000;
 	const RATE_MIN = 800, RATE_MAX = 8000;
 	const SPARK_MAX_POINTS = 240;
-	const WIFI_TTL = 24 * 3600 * 1000;
+	const WIFI_OFFLINE_MS = 30 * 60 * 1000;
 	const CPU_BUDGET = 0.06;
+	const VPN_DEV_RE = /^(zt|wg|wireguard|tailscale|ts|tun|tap|ppp|ovpn|vtun|nordlynx|ipsec|vpn)/;
 
-	// Канонические ключи. K_FILTER и K_ALIASES есть в SETTINGS_MAP → живут в UCI.
 	const K_FILTER  = "proton-hosts-filter";
 	const K_FILTER_MINE = "proton-hosts-network-filter";
 	const K_ALIASES = "proton-host-aliases";
 	const K_CUSTOM  = "proton-hosts-custom-subnets";
 	const K_PREFS   = "proton-hosts-prefs";
-	const K_FILTER_OLD  = "proton-hosts-filter";
 	const K_ALIASES_OLD = "proton-hosts-aliases";
 
 	const DEFAULTS = {
@@ -33,12 +33,12 @@
 	let prefs = Object.assign({}, DEFAULTS);
 	let hostAliases = {}, filterSubnets = null;
 	let detectedSubnets = new Set(), customSubnets = [], availableSubnets = new Set();
-
 	let mounted = false, rateTimer = null, metaTimer = null;
 	let rateBusy = false, metaBusy = false, editing = false;
 	let visHandler = null, syncHandler = null;
-
-	let rpcRates, rpcAcct, rpcTraffic, rpcHints, rpcLeases, rpcIwDev, rpcIwAssoc, rpcIfaces;
+	let totalsPersisted = false;
+	let rpcRates, rpcAcct, rpcTraffic, rpcHints, rpcLeases, rpcIwDev, rpcIwAssoc,
+	    rpcIfaces, rpcNeigh, rpcNets, rpcNlbwIp;
 
 	const registry = new Map();
 	const ipToMac = new Map();
@@ -46,6 +46,11 @@
 	const rowRefs = new Map();
 	const wifiCache = new Map();
 	const synthetic = new Map();
+	const neighByIp = new Map();
+	const neighByMac = new Map();
+	const neighDevByIp = new Map();
+	const vpnDevCidr = new Map();
+	const macAlias = new Map();
 
 	let localIPs = new Set(), vpnSubnets = [];
 	let listSignature = "";
@@ -56,7 +61,6 @@
 	const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 	/* ── utils ── */
-
 	function t(v) {
 		if (typeof window.protonT === "function") {
 			try { const s = window.protonT(v); if (s && s !== v) return s; } catch (e) {}
@@ -81,7 +85,6 @@
 		return Promise.resolve(false);
 	}
 	function persist(k, v) { writeLS(k, v); uciSave(k, v); }
-
 	function formatBytes(b) {
 		b = Number(b) || 0;
 		const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
@@ -99,7 +102,6 @@
 		while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
 		return (i === 0 ? v.toFixed(0) : v.toFixed(v < 10 ? 2 : 1)) + " " + u[i];
 	}
-	// nlbwmon приоритетен; для пиров без nlbw-записей — сессионные тоталы conntrack.
 	function totalBytes(h, dir) {
 		const nlbw = dir === "rx" ? (h.rxBytes || 0) : (h.txBytes || 0);
 		const sess = dir === "rx" ? (h.sessRx || 0) : (h.sessTx || 0);
@@ -107,7 +109,6 @@
 	}
 
 	/* ── CIDR ── */
-
 	function ip4ToInt(ip) {
 		const p = bareIp(ip).split(".");
 		if (p.length !== 4) return null;
@@ -222,7 +223,6 @@
 	}
 
 	/* ── persistence ── */
-
 	function loadPrefs() {
 		try {
 			const raw = readLS(K_PREFS);
@@ -236,7 +236,6 @@
 		if (["auto", "fast", "calm"].indexOf(prefs.speed) < 0) prefs.speed = "auto";
 	}
 	function savePrefs() { persist(K_PREFS, JSON.stringify(prefs)); }
-
 	function loadAliases() {
 		let out = {};
 		try { out = JSON.parse(readLS(K_ALIASES) || "{}") || {}; } catch (e) {}
@@ -259,7 +258,6 @@
 		if (v) hostAliases[mac] = v; else delete hostAliases[mac];
 		persistAliases();
 	}
-
 	function loadCustom() {
 		try {
 			const arr = JSON.parse(readLS(K_CUSTOM) || "[]");
@@ -268,7 +266,6 @@
 		} catch (e) { customSubnets = []; }
 	}
 	function saveCustom() { persist(K_CUSTOM, JSON.stringify(customSubnets)); }
-
 	function loadFilter() {
 		let arr = null;
 		try { arr = JSON.parse(readLS(K_FILTER) || "null"); } catch (e) {}
@@ -291,12 +288,10 @@
 	function saveFilter() {
 		persist(K_FILTER, JSON.stringify(filterSubnets ? Array.from(filterSubnets) : []));
 	}
-
 	function rebuildSubnets() {
 		availableSubnets = new Set([...detectedSubnets, ...customSubnets]);
 		if (filterSubnets) for (const s of filterSubnets) availableSubnets.add(s);
 	}
-
 	function watchedNetworks() {
 		const out = new Set(availableSubnets);
 		for (const s of customSubnets) out.add(s);
@@ -305,7 +300,6 @@
 	}
 
 	/* ── RPC ── */
-
 	function ensureRpc() {
 		if (!window.L || !L.rpc || typeof L.rpc.declare !== "function") return false;
 		const d = (o, m) => L.rpc.declare({ object: o, method: m, expect: { "": {} } });
@@ -322,64 +316,81 @@
 			object: "iwinfo", method: "assoclist", params: ["device"], expect: { "": {} }
 		});
 		rpcIfaces  = rpcIfaces  || d("network.interface", "dump");
+		rpcNeigh   = rpcNeigh   || d("luci.proton-hostrates", "getNeighbors");
+		rpcNets    = rpcNets    || d("luci.proton-hostrates", "getNetworks");
+		rpcNlbwIp  = rpcNlbwIp  || d("luci.proton-hostrates", "getNlbwByIp");
 		return true;
 	}
 	const soft = p => Promise.resolve(p).catch(() => null);
 
 	/* ── сетевой контекст ── */
-
 	async function fetchContext() {
-		const dump = await soft(rpcIfaces());
-		localIPs = new Set(); vpnSubnets = [];
+		const [dump, kern] = await Promise.all([soft(rpcIfaces()), soft(rpcNets())]);
+		localIPs = new Set();
 		const found = new Set();
+		const vpnSet = new Set();
 		if (dump && Array.isArray(dump.interface)) {
 			for (const i of dump.interface) {
 				const name = String(i.interface || "").toLowerCase();
 				if (name === "loopback") continue;
 				const dev = String(i.device || i.l3_device || i.ifname || "").toLowerCase();
 				const proto = String(i.proto || "").toLowerCase();
-				const isVpn = proto === "wireguard" || /^(wg|zt|tun|tap|ppp|l2tp)/.test(dev);
-
+				const isVpn = proto === "wireguard" || VPN_DEV_RE.test(dev);
 				for (const a of (i["ipv4-address"] || [])) {
 					if (!a || !a.address) continue;
 					if (a.address.startsWith("127.")) continue;
 					localIPs.add(a.address);
 					const net = networkOf(a.address, a.mask == null ? 24 : a.mask);
-					if (net) { found.add(net); if (isVpn) vpnSubnets.push(net); }
+					if (net) { found.add(net); if (isVpn) vpnSet.add(net); }
 				}
 				for (const p of (i["ipv6-prefix"] || [])) {
 					if (!p || !p.address) continue;
 					const net = networkOf(p.address, p.mask == null ? 64 : p.mask);
-					if (net) { found.add(net); if (isVpn) vpnSubnets.push(net); }
+					if (net) { found.add(net); if (isVpn) vpnSet.add(net); }
 				}
 			}
 		}
+		// ZeroTier/Tailscale создают устройства демоном — в netifd их нет.
+		vpnDevCidr.clear();
+		if (kern && kern.success && Array.isArray(kern.networks)) {
+			for (const n of kern.networks) {
+				const cidr = normalizeCidr(n.cidr);
+				if (!cidr) continue;
+				found.add(cidr);
+				if (n.addr) localIPs.add(bareIp(n.addr));
+				if (n.kind === "vpn") { vpnSet.add(cidr); vpnDevCidr.set(cidr, n.dev); }
+			}
+		}
+		vpnSubnets = Array.from(vpnSet);
 		detectedSubnets = found;
 		rebuildSubnets();
 	}
 
 	/* ── реестр хостов (медленный цикл) ── */
-
-	function groupOf(h) { return h.type === "wifi" ? "wifi" : h.type === "remote" ? "net" : "lan"; }
-
+	function groupOf(h) {
+		return (h.type === "wifi" || h.type === "wifi-offline") ? "wifi"
+			: h.type === "remote" ? "net" : "lan";
+	}
 	function makeSynthetic(ip) {
 		const mac = "ip:" + ip;
 		const is6 = ip.indexOf(":") >= 0;
 		const h = {
 			mac, ips: [ip], ip: is6 ? "" : ip, ipv6: is6 ? ip : "",
-			name: "", type: "remote", signal: null, rxBytes: 0, txBytes: 0
+			name: "", type: "remote", signal: null,
+			rxBytes: 0, txBytes: 0, ipRx: 0, ipTx: 0, sessRx: 0, sessTx: 0,
+			totalSource: "session", vpnDev: ""
 		};
 		h.display = hostAliases[mac] || ip;
 		synthetic.set(ip, h);
 		return h;
 	}
-
 	async function collectMeta() {
 		if (metaBusy || !mounted) return;
 		metaBusy = true;
 		try {
-			const [hints, leases, traffic, devs] = await Promise.all([
-				soft(rpcHints()), soft(rpcLeases()), soft(rpcTraffic()), soft(rpcIwDev())
+			const [hints, leases, traffic, devs, neigh, nlbwIp] = await Promise.all([
+				soft(rpcHints()), soft(rpcLeases()), soft(rpcTraffic()), soft(rpcIwDev()),
+				soft(rpcNeigh()), soft(rpcNlbwIp())
 			]);
 
 			const seen = new Map();
@@ -387,7 +398,9 @@
 				if (!mac) return null;
 				let h = seen.get(mac);
 				if (!h) {
-					h = { mac, ips: [], name: "", type: "lan", signal: null, rxBytes: 0, txBytes: 0 };
+					h = { mac, ips: [], name: "", type: "lan", signal: null,
+					      rxBytes: 0, txBytes: 0, ipRx: 0, ipTx: 0, sessRx: 0, sessTx: 0,
+					      totalSource: "session", vpnDev: "" };
 					seen.set(mac, h);
 				}
 				return h;
@@ -404,7 +417,6 @@
 				(src.ip6addrs || []).forEach(x => addIp(h, x));
 				if (src.name) h.name = src.name;
 			}
-
 			const l4 = (leases && leases.dhcp_leases) || [];
 			const l6 = (leases && leases.dhcp6_leases) || [];
 			for (const l of l4.concat(l6)) {
@@ -413,32 +425,109 @@
 				if (l.hostname && !h.name) h.name = l.hostname;
 			}
 
-			if (traffic && traffic.success && traffic.hosts) for (const k in traffic.hosts) {
-				const h = put(normMac(k)); if (!h) continue;
-				h.rxBytes = Number(traffic.hosts[k].rx_bytes) || 0;
-				h.txBytes = Number(traffic.hosts[k].tx_bytes) || 0;
-			}
-
-			if (devs && Array.isArray(devs.result)) {
-				for (const dev of devs.result) {
-					const list = await soft(rpcIwAssoc(dev));
-					for (const st of ((list && list.results) || [])) {
-						const mac = normMac(st.mac); if (!mac) continue;
-						wifiCache.set(mac, { at: Date.now(), signal: st.signal });
-						const h = put(mac); if (!h) continue;
-						h.type = "wifi"; h.signal = st.signal;
-					}
+			// Соседи — до тоталов: нужен мост IP→MAC для алиасов.
+			neighByIp.clear(); neighByMac.clear(); neighDevByIp.clear();
+			if (neigh && neigh.success && Array.isArray(neigh.neighbors)) {
+				for (const n of neigh.neighbors) {
+					const mac = normMac(n.mac); const ip = bareIp(n.ip);
+					if (!mac || !ip) continue;
+					neighByIp.set(ip, mac);
+					if (n.dev) neighDevByIp.set(ip, String(n.dev).toLowerCase());
+					if (!neighByMac.has(mac)) neighByMac.set(mac, []);
+					neighByMac.get(mac).push(ip);
+				}
+				for (const [mac, ips] of neighByMac) {
+					const h = seen.get(mac); if (!h) continue;
+					for (const ip of ips) addIp(h, ip);
 				}
 			}
 
-			const now = Date.now();
-			for (const [mac, c] of wifiCache) {
-				if (now - c.at > WIFI_TTL) { wifiCache.delete(mac); continue; }
-				const h = seen.get(mac);
-				if (h) { h.type = "wifi"; if (h.signal == null) h.signal = c.signal; }
+			// nlbw может знать пир под старым MAC (ZeroTier пересоздаёт
+			// интерфейс). Схлопываем такой MAC на текущий из邻居-таблицы,
+			// иначе получим две строки с одними и теми же байтами.
+			macAlias.clear();
+			if (nlbwIp && nlbwIp.macByIp) {
+				for (const rawIp in nlbwIp.macByIp) {
+					const ip = bareIp(rawIp);
+					const cur = neighByIp.get(ip);
+					const old = normMac(nlbwIp.macByIp[rawIp]);
+					if (cur && old && cur !== old) macAlias.set(old, cur);
+				}
+			}
+			const canon = mac => macAlias.get(mac) || mac;
+
+			if (traffic && traffic.success && traffic.hosts) for (const k in traffic.hosts) {
+				const raw = normMac(k); if (!raw) continue;
+				const h = put(canon(raw)); if (!h) continue;
+				h.rxBytes += Number(traffic.hosts[k].rx_bytes) || 0;
+				h.txBytes += Number(traffic.hosts[k].tx_bytes) || 0;
 			}
 
-			// Пиры за WAN, найденные conntrack — сохраняем между циклами.
+			// Тоталы nlbwmon по IP — не зависят от смены MAC.
+			const ipTotals = (nlbwIp && nlbwIp.success && nlbwIp.hosts) ? nlbwIp.hosts : null;
+			if (ipTotals) {
+				for (const rawIp in ipTotals) {
+					const ip = bareIp(rawIp);
+					if (!ip) continue;
+					const rec = ipTotals[rawIp] || {};
+					const rx = Number(rec.rx) || 0, tx = Number(rec.tx) || 0;
+					if (rx <= 0 && tx <= 0) continue;
+					const mac = canon(neighByIp.get(ip) || normMac(nlbwIp.macByIp?.[rawIp]) || "");
+					let h = mac ? seen.get(mac) : null;
+					if (!h) {
+						for (const [, cand] of seen) {
+							if (cand.ips.indexOf(ip) >= 0) { h = cand; break; }
+						}
+					}
+					if (!h && mac) h = put(mac);
+					if (!h) continue;
+					addIp(h, ip);
+					h.ipRx = (h.ipRx || 0) + rx;
+					h.ipTx = (h.ipTx || 0) + tx;
+				}
+			}
+
+			const wifiNow = new Set();
+			const devList = devs
+				? (Array.isArray(devs.devices) ? devs.devices
+					: Array.isArray(devs.result) ? devs.result : [])
+				: [];
+			for (const dev of devList) {
+				const name = typeof dev === "string" ? dev
+					: (dev && (dev.device || dev.ifname || dev.name)) || "";
+				if (!name) continue;
+				const list = await soft(rpcIwAssoc(name));
+				for (const st of ((list && list.results) || [])) {
+					const mac = normMac(st.mac); if (!mac) continue;
+					wifiNow.add(mac);
+					wifiCache.set(mac, { at: Date.now(), signal: st.signal });
+					const h = put(canon(mac)); if (!h) continue;
+					h.type = "wifi"; h.signal = st.signal;
+				}
+			}
+			const now = Date.now();
+			for (const [mac, c] of wifiCache) {
+				if (now - c.at > WIFI_OFFLINE_MS) { wifiCache.delete(mac); continue; }
+				if (wifiNow.has(mac)) continue;
+				const h = seen.get(mac);
+				if (h) { h.type = "wifi-offline"; h.signal = null; }
+			}
+
+			for (const [ip, sh] of synthetic) {
+				const real = neighByIp.get(ip);
+				if (real && seen.has(real)) {
+					const oldKey = sh.mac;
+					if (hostAliases[oldKey] && !hostAliases[real]) {
+						hostAliases[real] = hostAliases[oldKey];
+						delete hostAliases[oldKey];
+						persistAliases();
+					}
+					synthetic.delete(ip);
+					rateState.delete(oldKey);
+					rowRefs.delete(oldKey);
+					listSignature = "";
+				}
+			}
 			for (const [ip, sh] of synthetic) {
 				if (seen.has(sh.mac)) continue;
 				const h = put(sh.mac);
@@ -451,8 +540,31 @@
 				h.ip = h.ips.find(x => x.indexOf(":") < 0) || "";
 				h.ipv6 = h.ips.find(x => x.indexOf(":") >= 0) || "";
 				if (h.type !== "remote" && localIPs.has(h.ip)) continue;
-				if (h.type !== "wifi" && h.type !== "remote" && vpnSubnets.some(s => inNetOf(h.ip, s)))
-					h.type = "lan-vpn";
+
+				const macRx = h.rxBytes || 0, macTx = h.txBytes || 0;
+				const ipRx = h.ipRx || 0, ipTx = h.ipTx || 0;
+				h.rxBytes = macRx > 0 ? macRx : ipRx;
+				h.txBytes = macTx > 0 ? macTx : ipTx;
+				h.totalSource = (h.rxBytes > 0 || h.txBytes > 0) ? "nlbw" : "session";
+
+				h.vpnDev = "";
+				for (const ip of h.ips) {
+					const dv = neighDevByIp.get(ip);
+					if (dv && VPN_DEV_RE.test(dv)) { h.vpnDev = dv; break; }
+				}
+				if (!h.vpnDev) {
+					for (const s of vpnSubnets) {
+						if (inNetOf(h.ip, s) || inNetOf(h.ipv6, s)) {
+							h.vpnDev = vpnDevCidr.get(s) || "";
+							break;
+						}
+					}
+				}
+				if (h.type !== "wifi" && h.type !== "wifi-offline" && h.type !== "remote") {
+					const viaNet = vpnSubnets.some(s => inNetOf(h.ip, s) || inNetOf(h.ipv6, s));
+					if (viaNet || h.vpnDev) h.type = "lan-vpn";
+				}
+
 				h.display = hostAliases[mac] || h.name || h.ip || h.ipv6 || mac;
 				const prev = rateState.get(mac);
 				h.rateRx = prev ? prev.rx : 0;
@@ -460,11 +572,9 @@
 				registry.set(mac, h);
 				for (const ip of h.ips) ipToMac.set(ip, mac);
 			}
-
 			renderList();
 		} finally { metaBusy = false; }
 	}
-
 	function refreshNames() {
 		for (const [mac, h] of registry)
 			h.display = hostAliases[mac] || h.name || h.ip || h.ipv6 || mac;
@@ -474,7 +584,6 @@
 	}
 
 	/* ── скорость (быстрый цикл) ── */
-
 	function stateFor(mac) {
 		let s = rateState.get(mac);
 		if (!s) {
@@ -484,7 +593,6 @@
 		}
 		return s;
 	}
-
 	function pickInterval() {
 		if (prefs.speed === "calm") return 4000;
 		if (prefs.speed === "fast") return Math.max(RATE_MIN, Math.ceil(rtt / CPU_BUDGET));
@@ -492,13 +600,11 @@
 		const floor = connCount > 6000 ? 3000 : connCount > 2500 ? 1500 : RATE_MIN;
 		return Math.min(RATE_MAX, Math.max(base, floor, Math.ceil(rtt / CPU_BUDGET)));
 	}
-
 	function schedule() {
 		if (!mounted) return;
 		if (rateTimer) clearTimeout(rateTimer);
 		rateTimer = setTimeout(tickRates, interval);
 	}
-
 	async function tickRates() {
 		rateTimer = null;
 		if (!mounted || document.hidden || rateBusy) return schedule();
@@ -511,7 +617,6 @@
 
 		const card = document.getElementById("proton-dashboard-hosts");
 		if (!card || !mounted) return;
-
 		if (!res || !res.success) {
 			const acctOff = res && res.reason === "acct-off";
 			source = acctOff ? "acct-off" : "offline";
@@ -519,8 +624,8 @@
 			renderNotice(card);
 			return schedule();
 		}
-
 		source = res.source; coarse = !!res.coarse;
+		totalsPersisted = !!res.persisted;
 		connCount = res.conns || 0; offloaded = res.offloaded || 0;
 		setStatus(card, coarse || offloaded > 0 ? "warn" : "ok");
 		renderNotice(card);
@@ -530,10 +635,21 @@
 		let listDirty = false;
 
 		if (res.keyBy === "mac") {
-			for (const k in res.hosts) { const m = normMac(k); if (m) byMac.set(m, res.hosts[k]); }
+			for (const k in res.hosts) {
+				let m = normMac(k); if (!m) continue;
+				m = macAlias.get(m) || m;
+				const cur = byMac.get(m) || { rx: 0, tx: 0 };
+				cur.rx += Number(res.hosts[k].rx) || 0;
+				cur.tx += Number(res.hosts[k].tx) || 0;
+				byMac.set(m, cur);
+			}
 		} else {
 			for (const ip in res.hosts) {
 				let mac = ipToMac.get(ip);
+				if (!mac) {
+					const nm = neighByIp.get(ip);
+					if (nm && registry.has(nm)) { mac = nm; ipToMac.set(ip, nm); }
+				}
 				if (!mac) {
 					let sh = synthetic.get(ip);
 					if (!sh) { sh = makeSynthetic(ip); listDirty = true; }
@@ -552,10 +668,8 @@
 				byMac.set(mac, cur);
 			}
 		}
-
 		if (listDirty) renderList();
 
-		// Сессионные тоталы conntrack, сгруппированные по MAC.
 		const totByMac = new Map();
 		if (res.totals) for (const ip in res.totals) {
 			const mac = ipToMac.get(ip);
@@ -574,7 +688,6 @@
 			const tt = totByMac.get(mac);
 			if (tt) { h.sessRx = tt.rx; h.sessTx = tt.tx; }
 			let rawRx = 0, rawTx = 0;
-
 			if (c) {
 				if (s.prevRx != null) {
 					const dt = (now - s.prevT) / 1000;
@@ -583,7 +696,6 @@
 				}
 				s.prevRx = c.rx; s.prevTx = c.tx; s.prevT = now;
 			}
-
 			const dt = Math.max(0.05, (now - (s.lastT || now)) / 1000);
 			s.lastT = now;
 			const k = reduceMotion ? 1 : 1 - Math.exp(-dt / prefs.release);
@@ -591,23 +703,19 @@
 			s.tx = rawTx >= s.tx ? rawTx : s.tx + (rawTx - s.tx) * k;
 			if (s.rx < 512) s.rx = 0;
 			if (s.tx < 512) s.tx = 0;
-
 			s.samples.push({ t: tSec, rx: rawRx, tx: rawTx });
 			const cut = tSec - prefs.window - 3;
 			while (s.samples.length && (s.samples[0].t < cut || s.samples.length > SPARK_MAX_POINTS))
 				s.samples.shift();
-
 			h.rateRx = s.rx; h.rateTx = s.tx;
 			totalRate += s.rx; totalTx += s.tx;
 		}
-
 		paintRates(card, false, totalTx);
 		interval = pickInterval();
 		schedule();
 	}
 
 	/* ── спарклайн ── */
-
 	function sparkPaths(samples, tNow, maxV) {
 		const W = 120, H = 34, P = 3, t0 = tNow - prefs.window, y0 = H - P, ih = H - 2 * P;
 		const pts = [];
@@ -627,7 +735,6 @@
 	}
 
 	/* ── рендер ── */
-
 	function visibleHosts() {
 		return Array.from(registry.values()).filter(h => {
 			if (!filterSubnets) return true;
@@ -645,26 +752,21 @@
 		return list.map(h => [h.mac, h.display, h.ip, h.ipv6, h.type].join("~")).sort().join("|") +
 			"#" + prefs.sort + "#" + prefs.window;
 	}
-
 	function renderList() {
 		const card = document.getElementById("proton-dashboard-hosts");
 		if (!card || editing) return;
 		const list = card.querySelector('[data-role="list"]');
 		if (!list) return;
-
 		const hosts = visibleHosts();
 		const sig = signature(hosts);
 		if (sig === listSignature) return;
 		listSignature = sig;
-
 		rowRefs.clear();
 		list.innerHTML = "";
-
 		if (!hosts.length) {
 			list.innerHTML = '<li class="proton-hosts-empty">' + esc(t("No active clients")) + "</li>";
 			return;
 		}
-
 		for (const g of [{ k: "wifi", t: t("Wi-Fi") }, { k: "lan", t: "LAN" }, { k: "net", t: t("Network") }]) {
 			const items = ordered(hosts.filter(h => groupOf(h) === g.k));
 			if (!items.length) continue;
@@ -678,17 +780,31 @@
 		const totalTx = Array.from(rateState.values()).reduce((s, x) => s + x.tx, 0);
 		paintRates(card, true, totalTx);
 	}
-
+	function hostIcon(h) {
+		if (h.type === "wifi" || h.type === "wifi-offline") return "📶";
+		if (h.type === "lan-vpn") return "🛡";
+		if (h.type === "remote") return "🌐";
+		return "🖥";
+	}
+	function hostLabel(h) {
+		if (h.type === "wifi") return h.signal != null ? h.signal + " dBm" : "Wi-Fi";
+		if (h.type === "wifi-offline") return t("offline");
+		if (h.type === "lan-vpn") return "VPN";
+		if (h.type === "remote") return t("Network");
+		return "LAN";
+	}
 	function buildRow(h) {
 		const li = document.createElement("li");
 		li.className = "proton-hosts-row";
 		li.dataset.mac = h.mac;
-		const icon = h.type === "wifi" ? "📶" : h.type === "remote" ? "🌐" : h.type === "lan-vpn" ? "🔒" : "🖥";
-		const label = h.type === "wifi" ? (h.signal != null ? h.signal + " dBm" : "Wi-Fi")
-			: h.type === "remote" ? t("Network") : h.type === "lan-vpn" ? "VPN" : "LAN";
+		const offline = h.type === "wifi-offline";
+		li.dataset.offline = offline ? "1" : "0";
+		li.dataset.vpn = h.type === "lan-vpn" ? "1" : "0";
+		li.style.opacity = offline ? "0.65" : "";
+		const label = hostLabel(h);
 		li.innerHTML =
 			'<span class="proton-hosts-bar"></span>' +
-			'<span class="proton-hosts-icon">' + icon + "</span>" +
+			'<span class="proton-hosts-icon">' + hostIcon(h) + "</span>" +
 			'<div class="proton-hosts-main">' +
 				'<div class="proton-hosts-top">' +
 					'<span class="proton-hosts-name" data-mac="' + esc(h.mac) + '" title="' + esc(t("Click to rename")) + '">' + esc(h.display) + "</span>" +
@@ -712,36 +828,37 @@
 					'<path class="proton-hosts-sparkline-rx"/>' +
 				"</svg>" +
 			"</div>";
-
 		rowRefs.set(h.mac, {
 			row: li,
 			rx: li.querySelector(".proton-hosts-rate-rx"),
 			tx: li.querySelector(".proton-hosts-rate-tx"),
+			type: li.querySelector(".proton-hosts-type"),
 			prx: li.querySelector(".proton-hosts-sparkline-rx"),
 			ptx: li.querySelector(".proton-hosts-sparkline-tx"),
 			area: li.querySelector(".proton-hosts-area"),
-			lastRx: "", lastTx: "", hot: false
+			lastRx: "", lastTx: "", lastLabel: label, hot: false
 		});
 		return li;
 	}
-
 	function paintRates(card, force, totalTx) {
 		const tNow = performance.now() / 1000;
 		const hotV = prefs.hot;
 		let tx = totalTx;
 		if (tx == null) { tx = 0; for (const [, s] of rateState) tx += s.tx; }
-
 		for (const [mac, ref] of rowRefs) {
 			const s = rateState.get(mac);
 			if (!s) continue;
 			const rxTxt = "▼ " + formatRate(s.rx), txTxt = "▲ " + formatRate(s.tx);
 			if (force || rxTxt !== ref.lastRx) { ref.rx.textContent = rxTxt; ref.lastRx = rxTxt; }
 			if (force || txTxt !== ref.lastTx) { ref.tx.textContent = txTxt; ref.lastTx = txTxt; }
-
+			const h = registry.get(mac);
+			if (h && ref.type) {
+				const lb = hostLabel(h);
+				if (force || lb !== ref.lastLabel) { ref.type.textContent = lb; ref.lastLabel = lb; }
+			}
 			const hot = (s.rx + s.tx) >= hotV;
 			if (hot !== ref.hot) { ref.row.dataset.hot = hot ? "1" : "0"; ref.hot = hot; }
 			ref.row.dataset.active = (s.rx + s.tx) > 2048 ? "1" : "0";
-
 			let peak = 65536;
 			for (const p of s.samples) {
 				if (p.t < tNow - prefs.window) continue;
@@ -754,21 +871,17 @@
 			ref.ptx.setAttribute("d", d.tx);
 			ref.area.setAttribute("d", d.area);
 		}
-
 		const foot = card.querySelector('[data-role="total"]');
 		if (foot) foot.textContent = `▼ ${formatRate(totalRate)}  ▲ ${formatRate(tx)}`;
-
 		const meta = card.querySelector('[data-role="source"]');
 		if (meta) {
 			meta.dataset.mode = coarse ? "coarse" : "live";
 			meta.textContent = coarse ? t("nlbwmon · ~30 s") : `${t("live")} · ${(interval / 1000).toFixed(1)}s`;
 			meta.title = `${source} · ${connCount} ${t("connections")}` + (offloaded ? ` · ${offloaded} offloaded` : "");
 		}
-
 		if (prefs.sort === "activity" && tNow - lastOrder > 2.5) { lastOrder = tNow; reorder(card); }
 		if (tipRow) fillTip(tipRow);
 	}
-
 	function reorder(card) {
 		if (editing) return;
 		const list = card.querySelector('[data-role="list"]');
@@ -776,7 +889,6 @@
 		const hosts = visibleHosts();
 		const before = new Map();
 		for (const [mac, ref] of rowRefs) before.set(mac, ref.row.getBoundingClientRect().top);
-
 		for (const g of ["wifi", "lan", "net"]) {
 			const head = list.querySelector(`.proton-hosts-group[data-group="${g}"]`);
 			if (!head) continue;
@@ -788,7 +900,6 @@
 			}
 		}
 		if (reduceMotion) return;
-
 		const deltas = [];
 		for (const [mac, top] of before) {
 			const ref = rowRefs.get(mac); if (!ref) continue;
@@ -803,7 +914,6 @@
 			}
 		});
 	}
-
 	function renderNotice(card) {
 		const box = card.querySelector('[data-role="notice"]');
 		if (!box) return;
@@ -825,21 +935,18 @@
 			box.innerHTML = `<span>${esc(t("Flow offloading active — counters may lag"))}</span>`;
 		} else box.hidden = true;
 	}
-
 	function setStatus(card, state) {
 		const dot = card.querySelector('[data-role="status-dot"]');
 		if (dot) dot.dataset.state = state;
 	}
 
 	/* ── тултип ── */
-
 	function initTip(card) {
 		if (tipEl) return;
 		tipEl = document.createElement("div");
 		tipEl.className = "proton-hosts-tooltip";
 		tipEl.hidden = true;
 		document.body.appendChild(tipEl);
-
 		const list = card.querySelector('[data-role="list"]');
 		list.addEventListener("mousemove", e => {
 			mouseX = e.clientX; mouseY = e.clientY;
@@ -855,19 +962,31 @@
 		const s = rateState.get(h.mac) || { rx: 0, tx: 0 };
 		const idLabel = h.mac.indexOf("ip:") === 0 ? "IP" : "MAC";
 		const idValue = h.mac.indexOf("ip:") === 0 ? h.mac.slice(3) : h.mac;
-		// nlbwmon ничего не знает о хосте → показываем сессионные тоталы и пометку.
-		const sess = !((h.rxBytes || 0) > 0 || (h.txBytes || 0) > 0);
+		const hasNlbw = (h.rxBytes || 0) > 0 || (h.txBytes || 0) > 0;
+		const hasSaved = (h.sessRx || 0) > 0 || (h.sessTx || 0) > 0;
+		let src = "—", srcKind = "none", srcTitle = "";
+		if (hasNlbw) {
+			src = "nlbwmon"; srcKind = "nlbw";
+			srcTitle = t("Persistent traffic accounting by nlbwmon");
+		} else if (hasSaved && totalsPersisted) {
+			src = "proton · /tmp"; srcKind = "saved";
+			srcTitle = t("Counters accumulate while Overview is open, are kept in RAM and reset on reboot");
+		} else if (hasSaved) {
+			src = "proton"; srcKind = "none";
+			srcTitle = t("Peer totals are session-based: they accumulate while the widget is open and reset when rpcd restarts.");
+		}
 		tipEl.innerHTML =
 			`<b>${esc(h.display)}</b>` +
 			`<div class="tt-r"><span>${idLabel}</span><i>${esc(idValue)}</i></div>` +
 			(h.ip ? `<div class="tt-r"><span>IPv4</span><i>${esc(h.ip)}</i></div>` : "") +
 			(h.ipv6 ? `<div class="tt-r"><span>IPv6</span><i>${esc(h.ipv6)}</i></div>` : "") +
+			(h.vpnDev ? `<div class="tt-r"><span>${esc(t("Interface"))}</span><i>${esc(h.vpnDev)}</i></div>` : "") +
 			`<div class="tt-r"><span>${esc(t("Download"))}</span><i>${esc(formatRate(s.rx))}</i></div>` +
 			`<div class="tt-r"><span>${esc(t("Upload"))}</span><i>${esc(formatRate(s.tx))}</i></div>` +
 			`<div class="tt-sep"></div>` +
 			`<div class="tt-r"><span>${esc(t("Total RX"))}</span><i>${esc(formatBytes(totalBytes(h, "rx")))}</i></div>` +
 			`<div class="tt-r"><span>${esc(t("Total TX"))}</span><i>${esc(formatBytes(totalBytes(h, "tx")))}</i></div>` +
-			(sess ? `<div class="tt-note">${esc(t("Peer totals are session-based: they accumulate while the widget is open and reset when rpcd restarts."))}</div>` : "");
+			`<div class="tt-src" data-src="${srcKind}" title="${esc(srcTitle)}">${esc(src)}</div>`;
 		tipEl.hidden = false;
 		placeTip();
 	}
@@ -883,19 +1002,16 @@
 	function hideTip() { if (tipEl) tipEl.hidden = true; }
 
 	/* ── переименование ── */
-
 	function onNameClick(e) {
 		const el = e.target.closest(".proton-hosts-name");
 		if (!el || el.tagName === "INPUT") return;
 		e.stopPropagation();
 		const mac = el.dataset.mac, prev = el.textContent;
 		editing = true; hideTip();
-
 		const input = document.createElement("input");
 		input.type = "text"; input.className = "proton-hosts-name-edit";
 		input.value = hostAliases[mac] || ""; input.placeholder = prev; input.maxLength = 64;
 		el.replaceWith(input); input.focus(); input.select();
-
 		let done = false;
 		const finish = save => {
 			if (done) return; done = true;
@@ -922,7 +1038,6 @@
 	}
 
 	/* ── модалка ── */
-
 	function renderSubnetList(box) {
 		const subs = Array.from(availableSubnets).sort();
 		box.innerHTML = subs.length
@@ -940,27 +1055,21 @@
 				</div>`).join("")
 			: `<div class="ph-alias-empty">${esc(t("No custom names yet"))}</div>`;
 	}
-
 	async function openSettings() {
 		const old = document.querySelector(".proton-hosts-modal-overlay");
 		if (old) old.remove();
-
-		// UCI — источник истины: дожидаемся синхронизации, иначе покажем старое.
 		if (window.protonSettingsSync && typeof window.protonSettingsSync.forceSync === "function") {
 			try { await window.protonSettingsSync.forceSync(); } catch (e) {}
 		}
 		loadAliases(); loadCustom(); loadFilter();
 		await fetchContext();
-
 		const ov = document.createElement("div");
 		ov.className = "proton-confirm-modal-overlay proton-hosts-modal-overlay";
-
 		const modal = document.createElement("div");
 		modal.className = "proton-confirm-modal proton-network-modal proton-hosts-modal";
 		modal.setAttribute("role", "dialog");
 		modal.setAttribute("aria-modal", "true");
 		modal.setAttribute("aria-labelledby", "proton-hosts-modal-title");
-
 		modal.innerHTML = `
 			<h3 id="proton-hosts-modal-title">${esc(t("Hosts"))}</h3>
 			<div class="proton-hosts-modal-body">
@@ -999,13 +1108,11 @@
 					<label for="ph-hot">${esc(t("Highlight above"))} <b data-out="hot">${formatRate(prefs.hot)}</b></label>
 					<input type="range" id="ph-hot" min="14" max="24" step="0.25" data-p="hot" value="${Math.log2(prefs.hot).toFixed(2)}">
 				</div>
-
 				<div class="ph-block">
 					<label>${esc(t("Detected subnets"))}</label>
 					<div class="ph-subs-list" data-role="subnets"></div>
 					<small>${esc(t("Check the networks you want to see. Uncheck all to show everything."))}</small>
 				</div>
-
 				<div class="ph-block">
 					<div class="ph-block-head">
 						<label>${esc(t("Custom device names"))}</label>
@@ -1013,7 +1120,6 @@
 					</div>
 					<div class="ph-alias-list" data-role="aliases"></div>
 				</div>
-
 				<div class="ph-block">
 					<label for="ph-cidr">${esc(t("Custom subnets (CIDR)"))}</label>
 					<input type="text" id="ph-cidr" class="ph-cidr" spellcheck="false" autocomplete="off"
@@ -1026,19 +1132,15 @@
 				<button type="button" data-role="reset">${esc(t("Reset to default"))}</button>
 				<button type="button" class="primary" data-role="close">${esc(t("Done"))}</button>
 			</div>`;
-
 		ov.appendChild(modal);
 		document.body.appendChild(ov);
-
 		const subBox = modal.querySelector('[data-role="subnets"]');
 		const aliasBox = modal.querySelector('[data-role="aliases"]');
 		const cidrInput = modal.querySelector("#ph-cidr");
 		const cidrErr = modal.querySelector('[data-role="cidr-err"]');
-
 		renderSubnetList(subBox);
 		renderAliasList(aliasBox);
 		cidrInput.value = customSubnets.join(", ");
-
 		const onKey = e => { if (e.key === "Escape") { e.preventDefault(); close(); } };
 		const close = () => {
 			document.removeEventListener("keydown", onKey);
@@ -1053,7 +1155,6 @@
 			prefs = Object.assign({}, DEFAULTS); savePrefs(); close();
 			listSignature = ""; renderList(); interval = pickInterval(); schedule();
 		});
-
 		subBox.addEventListener("change", e => {
 			if (!e.target.classList.contains("proton-hosts-filter-cb")) return;
 			const boxes = Array.from(subBox.querySelectorAll(".proton-hosts-filter-cb"));
@@ -1064,7 +1165,6 @@
 			listSignature = ""; renderList();
 			interval = RATE_MIN; schedule();
 		});
-
 		aliasBox.addEventListener("click", e => {
 			const btn = e.target.closest(".ph-alias-del");
 			if (!btn) return;
@@ -1074,7 +1174,6 @@
 			renderAliasList(aliasBox);
 			refreshNames();
 		});
-
 		modal.querySelector('[data-role="clear-aliases"]').addEventListener("click", () => {
 			if (!Object.keys(hostAliases).length) return;
 			if (!confirm(t("Clear all custom device names?"))) return;
@@ -1083,7 +1182,6 @@
 			renderAliasList(aliasBox);
 			refreshNames();
 		});
-
 		const applyCidr = () => {
 			const parts = cidrInput.value.split(",").map(s => s.trim()).filter(Boolean);
 			const good = [], bad = [];
@@ -1101,7 +1199,6 @@
 		cidrInput.addEventListener("keydown", e => {
 			if (e.key === "Enter") { e.preventDefault(); applyCidr(); }
 		});
-
 		modal.querySelectorAll("[data-p]").forEach(inp => {
 			const key = inp.dataset.p;
 			if (inp.tagName === "SELECT") inp.value = String(prefs[key]);
@@ -1124,7 +1221,6 @@
 	}
 
 	/* ── шаблон ── */
-
 	function template() {
 		return `
 		<div class="proton-dashboard-card proton-hosts-card" id="proton-dashboard-hosts">
@@ -1152,34 +1248,27 @@
 	}
 
 	/* ── lifecycle ── */
-
 	async function mount(card) {
 		if (!card || mounted) return;
 		if (!ensureRpc()) { setTimeout(() => mount(card), 400); return; }
 		mounted = true;
-
 		loadPrefs(); loadAliases(); loadCustom(); loadFilter();
-
 		const btn = card.querySelector('[data-role="hosts-settings"]');
 		if (btn) btn.addEventListener("click", () => { openSettings(); });
 		const list = card.querySelector('[data-role="list"]');
 		if (list) list.addEventListener("click", onNameClick);
 		initTip(card);
-
 		if (window.protonSettingsSync && typeof window.protonSettingsSync.forceSync === "function") {
 			try { await window.protonSettingsSync.forceSync(); } catch (e) {}
 			loadAliases(); loadCustom(); loadFilter();
 		}
-
 		await fetchContext();
 		await collectMeta();
 		interval = RATE_MIN;
 		tickRates();
-
 		metaTimer = setInterval(() => {
 			if (!document.hidden) { fetchContext().then(collectMeta); }
 		}, META_MS);
-
 		visHandler = () => {
 			if (document.hidden) { if (rateTimer) { clearTimeout(rateTimer); rateTimer = null; } }
 			else {
@@ -1188,7 +1277,6 @@
 			}
 		};
 		document.addEventListener("visibilitychange", visHandler);
-
 		syncHandler = () => {
 			loadAliases(); loadCustom(); loadFilter();
 			rebuildSubnets(); refreshNames();
@@ -1197,7 +1285,6 @@
 		window.addEventListener("proton-settings-synced", syncHandler);
 		window.addEventListener("proton-setting-changed", syncHandler);
 	}
-
 	function unmount() {
 		mounted = false;
 		if (rateTimer) clearTimeout(rateTimer);
@@ -1214,7 +1301,6 @@
 		const ov = document.querySelector(".proton-hosts-modal-overlay");
 		if (ov) ov.remove();
 	}
-
 	function boot() {
 		const card = document.getElementById("proton-dashboard-hosts");
 		if (card) { if (!mounted) mount(card); return; }
@@ -1225,19 +1311,16 @@
 			mount(document.getElementById("proton-dashboard-hosts"));
 		}
 	}
-
 	const obs = new MutationObserver(() => {
 		const card = document.getElementById("proton-dashboard-hosts");
 		if (!card && mounted) unmount();
 		else boot();
 	});
-
 	function start() {
 		boot();
 		obs.observe(document.getElementById("maincontent") || document.body,
 			{ childList: true, subtree: true });
 	}
-
 	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
 	else start();
 	window.addEventListener("proton-spa-navigated", () => { unmount(); setTimeout(boot, 60); });
