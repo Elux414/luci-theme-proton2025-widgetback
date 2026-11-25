@@ -19537,3 +19537,218 @@ table.assoclist td[data-title="Host"i],
 .proton-overview-grid.is-editing .proton-overview-cell .proton-overview-resize-handle-bottom {
   display: flex !important;
 }
+
+/* =====================================================
+   H-8a · Applications · график Services Health на мобильном
+   ===================================================== */
+@media (max-width: 800px) {
+  @container proton-card (max-width: 479px) {
+    .proton-apps-summary { display: flex; }
+    .proton-apps-summary-header { flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+    .proton-apps-summary-title { font-size: 0.86rem; }
+    .proton-apps-graph-toolbar { margin-left: auto; }
+    .proton-apps-graph-period { padding: 3px 8px; font-size: 0.7rem; }
+    .proton-apps-graph-container { height: 96px; min-height: 96px; flex: 0 0 96px; }
+    .proton-apps-events-timeline { height: 44px; min-height: 44px; flex: 0 0 44px; }
+    .proton-apps-event-details {
+      max-height: 132px; min-height: 0;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(var(--proton-accent-rgb), 0.5) rgba(var(--proton-accent-rgb), 0.07);
+    }
+    .proton-apps-event-details::-webkit-scrollbar { width: 8px; }
+    .proton-apps-event-details::-webkit-scrollbar-track {
+      background: rgba(var(--proton-accent-rgb), 0.07); border-radius: 8px;
+    }
+    .proton-apps-event-details::-webkit-scrollbar-thumb {
+      background: rgba(var(--proton-accent-rgb), 0.45);
+      border: 2px solid transparent; background-clip: content-box; border-radius: 8px;
+    }
+    .proton-apps-event-details::-webkit-scrollbar-thumb:hover {
+      background: rgba(var(--proton-accent-rgb), 0.75); background-clip: content-box;
+    }
+    .proton-apps-summary-part { font-size: 0.72rem; }
+    .proton-apps-event-row { grid-template-columns: 64px 74px 1fr; gap: 6px; }
+  }
+}
+
+/* =====================================================
+   H-9r · МОБИЛЬНЫЕ · прогресс-бары и спарклайн Hosts
+   Причина месива: строки нативных таблиц были flex-элементами
+   и делили фиксированную высоту секции. Стопка «подпись + бар»
+   выше этой доли, а min-height: 0 снял нижнюю границу — строки
+   сжались и, с overflow: visible, наложились друг на друга.
+   Здесь секция, таблица и tbody выведены из flex-раскладки,
+   строка получает flex: 0 0 auto и высоту по содержимому.
+   ===================================================== */
+@media (max-width: 800px) {
+
+  /* ---------- Секция: обычная блочная, высота по содержимому ---------- */
+  #proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"], [data-proton-layout-tag="network"]) {
+    display: block !important;
+    flex: 0 0 auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* ---------- Таблица и tbody: не flex, не делят высоту ---------- */
+  #proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"], [data-proton-layout-tag="network"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist),
+  #proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"], [data-proton-layout-tag="network"]) > div:not(.cbi-title) > table.table:not(#status_leases):not(#status_leases6):not(.assoclist) {
+    display: block !important;
+    flex: 0 0 auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  #proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"], [data-proton-layout-tag="network"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) > tbody {
+    display: block !important;
+    flex: 0 0 auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    gap: 0 !important;
+  }
+
+  /* ---------- Строка: подпись над баром, высота по содержимому ---------- */
+  #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) > tbody > tr.tr,
+  #proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"], [data-proton-layout-tag="network"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) > tbody > tr.tr {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    flex: 0 0 auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    gap: 6px !important;
+    padding: 10px 12px !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+    position: relative !important;
+  }
+  #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) > tbody > tr.tr + tr.tr,
+  #proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"], [data-proton-layout-tag="network"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) > tbody > tr.tr + tr.tr {
+    border-top: 1px solid var(--proton-border-light) !important;
+  }
+  #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) > tbody > tr.tr > td.td:first-child,
+  #proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"], [data-proton-layout-tag="network"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) > tbody > tr.tr > td.td:first-child {
+    display: block !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font-size: 0.72rem !important;
+    line-height: 1.35 !important;
+    letter-spacing: 0.04em;
+    text-align: left !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    overflow-wrap: anywhere !important;
+    position: static !important;
+  }
+  #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] table.table:not(#status_leases):not(#status_leases6):not(.assoclist) > tbody > tr.tr > td.td:last-child,
+  #proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"], [data-proton-layout-tag="network"]) table.table:not(#status_leases):not(#status_leases6):not(.assoclist) > tbody > tr.tr > td.td:last-child {
+    display: block !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    position: static !important;
+  }
+
+  /* ---------- Бар: во всю ширину, значение читается целиком ---------- */
+  #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] .cbi-progressbar,
+  #proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"], [data-proton-layout-tag="network"]) .cbi-progressbar {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    height: 22px !important;
+    margin: 0 !important;
+  }
+  #proton-overview-grid .proton-overview-cell > .cbi-section[data-proton-layout-tag] .cbi-progressbar::after,
+  #proton-overview-grid .proton-overview-cell > .cbi-section:is([data-proton-layout-tag="ram"], [data-proton-layout-tag="storage"], [data-proton-layout-tag="network"]) .cbi-progressbar::after {
+    font-size: 0.7rem !important;
+    padding: 0 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ---------- Hosts · спарклайн правой колонкой ---------- */
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-row,
+  #proton-dashboard-hosts .proton-hosts-row {
+    --ph-chart-w: 64px;
+    --ph-chart-h: 26px;
+    grid-template-columns: 3px 20px minmax(0, 1fr) var(--ph-chart-w) !important;
+    column-gap: 8px !important;
+    align-items: center !important;
+  }
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-bar,
+  #proton-dashboard-hosts .proton-hosts-bar { display: block !important; }
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-icon,
+  #proton-dashboard-hosts .proton-hosts-icon { display: flex !important; }
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-main,
+  #proton-dashboard-hosts .proton-hosts-main { min-width: 0 !important; }
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-chart,
+  #proton-dashboard-hosts .proton-hosts-chart {
+    display: block !important;
+    width: var(--ph-chart-w) !important;
+    height: var(--ph-chart-h) !important;
+    min-width: 0 !important;
+    align-self: center !important;
+    justify-self: end !important;
+    overflow: hidden !important;
+  }
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-chart svg,
+  #proton-dashboard-hosts .proton-hosts-chart svg {
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-bottom,
+  #proton-dashboard-hosts .proton-hosts-bottom {
+    flex-wrap: wrap !important;
+    row-gap: 2px !important;
+    column-gap: 8px !important;
+    min-width: 0 !important;
+  }
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-type,
+  #proton-dashboard-hosts .proton-hosts-type {
+    display: inline-flex !important;
+    font-size: 0.62rem !important;
+  }
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-rates,
+  #proton-dashboard-hosts .proton-hosts-rates {
+    --ph-rate: 0.64rem;
+    font-size: 0.64rem !important;
+    gap: 7px !important;
+    white-space: nowrap !important;
+    min-width: 0 !important;
+  }
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-group,
+  #proton-dashboard-hosts .proton-hosts-group {
+    background: var(--proton-card-solid, var(--proton-bg-secondary)) !important;
+  }
+}
+@media (max-width: 360px) {
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-row,
+  #proton-dashboard-hosts .proton-hosts-row { --ph-chart-w: 48px; --ph-chart-h: 22px; }
+  .proton-overview-cell #proton-dashboard-hosts .proton-hosts-rates,
+  #proton-dashboard-hosts .proton-hosts-rates {
+    --ph-rate: 0.6rem;
+    font-size: 0.6rem !important;
+    gap: 5px !important;
+  }
+}
