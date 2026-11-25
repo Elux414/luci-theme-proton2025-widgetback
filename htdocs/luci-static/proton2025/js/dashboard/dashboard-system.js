@@ -326,10 +326,6 @@
       childList: true,
       subtree: true,
     });
-
-    // Belt-and-braces: LuCI polls and re-renders; a slow interval catches
-    // anything the observer misses (e.g. replaced sections without childList).
-    nativeHideInterval = setInterval(hideNativeSystemSection, 2000);
   }
 
   function stopNativeHideObserver() {
@@ -606,8 +602,6 @@
     const fmt = (v) => (Number.isFinite(v) ? v.toFixed(2) : "—");
     el.textContent = `${fmt(load1)} ${fmt(load5)} ${fmt(load15)}`;
   }
-
-  function formatKernelTime() { return ""; }  // placeholder
   
   // ---------------------------------------------------------------------------
 // Процессы: sparkline + топ-3

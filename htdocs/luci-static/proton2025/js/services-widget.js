@@ -1010,131 +1010,6 @@ _updateHistorySource() {
 			}
 		}
 
-    // ==================== Виджет ====================
-
-    injectWidget() {
-      const maincontent = document.getElementById("maincontent");
-      if (!maincontent) return false;
-
-      // Prevent duplicate insertion
-      const existing = document.getElementById("proton-services-widget");
-      if (existing) {
-        this._mounted = true;
-        return true;
-      }
-
-      let insertPoint =
-        maincontent.querySelector("h2") ||
-        maincontent.querySelector("h3") ||
-        maincontent.querySelector(".cbi-map") ||
-        maincontent.firstElementChild;
-
-      if (!insertPoint) return false;
-
-      // Создаем или находим общий контейнер для виджетов
-      let widgetsContainer = document.getElementById(
-        "proton-widgets-container",
-      );
-      if (!widgetsContainer) {
-        // Создаём секцию с заголовком "Виджеты" и кнопкой настроек
-        const widgetsSection = document.createElement("div");
-        widgetsSection.className = "proton-widgets-section";
-
-        const sectionHeader = document.createElement("div");
-        sectionHeader.className = "proton-widgets-section-header";
-
-        const sectionTitle = document.createElement("h2");
-        sectionTitle.className = "proton-widgets-section-title";
-        sectionTitle.textContent = this._t("Widgets");
-
-        const settingsBtn = document.createElement("button");
-        settingsBtn.className = "proton-widgets-settings-btn";
-        settingsBtn.title = this._t("Widget Settings");
-        settingsBtn.innerHTML = `
-          <svg class="proton-widgets-settings-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="4" y1="6" x2="20" y2="6"></line>
-            <circle cx="9" cy="6" r="2"></circle>
-            <line x1="4" y1="12" x2="20" y2="12"></line>
-            <circle cx="15" cy="12" r="2"></circle>
-            <line x1="4" y1="18" x2="20" y2="18"></line>
-            <circle cx="7" cy="18" r="2"></circle>
-          </svg>
-        `;
-        settingsBtn.addEventListener("click", () => this.showAddServiceModal());
-
-        sectionHeader.appendChild(sectionTitle);
-        sectionHeader.appendChild(settingsBtn);
-        widgetsSection.appendChild(sectionHeader);
-
-        widgetsContainer = document.createElement("div");
-        widgetsContainer.className = "proton-widgets-container";
-        widgetsContainer.id = "proton-widgets-container";
-        widgetsSection.appendChild(widgetsContainer);
-
-        insertPoint.parentNode.insertBefore(widgetsSection, insertPoint);
-      }
-
-      const widget = document.createElement("div");
-      widget.className = "proton-services-widget";
-      widget.id = "proton-services-widget";
-
-      // Проверяем настройку отображения лога (по умолчанию выключен)
-      const showLog = this._safeGetItem("proton-services-log") === "true";
-
-      widget.innerHTML = `
-                <div class="proton-services-header">
-                    <h3 class="proton-services-title">${this._t(
-                      "Services Monitor",
-                    )}</h3>
-                    <div class="proton-services-info">?
-                        <div class="proton-services-tooltip">
-                            <div class="proton-services-tooltip-title">${this._t(
-                              "Services Monitor",
-                            )}</div>
-                            <div class="proton-services-tooltip-text">
-                                ${this._t(
-                                  "Monitor and manage system services. Click on service card to view details and control actions.",
-                                )}
-                            </div>
-                            <div class="proton-services-tooltip-legend">
-                                <div class="proton-services-tooltip-legend-item">
-                                    <span class="proton-services-tooltip-legend-dot running"></span>
-                                    <span>${this._t("Running")}</span>
-                                </div>
-                                <div class="proton-services-tooltip-legend-item">
-                                    <span class="proton-services-tooltip-legend-dot stopped"></span>
-                                    <span>${this._t("Stopped")}</span>
-                                </div>
-                                <div class="proton-services-tooltip-legend-item">
-                                    <span class="proton-services-tooltip-legend-dot disabled"></span>
-                                    <span>${this._t("Disabled")}</span>
-                                </div>
-                                <div class="proton-services-tooltip-legend-item">
-                                    <span class="proton-services-tooltip-legend-dot unknown"></span>
-                                    <span>${this._t("Unknown")}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="proton-services-grid" id="proton-services-grid"></div>
-                <div class="proton-services-log" id="proton-services-log" aria-live="polite" style="${
-                  showLog ? "" : "display:none"
-                }"></div>
-            `;
-
-      widgetsContainer.appendChild(widget);
-
-      this._mounted = true;
-
-      this.renderServices();
-
-      this._appendUiLogLine("Ready");
-
-      return true;
-    }
-
     getServiceInfo(serviceName) {
       const known = this.knownServices[serviceName] || {};
       return {
@@ -1151,13 +1026,6 @@ _updateHistorySource() {
       return name
         .replace(/[-_]/g, " ")
         .replace(/\b\w/g, (c) => c.toUpperCase());
-    }
-
-    cssEscape(value) {
-      if (window.CSS && typeof window.CSS.escape === "function") {
-        return window.CSS.escape(value);
-      }
-      return String(value).replace(/["\\]/g, "\\$&");
     }
 
     renderServices() {
@@ -2326,66 +2194,10 @@ async _appendEvent(serviceName, type, hint, details) {
       return 0;
     }
 
-    // Deep check через ubus service list — получает полные данные включая data.*_status
     async _deepCheckService(serviceName) {
-      if (!window.L || !L.resolveDefault || !L.rpc) return "stopped";
-
-      try {
-        if (!this._serviceListOne) {
-          this._serviceListOne = L.rpc.declare({
-            object: "service",
-            method: "list",
-            params: ["name"],
-            expect: { "": {} },
-          });
-        }
-
-        const result = await L.resolveDefault(
-          this._serviceListOne(serviceName),
-          null,
-        );
-
-        if (result && result[serviceName]) {
-          const svc = result[serviceName];
-
-          // Проверяем instances на running
-          if (svc.instances && typeof svc.instances === "object") {
-            const hasActive = Object.values(svc.instances).some(
-              (inst) => inst && inst.running === true,
-            );
-            if (hasActive) return "running";
-          }
-
-          // Проверяем data на *_status поля
-          if (svc.data && typeof svc.data === "object") {
-            const activeIndicators = [
-              "enabled",
-              "running",
-              "active",
-              "started",
-            ];
-            for (const key of Object.keys(svc.data)) {
-              if (key.endsWith("_status")) {
-                const val = svc.data[key];
-                if (
-                  typeof val === "string" &&
-                  activeIndicators.includes(val.toLowerCase())
-                ) {
-                  return "running";
-                }
-              }
-            }
-          }
-        }
-      } catch (e) {
-        this._logDebug("Deep check failed for", serviceName, e);
-      }
-
-      // Fallback на init.d
       const initCheck = await this.checkViaInitScript(serviceName);
       if (initCheck === "running") return "running";
       if (initCheck === null) return "unknown";
-
       return "stopped";
     }
 
@@ -2765,29 +2577,6 @@ async _appendEvent(serviceName, type, hint, details) {
       return key;
     }
 
-    // Определение типа датчика по имени
-    _getSensorType(name) {
-      const lowerName = name.toLowerCase();
-      if (lowerName.includes("cpu") || lowerName.includes("processor"))
-        return "cpu";
-      if (lowerName.includes("soc")) return "soc";
-      if (
-        lowerName.includes("wifi") ||
-        lowerName.includes("wireless") ||
-        lowerName.includes("wlan")
-      )
-        return "wifi";
-      if (
-        lowerName.includes("ddr") ||
-        lowerName.includes("ram") ||
-        lowerName.includes("memory")
-      )
-        return "ddr";
-      if (lowerName.includes("board") || lowerName.includes("system"))
-        return "board";
-      return "default";
-    }
-
     // Форматирование имени датчика
     _formatSensorName(name) {
       // Убираем технические префиксы/суффиксы
@@ -3116,70 +2905,53 @@ async _appendEvent(serviceName, type, hint, details) {
 
     // Получение данных о температуре
     async _updateTemperatures() {
-      if (!this._mounted) return;
+  if (!this._mounted) return;
 
-      try {
-        const sensors = await this._fetchSensorData();
-        this._log("Fetched sensors:", sensors);
+  try {
+    const sensors = await this._fetchSensorData();
+    this._log("Fetched sensors:", sensors);
 
-        if (!sensors || sensors.length === 0) {
-			this._log("No sensors found, attempt:", this._emptyAttempts + 1);
-			this._emptyAttempts++;
-
-		// Пустой массив — это не временная ошибка, а результат:
-		// на этой плате (например, QEMU VM) нет термодатчиков.
-		// Показываем пустое состояние сразу, без 3 попыток × 5 сек ожидания.
-		if (sensors && Array.isArray(sensors) && sensors.length === 0) {
-			this._log("Empty sensors array — rendering empty state immediately");
-			this._renderEmpty();
-			this._sensors = [];
-			this._isFirstLoad = false;
-			return;
-		}
-
-    // Иначе (null, undefined) — это ошибка RPC, даём retry
-    if (
-        this._isFirstLoad ||
-        this._emptyAttempts < this._maxEmptyAttempts
-    ) {
+    // Пустой массив — это не временная ошибка, а результат:
+    // на этой плате (например, QEMU VM) нет термодатчиков.
+    // Показываем пустое состояние сразу, без 3 попыток × 5 сек ожидания.
+    if (!sensors || sensors.length === 0) {
+      this._log("No sensors found, attempt:", this._emptyAttempts + 1);
+      this._emptyAttempts++;
+      if (this._isFirstLoad || this._emptyAttempts < this._maxEmptyAttempts) {
         this._renderLoading();
         if (!this._isFirstLoad) {
-            this._sensors = [];
+          this._sensors = [];
         }
         return;
-    }
-
-    this._log("No sensors after", this._emptyAttempts, "attempts");
-    this._renderEmpty();
-    this._sensors = [];
-    this._isFirstLoad = false;
-    return;
-}
-
-        // Датчики найдены - сбрасываем счетчики
-        this._emptyAttempts = 0;
-        this._isFirstLoad = false;
-
-        // Обновляем список датчиков
-        this._sensors = sensors;
-        this._renderSensors();
-      } catch (e) {
-        console.debug("[ProtonTemperatureWidget] Error fetching temps:", e);
-        this._emptyAttempts++;
-
-        // При ошибке на первой загрузке показываем загрузку
-        if (this._isFirstLoad || this._emptyAttempts < this._maxEmptyAttempts) {
-          this._renderLoading();
-          return;
-        }
-
-        // После нескольких ошибок показываем пустое состояние, но не очищаем существующие датчики
-        // чтобы не было мерцания при временных ошибках сети
-        if (this._sensors.length === 0) {
-          this._renderEmpty();
-        }
       }
+      this._log("No sensors after", this._emptyAttempts, "attempts");
+      this._renderEmpty();
+      this._sensors = [];
+      this._isFirstLoad = false;
+      return;
     }
+
+    // Датчики найдены - сбрасываем счетчики
+    this._emptyAttempts = 0;
+    this._isFirstLoad = false;
+
+    // Обновляем список датчиков
+    this._sensors = sensors;
+    this._renderSensors();
+  } catch (e) {
+    console.debug("[ProtonTemperatureWidget] Error fetching temps:", e);
+    this._emptyAttempts++;
+
+    if (this._isFirstLoad || this._emptyAttempts < this._maxEmptyAttempts) {
+      this._renderLoading();
+      return;
+    }
+
+    if (this._sensors.length === 0) {
+      this._renderEmpty();
+    }
+  }
+}
 
     // Кэшируем RPC-декларации для повторного использования
     _getRpcMethods() {
@@ -3219,18 +2991,7 @@ async _appendEvent(serviceName, type, hint, details) {
       return [];
     }
 
-    // Нормализация ответа RPC read - может быть строка или объект с data
-    _normalizeData(result) {
-      if (typeof result === "string") {
-        return result;
-      }
-      if (result && typeof result.data === "string") {
-        return result.data;
-      }
-      return "";
-    }
-
-    // Получение данных с датчиков через наш ucode RPC модуль
+    // Получение данных с датчиков через ucode RPC модуль
     async _fetchSensorData() {
       const sensors = [];
       this._log("Starting sensor scan...");
@@ -3242,26 +3003,29 @@ async _appendEvent(serviceName, type, hint, details) {
       }
 
       try {
-        try {
-          const thresholdResult = await L.resolveDefault(
-            rpc.getThresholds(),
-            null,
-          );
-          const thresholds = thresholdResult && thresholdResult.thresholds;
-          if (
-            thresholds &&
-            Number.isFinite(Number(thresholds.warm)) &&
-            Number.isFinite(Number(thresholds.hot)) &&
-            Number.isFinite(Number(thresholds.critical))
-          ) {
-            this._thresholds = {
-              warm: Number(thresholds.warm),
-              hot: Number(thresholds.hot),
-              critical: Number(thresholds.critical),
-            };
+        if (!this._thresholdsFetched) {
+          this._thresholdsFetched = true;
+          try {
+            const thresholdResult = await L.resolveDefault(
+              rpc.getThresholds(),
+              null,
+            );
+            const thresholds = thresholdResult && thresholdResult.thresholds;
+            if (
+              thresholds &&
+              Number.isFinite(Number(thresholds.warm)) &&
+              Number.isFinite(Number(thresholds.hot)) &&
+              Number.isFinite(Number(thresholds.critical))
+            ) {
+              this._thresholds = {
+                warm: Number(thresholds.warm),
+                hot: Number(thresholds.hot),
+                critical: Number(thresholds.critical),
+              };
+            }
+          } catch (e) {
+            this._log("Could not read temperature thresholds:", e);
           }
-        } catch (e) {
-          this._log("Could not read temperature thresholds:", e);
         }
 
         // Используем наш RPC модуль luci.proton-temp
@@ -3288,8 +3052,9 @@ async _appendEvent(serviceName, type, hint, details) {
           }
         }
 
-        // Если наш RPC не вернул данные, пробуем альтернативный метод
-        if (sensors.length === 0) {
+        // Если RPC не вернул данные, пробуем альтернативный метод (один раз)
+        if (sensors.length === 0 && !this._altProbeDone) {
+          this._altProbeDone = true;
           this._log("No sensors from proton-temp RPC, trying alternative...");
 
           // Проверяем есть ли thermal zones через file.list

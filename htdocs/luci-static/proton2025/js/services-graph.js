@@ -110,13 +110,6 @@
   }
 
   /**
-   * Проверяет, является ли точка "running".
-   */
-  function isRunning(point) {
-    return Array.isArray(point) && Number(point[1]) === 1;
-  }
-
-  /**
    * Экранирование HTML (для текста в SVG).
    */
   function escapeHtml(value) {

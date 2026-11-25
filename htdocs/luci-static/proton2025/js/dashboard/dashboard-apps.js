@@ -13,6 +13,7 @@
   const TOGGLE_POLL_MS = 500;
   const STORAGE_KEY = "proton-apps-widget";
   const SERVICES_STORAGE_KEY = "proton-services-widget";
+  const DEFAULT_SERVICES = ["dnsmasq", "dropbear"];
   const LOG_LINES_DEFAULT = 20;
 
   // History: sample interval и retention.
@@ -233,11 +234,11 @@
   function readServicesList() {
     try {
       const raw = localStorage.getItem(SERVICES_STORAGE_KEY);
-      if (raw === null || raw === undefined) return ["dnsmasq", "dropbear"];
+      if (raw === null || raw === undefined) return DEFAULT_SERVICES;
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : ["dnsmasq", "dropbear"];
+      return Array.isArray(parsed) ? parsed : DEFAULT_SERVICES;
     } catch (e) {
-      return ["dnsmasq", "dropbear"];
+      return DEFAULT_SERVICES;
     }
   }
 
@@ -2590,12 +2591,19 @@
     pollStatuses();
     pollTimer = setInterval(pollStatuses, POLL_INTERVAL);
 
-    window.addEventListener("proton-services-history-updated", function () {
-      const c = document.getElementById("proton-dashboard-apps");
-      if (!c) return;
-      if (selectedService) return;
-      renderSummaryGraph(c);
-    });
+    var summaryRenderQueued = false;
+    function scheduleSummaryRender() {
+      if (summaryRenderQueued) return;
+      summaryRenderQueued = true;
+      requestAnimationFrame(function () {
+        summaryRenderQueued = false;
+        const c = document.getElementById("proton-dashboard-apps");
+        if (!c) return;
+        if (selectedService) return;
+        renderSummaryGraph(c);
+      });
+    }
+    window.addEventListener("proton-services-history-updated", scheduleSummaryRender);
 
     if (window.__protonAppsHistoryRefreshTimer) {
       clearInterval(window.__protonAppsHistoryRefreshTimer);
